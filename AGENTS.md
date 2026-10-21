@@ -1,0 +1,50 @@
+# 省赛工程维护指南
+
+## 范围与入口
+
+本目录为独立 Git 仓库，包含 STM32F407ZGT6 比赛固件及 Windows / Android 共用上位机。使用中文交流，先说明假设与处理思路；只改需求相关内容，不自动启用 superpowers，不擅自修改工作区旧工程。
+
+- `firmware/MecanumJog.uvprojx`：Keil µVision 工程入口，目标名仍为 `MecanumJog`，使用 ARMCC 5.06 update 7；不是 `yyb_stm32` 参考工程。
+- `firmware/`：正式比赛流程、动作组、CAN 与机构控制；`vendor/` 携带必要驱动，`camera_code/` 包含视觉与扫码程序，`tests/` 包含固件域测试。
+- `upper_computer/`：Qt 6.11.1、C++17、Qt Quick Controls；入口 `main.cpp`、界面 `Main.qml`、设备控制 `Controller.cpp`，安卓配置位于 `android/`。
+- `shared/`：两端共用协议定义及 `protocol.md`；根目录 `tests/` 包含协议、控制器、CAN、机构运行与 Flash 测试。
+- `docs/build.md`：构建、签名和发布方法；`docs/validation.md`：验证证据与未完成的实机项目；`docs/design/`：审阅预览及实际界面截图。
+
+Release 的 Windows ZIP 与 Android APK 仅包含上位机；Keil 工程应从源码仓库获取。仓库地址为 https://github.com/threebod/shengsai 。
+
+## 构建与验证
+
+以下命令在本仓库根目录执行，工具路径按本机实际环境调整：
+
+```powershell
+./tools/build-windows.ps1
+& E:/keil_v5/UV4/UV4.exe -r firmware/MecanumJog.uvprojx -o firmware/build.log
+```
+
+Windows 脚本完成 CMake 配置、构建与完整 CTest；已有构建可单独运行 `ctest --test-dir build --output-on-failure`。Keil 必须检查 `firmware/build.log` 的实际错误数，不能仅以进程返回值判断成功。
+
+摄像头改动分别运行两处测试：
+
+```powershell
+python -m unittest discover -s firmware/camera_code -p 'test_*.py'
+python -m unittest discover -s firmware/camera_code/K230 -p 'test_*.py'
+```
+
+Android 使用 `tools/build-android.ps1`；工具链及签名细节见 `docs/build.md`。只有用户要求打包或发布时，才执行部署、签名及发布脚本。新增依赖、SDK、缓存放在 E 盘，安装到 C 盘前必须取得用户批准。
+
+测试按变更选择，提交前运行相关完整测试集。涉及旧上位机兼容或对照时，按工作区指南运行其完整 CTest；如遇参考文件缺失，记录实际失败原因，不更改旧工程来绕过测试。验证记录区分软件测试、构建、布局仿真及真实硬件验证，未验证不得宣称已修复。
+
+## 必须保留的行为
+
+- 新固件与新上位机使用 `AA 55` 二进制协议，载荷最多 128 字节、小端字段、CRC16-CCITT-FALSE；修改协议须同步两端定义、文档与测试。区分命令接受和执行完成，运动超时不得自动重发。
+- 比赛、圆环、视觉、手动四页保留响应式卡片布局。圆环参数先读取再编辑，主控确认保存后才能显示成功；不新增通用动作录制或路线编辑器。
+- 仅对 2 号圆环自动标定。视觉比例支持读取、应用和显式保存；标定失败不得覆盖原值。比例用扇区 8，圆环、夹爪、障碍参数分别用扇区 9、10、11；程序区上限 `0x08080000`，不可覆盖参数区。
+- 5、6 号轴按每轴独立反馈判断完成，验证本次目标及新到位状态；动作组须等待涉及轴和云台全部完成。估算时间仅作超时保护，不能按估算时刻提前停止。故障或中断使机构坐标失效，禁止继续依赖该坐标的动作。
+- 舵机显示指令角度，不将其称为真实位置反馈。滑块限频且补发最终值；底盘按住运行，松手、失焦、页面切换或断连时停止。保留主控点动期限及心跳保护，明确启动的离线比赛不依赖上位机在线。
+- Windows 通过 USB 或配对 HC-05 的出站 COM 接入，Android 使用经典蓝牙 RFCOMM；UART5 两种连接互斥，HC-05 从机 115200、8N1，运行时不发送 AT 配置指令。
+
+## 硬件、提交与发布
+
+确认电机映射、方向、机械限位、实际零点和急停之前，不得执行联动、舵机动作或完整比赛。固件保留云台/转盘上电初始化；未经确认不得烧录后接通执行机构电源。界面确认零点只建立软件坐标，不会自动回零。软件测试不能代替实机验收，也不能据此认定所有位置偏差来自遗漏脉冲。
+
+遵循已有 C99/C++17 风格，避免无关重构。按功能进行本地 Conventional Commits 提交；仅在用户要求时推送或发布，不因一般修改自动重新打包。不要提交 `.deps/`、构建产物、Keil 用户界面配置、签名密钥、密码及未经实机验证的物理参数。保留第三方来源及许可声明。
