@@ -34,12 +34,13 @@ elif mode=='create':
     print('Created',result['html_url'])
 elif mode=='release':
     body=(ROOT/'docs/release-notes.md').read_text(encoding='utf-8')
-    result=api('/repos/'+REPO+'/releases',{'tag_name':TAG,'name':'省赛控制台 '+TAG,'body':body,'draft':False,'prerelease':True})
+    result=api('/repos/'+REPO+'/releases',{'tag_name':TAG,'name':'省赛控制台 '+TAG,'body':body,'draft':True,'prerelease':True})
     upload=result['upload_url'].split('{')[0]
     for path in sorted((ROOT/'dist').iterdir()):
         if path.is_file():
             content_type={'.apk':'application/vnd.android.package-archive','.zip':'application/zip','.png':'image/png','.md':'text/markdown'}.get(path.suffix,'text/plain')
             asset=api(upload+'?name='+urllib.parse.quote(path.name),path.read_bytes(),'POST',content_type)
             print('Uploaded',asset['name'],asset['size'])
+    result=api('/repos/'+REPO+'/releases/'+str(result['id']),{'draft':False},'PATCH')
     print('Release',result['html_url'])
 else:raise RuntimeError('Expected check/create/release')
