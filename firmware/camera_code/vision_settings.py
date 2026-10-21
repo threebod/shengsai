@@ -1,0 +1,29 @@
+UART_DEVICE = "/dev/ttyS4"
+UART_PINS = {"A21": "UART4_TX", "A22": "UART4_RX"}
+BAUD = 9600
+
+COLOR_THRESHOLDS = {
+    1: [21, 50, 32, 68, 15, 50],
+    2: [50, 105, -30, 25, 35, 100],
+    3: [9, 46, -6, 30, -60, -10],
+    4: [37, 70, -70, -38, 28, 65],
+    5: [8, 25, -14, 10, -8, 16],
+    6: [40, 75, -29, -5, -33, -8],
+}
+MATERIAL_AREA = (1500, 30000)
+RING_CONTRAST = 80
+# Image-processing parameters are defined for 640x480 input.
+RING_SHARPEN_AMOUNT = 1.0
+RING_SHARPEN_SIGMA = 3.0
+RING_BINARY_BLOCK = 21
+RING_BINARY_C = 10
+RING_MIN_CIRCULARITY = 0.5
+# Geometry uses the vehicle's 320x240 protocol coordinates.
+RING_CENTER_TOLERANCE = 4
+RING_MIN_RADIUS = 25
+RING_MAX_RADIUS = 80
+RING_MIN_CONTOURS = 2
+RING_TARGET_COUNT = 3
+RING_DIGIT_ROI_RATIO = 0.44
+RING_DIGIT_MIN_SCORE = 0.60
+RING_DIGIT_SCORE_MARGIN = 0.10

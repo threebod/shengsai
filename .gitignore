@@ -1,0 +1,15 @@
+.deps/
+build*/
+**/Objects/
+**/Listings/
+**/DebugConfig/
+**/RTE/
+**/__pycache__/
+**/*.pyc
+**/*.log
+*.uvguix.*
+*.uvoptx
+*.keystore
+*.jks
+dist/
+firmware/camera_code/K230/wifi_config.py
