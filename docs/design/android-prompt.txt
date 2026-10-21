@@ -4,3 +4,4 @@ View2 圆环: THREE vertically stacked identical cards 1号圆环,2号圆环,3�
 View3 视觉: ONLY 2号圆环; 自动标定 card with five small progress dots, 低速往返移动20mm, 开始自动标定. 视觉比例 card 前后mm/像素 1.111 and 左右mm/像素 1.143. Buttons 读取,应用,保存到主控. Caption 断电保留·离线比赛使用.
 View4 手动: 舵机指令角度 card with sliders 夹爪112.0°,转盘120.0°,云台272.0°; 机构微调 card 5号·升降 and 6号·水平, minus/plus, step0.1/1/5mm; 底盘点动 card 按住前进,按住后退,caption松开即停.
 Very crisp simplified Chinese, matched fields, precise alignment, no clipped controls, no camera feed, graphs, recording UI or fictional sensor feedback. Screens should be feasible Qt Quick layouts, not ornamental concepts.
+Reference image is ONLY a style and content reference: retain its design system, change the layout to the four Android portrait screens specified above. Remove macOS window controls and desktop sidebars. Use bottom navigation and keep safety buttons visible.
