@@ -1,0 +1,344 @@
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+
+ApplicationWindow {
+    id: app
+    width: 1280; height: 860; minimumWidth: 360; minimumHeight: 640
+    visible: true; title: "省赛控制台"; color: "#F5F5F7"
+    property int page: 0
+    property string logText: ""
+    property bool ringsDirty: false
+    property bool scaleDirty: false
+    readonly property bool mobile: width < 760
+    readonly property color blue: "#007AFF"
+    readonly property bool motionReady: controller.connected && controller.confirmed && !controller.calibrating
+    readonly property var pageNames: ["比赛", "圆环", "视觉", "手动"]
+    font.family: Qt.platform.os === "windows" ? "Microsoft YaHei UI" : "sans-serif"
+    font.pixelSize: 14
+    palette.window: "#F5F5F7"
+    palette.base: "white"
+    palette.button: "white"
+    palette.buttonText: "#1D1D1F"
+    palette.text: "#1D1D1F"
+    palette.highlight: "#007AFF"
+    onActiveChanged: if (!active) controller.pauseManual()
+    onClosing: controller.pauseManual()
+    Connections { target: controller; function onLineReceived(line) { app.logText=(app.logText+line+"\n").slice(-20000) } }
+
+    component ActionButton: Button {
+        id: ab
+        property bool primary: false
+        property bool danger: false
+        implicitHeight: 44; implicitWidth: Math.max(96, contentItem.implicitWidth + 32)
+        font.pixelSize: 14; font.weight: Font.Medium
+        contentItem: Text { text: ab.text; font: ab.font; color: !ab.enabled ? "#A1A1A6" : ab.primary || ab.danger ? "white" : "#1D1D1F"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+        background: Rectangle { radius: 10; color: !ab.enabled ? "#EEEEF1" : ab.down ? "#D8E8FF" : ab.danger ? "#FF3B30" : ab.primary ? app.blue : "white"; border.color: ab.primary || ab.danger ? "transparent" : "#D8D8DE" }
+    }
+    component Card: Pane {
+        id: card
+        property string heading
+        default property alias items: body.data
+        padding: 20; Layout.fillWidth: true
+        background: Rectangle { color: "white"; radius: 18; border.color: "#E5E5EA" }
+        contentItem: ColumnLayout {
+            spacing: 16
+            Label { text: card.heading; font.pixelSize: 17; font.weight: Font.DemiBold; color: "#1D1D1F"; Layout.fillWidth: true }
+            ColumnLayout { id: body; spacing: 14; Layout.fillWidth: true }
+        }
+    }
+    component Hint: Label { color: "#86868B"; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 12 }
+    component NumberField: TextField {
+        id: numberField
+        property real minimum: -10000
+        property real maximum: 10000
+        property int decimals: 1
+        readonly property real number: Number(text)
+        property bool valid: acceptableInput && text.trim() !== "" && isFinite(number) && number >= minimum && number <= maximum
+        Layout.fillWidth: true; implicitHeight: 44; selectByMouse: true
+        inputMethodHints: Qt.ImhFormattedNumbersOnly
+        validator: DoubleValidator { bottom: numberField.minimum; top: numberField.maximum; decimals: numberField.decimals; locale: "C"; notation: DoubleValidator.StandardNotation }
+        color: valid ? "#1D1D1F" : "#D33B30"; font.pixelSize: 16
+        background: Rectangle { color: "#FAFAFC"; radius: 9; border.color: parent.activeFocus ? app.blue : "#DDDEE5" }
+    }
+    component Choice: ComboBox {
+        id: choice
+        implicitHeight: 44; Layout.fillWidth: true
+        background: Rectangle { color: "#FAFAFC"; radius: 9; border.color: choice.activeFocus ? app.blue : "#DDDEE5" }
+        indicator: Text { text: "⌄"; color: "#86868B"; font.pixelSize: 20; anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter }
+    }
+
+    header: Pane {
+        padding: app.mobile ? 16 : 24
+        background: Rectangle { color: "#FAFAFC"; border.color: "#E5E5EA" }
+        contentItem: RowLayout {
+            Label { text: "省赛控制台"; font.pixelSize: 18; font.weight: Font.DemiBold; Layout.fillWidth: true }
+            Rectangle { width: 8; height: 8; radius: 4; color: controller.connected ? "#30B451" : "#A1A1A6" }
+            Label { text: controller.connected ? (app.mobile ? "已连接" : controller.connectionName + " 已连接") : "未连接"; color: "#656570"; font.pixelSize: 12 }
+            ActionButton { text: "日志"; implicitWidth: 64; onClicked: logDialog.open() }
+            ActionButton { text: "连接"; implicitWidth: 64; onClicked: connectionDialog.open() }
+        }
+    }
+    footer: ColumnLayout {
+        spacing: 0
+        Rectangle { Layout.fillWidth: true; height: 1; color: "#E5E5EA" }
+        Pane {
+            Layout.fillWidth: true; padding: app.mobile ? 12 : 20
+            background: Rectangle { color: "#FAFAFC" }
+            contentItem: RowLayout {
+                Label { visible: !app.mobile; text: controller.status; color: "#686875"; elide: Text.ElideRight; Layout.fillWidth: true }
+                ActionButton { text: "停止"; Layout.fillWidth: app.mobile; enabled: controller.connected; onClicked: controller.stop() }
+                ActionButton { text: "急停"; danger: true; Layout.fillWidth: app.mobile; enabled: controller.connected; onClicked: controller.stop(true) }
+            }
+        }
+        TabBar {
+            visible: app.mobile; Layout.fillWidth: true
+            currentIndex: app.page
+            onCurrentIndexChanged: app.page = currentIndex
+            background: Rectangle { color: "white" }
+            Repeater {
+                model: app.pageNames
+                TabButton {
+                    id: navTab
+                    required property int index; required property string modelData
+                    text: modelData; height: 52
+                    background: Rectangle { color: "white"; Rectangle { anchors.top: parent.top; width: parent.width; height: 2; color: app.page === navTab.index ? app.blue : "transparent" } }
+                    contentItem: Text { text: navTab.text; font: navTab.font; color: app.page === navTab.index ? app.blue : "#86868B"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                }
+            }
+        }
+    }
+    RowLayout {
+        anchors.fill: parent; spacing: 0
+        Pane {
+            visible: !app.mobile; Layout.fillHeight: true; Layout.preferredWidth: 152; padding: 12
+            background: Rectangle { color: "#FAFAFC"; border.color: "#E5E5EA" }
+            ColumnLayout {
+                anchors.fill: parent; spacing: 8
+                Repeater {
+                    model: app.pageNames
+                    delegate: ActionButton {
+                        required property int index; required property string modelData
+                        text: modelData; primary: app.page === index; Layout.fillWidth: true
+                        onClicked: app.page = index
+                    }
+                }
+                Item { Layout.fillHeight: true }
+                Label { text: "预发布 0.1.0"; color: "#86868B"; font.pixelSize: 11 }
+            }
+        }
+        ScrollView {
+            id: scroll
+            Layout.fillWidth: true; Layout.fillHeight: true; clip: true
+            contentWidth: availableWidth
+            ColumnLayout {
+                width: scroll.availableWidth; spacing: 20
+                Item { height: 4 }
+                ColumnLayout {
+                    Layout.fillWidth: true; Layout.leftMargin: app.mobile ? 16 : 28; Layout.rightMargin: app.mobile ? 16 : 28; spacing: 20
+                    Label { text: app.pageNames[app.page]; font.pixelSize: 28; font.weight: Font.DemiBold; color: "#1D1D1F" }
+                    Hint { visible: app.mobile; text: controller.status }
+                    RowLayout {
+                        Layout.fillWidth: true; visible: controller.connected && !controller.confirmed
+                        Hint { text: "运动前请确认电机映射、方向、限位、急停及机构零点。" }
+                        ActionButton { text: "确认安全与零点"; onClicked: safetyDialog.open() }
+                    }
+                    GridLayout {
+                        uniformCellWidths: true
+                        visible: app.page === 0; columns: app.mobile ? 1 : 2; columnSpacing: 20; rowSpacing: 20; Layout.fillWidth: true
+                        Card {
+                            heading: "比赛设置"; Layout.alignment: Qt.AlignTop
+                            Label { text: "启停区"; color: "#656570" }
+                            Choice { id: zone; model: ["1号启停区", "2号启停区"] }
+                            Label { text: "障碍位置"; color: "#656570" }
+                            Choice { id: obstacle; model: ["上", "下", "左", "右"] }
+                            Hint { text: "比赛沿用主控保存的圆环落点、视觉比例和既有动作组。" }
+                        }
+                        Card {
+                            heading: "当前任务"; Layout.alignment: Qt.AlignTop
+                            Label { text: controller.task; color: app.blue; font.pixelSize: 20; wrapMode: Text.Wrap; Layout.fillWidth: true }
+                            Hint { text: "扫码 → 取料 → 粗加工 → 暂存 · 共两轮" }
+                            ActionButton { text: "开始比赛"; primary: true; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy; onClicked: controller.run(1, zone.currentIndex + 1, obstacle.currentIndex) }
+                            ActionButton { text: "离线按钮启动准备"; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy; onClicked: controller.run(0, zone.currentIndex + 1, obstacle.currentIndex) }
+                            Hint { text: "离线准备后，PC9 短按选择启停区1，长按选择启停区2。" }
+                        }
+                        Card {
+                            heading: "单项执行"; Layout.columnSpan: app.mobile ? 1 : 2
+                            Flow {
+                                Layout.fillWidth: true; spacing: 10
+                                ActionButton { text: "仅跑图"; enabled: app.motionReady && !controller.busy; onClicked: controller.run(2, zone.currentIndex+1, obstacle.currentIndex) }
+                                ActionButton { text: "取料动作组"; enabled: app.motionReady && !controller.busy; onClicked: controller.runAction(0) }
+                                ActionButton { text: "粗加工动作组"; enabled: app.motionReady && !controller.busy; onClicked: controller.runAction(1) }
+                                ActionButton { text: "暂存动作组"; enabled: app.motionReady && !controller.busy; onClicked: controller.runAction(2) }
+                            }
+                        }
+                    }
+                    ColumnLayout {
+                        visible: app.page === 1; Layout.fillWidth: true; spacing: 20
+                        Hint { text: "先读取，再修改并固化。保存参数不会驱动机构。" }
+                        GridLayout {
+                        uniformCellWidths: true
+                            columns: app.mobile ? 1 : 3; Layout.fillWidth: true; columnSpacing: 16; rowSpacing: 16
+                            Repeater {
+                                id: ringRepeater; model: 3
+                                delegate: Card {
+                                    required property int index
+                                    property alias horizontal: ringH.number
+                                    property alias turret: ringT.number
+                                    readonly property bool valid: ringH.valid && ringT.valid
+                                    heading: (index+1)+"号圆环"
+                                    Label { text: "水平位置 mm"; color: "#656570" }
+                                    NumberField { id: ringH; minimum: -122; maximum: 85; enabled: controller.ringsRead && !controller.busy && !controller.parametersPending; placeholderText: "待读取"; onTextEdited: app.ringsDirty=true }
+                                    Label { text: "云台角度 °"; color: "#656570" }
+                                    NumberField { id: ringT; minimum: 0; maximum: 360; enabled: controller.ringsRead && !controller.busy && !controller.parametersPending; placeholderText: "待读取"; onTextEdited: app.ringsDirty=true }
+                                    Connections {
+                                        target: controller
+                                        function onRequestAccepted(command) {
+                                            if(command === 16 && controller.rings.length === 3) {
+                                                ringH.text = controller.rings[index].horizontal.toFixed(1)
+                                                ringT.text = controller.rings[index].turret.toFixed(1)
+                                                app.ringsDirty=false
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Card {
+                            heading: "参数状态"
+                            Hint { text: app.ringsDirty ? "参数已修改，待固化" : controller.ringState }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ActionButton { text: "读取主控"; Layout.fillWidth: true; enabled: controller.connected && !controller.busy && !controller.parametersPending; onClicked: {app.ringsDirty=false;controller.readRings()} }
+                                ActionButton {
+                                    text: "固化三组参数"; primary: true; Layout.fillWidth: true; enabled: controller.connected && controller.ringsRead && !controller.busy && !controller.parametersPending
+                                    onClicked: {
+                                        let values=[]
+                                        for(let i=0;i<3;i++) {let item=ringRepeater.itemAt(i); if(!item.valid) return;values.push({horizontal:item.horizontal,turret:item.turret})}
+                                        app.ringsDirty=false;controller.saveRings(values)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    GridLayout {
+                        uniformCellWidths: true
+                        visible: app.page === 2; columns: app.mobile ? 1 : 2; Layout.fillWidth: true; columnSpacing: 20; rowSpacing: 20
+                        Card {
+                            heading: "2号圆环 · 自动标定"; Layout.alignment: Qt.AlignTop
+                            Hint { text: "自动采样五个稳定中心，小车以低速分别前后、左右往返移动 20 mm。" }
+                            BusyIndicator { running: controller.calibrating; visible: running; Layout.alignment: Qt.AlignHCenter }
+                            ActionButton { text: controller.calibrating ? "取消标定" : "开始自动标定"; primary: true; Layout.fillWidth: true; enabled: controller.connected && (controller.calibrating || (app.motionReady && !controller.busy)); onClicked: controller.calibrating ? controller.stop() : controller.calibrate() }
+                            ActionButton { text: "对准2号圆环"; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy; onClicked: controller.alignRing() }
+                            Hint { text: "标定前将机构放在圆环观察姿态，并确认往返空间。失败不会覆盖原比例。" }
+                        }
+                        Card {
+                            heading: "视觉比例"; Layout.alignment: Qt.AlignTop
+                            Label { text: "前后 mm/像素"; color: "#656570" }
+                            NumberField { id: scaleF; minimum: 0.05; maximum: 2; decimals: 3; text: "1.111"; enabled: !controller.busy && !controller.calibrating && !controller.parametersPending; onTextEdited: app.scaleDirty=true }
+                            Label { text: "左右 mm/像素"; color: "#656570" }
+                            NumberField { id: scaleR; minimum: 0.05; maximum: 2; decimals: 3; text: "1.143"; enabled: !controller.busy && !controller.calibrating && !controller.parametersPending; onTextEdited: app.scaleDirty=true }
+                            Hint { text: app.scaleDirty ? "比例已修改，待应用或保存" : controller.scaleState }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ActionButton { text: "读取"; Layout.fillWidth: true; enabled: controller.connected && !controller.busy && !controller.calibrating && !controller.parametersPending; onClicked: {app.scaleDirty=false;controller.readScale()} }
+                                ActionButton { text: "应用"; Layout.fillWidth: true; enabled: controller.connected && !controller.busy && !controller.calibrating && !controller.parametersPending && scaleF.valid && scaleR.valid; onClicked: {app.scaleDirty=false;controller.applyScale(scaleF.number,scaleR.number,false)} }
+                            }
+                            ActionButton { text: "保存到主控"; primary: true; Layout.fillWidth: true; enabled: controller.connected && !controller.busy && !controller.calibrating && !controller.parametersPending && scaleF.valid && scaleR.valid; onClicked: {app.scaleDirty=false;controller.applyScale(scaleF.number,scaleR.number,true)} }
+                            Hint { text: "显式保存后断电保留，离线比赛继续使用。" }
+                            Connections { target: controller; function onRequestAccepted(command) { if(command>=18 && command<=20) {scaleF.text=controller.forwardScale.toFixed(3);scaleR.text=controller.rightScale.toFixed(3);app.scaleDirty=false} } }
+                        }
+                    }
+                    ColumnLayout {
+                        visible: app.page === 3; Layout.fillWidth: true; spacing: 20
+                        Card {
+                            heading: "舵机指令角度"
+                            Repeater {
+                                model: ["夹爪", "转盘", "云台"]
+                                delegate: RowLayout {
+                                    required property int index; required property string modelData
+                                    Layout.fillWidth: true; spacing: 12
+                                    Label { text: modelData; Layout.preferredWidth: 40; color: "#656570" }
+                                    Slider {
+                                        id: servoSlider; Layout.fillWidth: true; from: 0; to: index===2 ? 360 : 270; stepSize: 0.1; enabled: app.motionReady
+                                        onMoved: {servoNumber.text=value.toFixed(1);controller.setServo(index+2,value)}
+                                        onPressedChanged: if(!pressed && enabled) controller.setServo(index+2,value,true)
+                                    }
+                                    NumberField {
+                                        id: servoNumber; Layout.fillWidth: false; Layout.preferredWidth: app.mobile ? 76 : 110; minimum: 0; maximum: index===2 ? 360 : 270; text: "0.0"; enabled: app.motionReady
+                                        onEditingFinished: if(valid){servoSlider.value=number;controller.setServo(index+2,number,true)}
+                                    }
+                                    Connections { target: controller; function onChanged() {if(!servoSlider.pressed && !servoNumber.activeFocus){servoSlider.value=controller.servoAngles[index];servoNumber.text=controller.servoAngles[index].toFixed(1)}} }
+                                }
+                            }
+                            Hint { text: "显示主控指令角度，无舵机实际角度反馈；云台手动调整后需重新确认机构坐标。" }
+                        }
+                        GridLayout {
+                        uniformCellWidths: true
+                            Layout.fillWidth: true; columns: app.mobile ? 1 : 2; columnSpacing: 20; rowSpacing: 20
+                            Card {
+                                heading: "机构微调"
+                                Choice { id: jogStep; model: ["0.1 mm", "1 mm", "5 mm"]; currentIndex: 1 }
+                                Repeater {
+                                    model: ["5号 · 升降", "6号 · 水平"]
+                                    delegate: RowLayout {
+                                        required property int index; required property string modelData
+                                        Layout.fillWidth: true
+                                        Label { text: modelData; Layout.fillWidth: true; color: "#656570" }
+                                        ActionButton { text: "−"; implicitWidth: 52; enabled: app.motionReady && controller.mechanismValid && !controller.busy; onClicked: controller.jogAxis(index+5,-[0.1,1,5][jogStep.currentIndex]) }
+                                        ActionButton { text: "+"; implicitWidth: 52; enabled: app.motionReady && controller.mechanismValid && !controller.busy; onClicked: controller.jogAxis(index+5,[0.1,1,5][jogStep.currentIndex]) }
+                                    }
+                                }
+                                ActionButton { text: "重新确认物理零点"; enabled: controller.connected && !controller.busy; onClicked: safetyDialog.open() }
+                                Hint { visible: controller.connected && !controller.mechanismValid; text: "机构坐标已失效，请先将机构实际回到零点，再重新确认。" }
+                            }
+                            Card {
+                                heading: "底盘点动"; Layout.alignment: Qt.AlignTop
+                                ActionButton { text: "按住前进"; primary: true; Layout.fillWidth: true; enabled: app.motionReady; onPressed: controller.drive(1); onReleased: controller.stop(); onCanceled: controller.stop() }
+                                ActionButton { text: "按住后退"; primary: true; Layout.fillWidth: true; enabled: app.motionReady; onPressed: controller.drive(-1); onReleased: controller.stop(); onCanceled: controller.stop() }
+                                Hint { text: "松开、切换页面或窗口失焦即停；主控另有点动指令超时保护。" }
+                            }
+                        }
+                    }
+                }
+                Item { height: 12 }
+            }
+        }
+    }
+    onPageChanged: controller.pauseManual()
+    Dialog {
+        id: connectionDialog; title: "连接主控"; anchors.centerIn: parent; width: Math.min(app.width-32,480); modal: true
+        standardButtons: Dialog.Close
+        ColumnLayout {
+            width: parent.width; spacing: 16
+            Hint { text: Qt.platform.os === "android" ? "选择 HC-05 经典蓝牙设备。" : "USB 串口可直接连接；HC-05 请先在 Windows 配对，再选择对应的出站 COM 串口。两种方式互斥接入 UART5。" }
+            ComboBox { id: deviceChoice; Layout.fillWidth: true; model: controller.devices; textRole: "name"; valueRole: "address" }
+            Flow {
+                Layout.fillWidth: true; spacing: 8
+                ActionButton { text: "扫描设备"; onClicked: controller.scan() }
+                ActionButton { text: "连接"; primary: true; enabled: deviceChoice.currentIndex>=0; onClicked: {controller.connectDevice(deviceChoice.currentValue);connectionDialog.close()} }
+                ActionButton { text: "断开"; enabled: controller.connected; onClicked: {controller.stop();controller.disconnectDevice()} }
+            }
+            Hint { text: controller.status }
+        }
+    }
+    Dialog {
+        id: logDialog; title: "运行日志"; anchors.centerIn: parent
+        width: Math.min(app.width-32,800); height: Math.min(app.height-64,600); modal: true
+        standardButtons: Dialog.Close
+        ScrollView { anchors.fill: parent; TextArea { text: app.logText || "尚无主控日志"; readOnly: true; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.family: "monospace"; font.pixelSize: 12 } }
+    }
+    Dialog {
+        id: safetyDialog; title: "确认安全条件与物理零点"; anchors.centerIn: parent; width: Math.min(app.width-32,480); modal: true
+        standardButtons: Dialog.Cancel | Dialog.Ok
+        onAccepted: if(safetyCheck.checked)controller.confirmZero()
+        onOpened: safetyCheck.checked=false
+        ColumnLayout {
+            width: parent.width; spacing: 16
+            Hint { text: "仅当升降轴和水平轴实际位于零点时确认。本操作将两轴软件坐标设为零，不会自动回零。" }
+            CheckBox { id: safetyCheck; Layout.fillWidth: true; text: "已确认映射、方向、机械限位、急停，以及两轴物理零点"; contentItem: Text { text: safetyCheck.text; font: safetyCheck.font; wrapMode: Text.Wrap; leftPadding: safetyCheck.indicator.width + 8; verticalAlignment: Text.AlignVCenter } }
+            Hint { text: "确认仅对当前连接有效；急停或坐标失效后需重新检查。" }
+        }
+        Component.onCompleted: standardButton(Dialog.Ok).enabled=Qt.binding(function(){return safetyCheck.checked})
+    }
+}
