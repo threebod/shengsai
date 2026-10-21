@@ -3441,8 +3441,7 @@ int main(void)
     mechanismStateReset(&mechanismState);
     vision_session_init(&visionSession);
     stopAllMotors();
-    servoSetTarget(4U, 65U, 2200U);
-    servoSetTarget(3U, 26U, 1200U);
+    /* Temporarily leave all servo PWM outputs disabled on power-on. */
     prepareOfflineMission();
     {
         uint16_t open = rawPickInitial.gripperOpenDeg, close = rawPickInitial.gripperCloseDeg;
@@ -3450,9 +3449,9 @@ int main(void)
         applyGripperAngles(open, close);
     }
     ringPosesSaved = ringPosesLoad(missionRingPoses);
-    /* Startup is empty; gripper PWM waits for the first start-button press. */
+    /* Servo PWM starts only when an explicit motion command needs its channel. */
     gripperMayHoldMaterial = 0U;
-    serialSendString("BOOT axes=0 turret=65 platform=26; PC9 short=zone1 long=zone2; task from QR\r\n");
+    serialSendString("BOOT axes=0 servo_pwm=off; PC9 short=zone1 long=zone2; task from QR\r\n");
     serialSendString("\r\nYYB mecanum/servo jog ready; motors 1..6 stopped; disarmed.\r\n");
     hostScaleInit();
 
