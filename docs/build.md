@@ -69,4 +69,6 @@ Keil MDK：`firmware/MecanumJog.uvprojx`，ARMCC 5.06 update7。
 
 ## GitHub
 
-`tools/publish_release.py`仅用于用户明确授权的`threebod/shengsai`及`v0.1.0-preview.1`，通过已有Git凭据管理器认证，凭据仅在内存中使用，不输出或保存。代码先本地提交、普通推送；发布脚本只上传`dist/`根目录的发布文件，不上传依赖或签名材料。
+`tools/publish_release.py`仅用于用户明确授权的 `threebod/shengsai` 及 preview.1 / preview.2，通过已有 Git 凭据管理器认证，凭据仅在内存中使用，不输出或保存。代码和对应标签先本地提交、普通推送，再发布。
+
+preview.2 使用 `python tools/publish_release.py release --tag v0.1.0-preview.2`，只上传 `dist/v0.1.0-preview.2/` 中指定的 APK、校验清单、验证记录和两张布局截图，避免夹带旧安装包。先创建草稿，上传并核对文件大小及服务端校验值后公开为预发布；不上传依赖或签名材料。

@@ -68,4 +68,4 @@ Keil 完整重建通过，0 错误、2 条已有第三方警告，日志为本�
 
 Gradle `assembleRelease` 成功；签名验证与 16KB zipalign 校验通过。包名 `org.threebod.shengsai`、最低 API28、target API35、仅 arm64-v8a；APK 内的应用原生库与当前编译产物逐字节一致，且不同于旧 APK。新旧 APK 签名证书 SHA256 相同，因此具备覆盖更新所需的签名条件；尚未进行手机安装与蓝牙实测。
 
-APK 大小 25137917 字节；SHA256 为 `521e444b78a8ee1b9c4c79e6a49e3b1c4067197d322c2f11fa7677bce7e47412`，同名 `.apk.sha256` 文件随包生成。未上传远端。
+APK 大小 25137917 字节；SHA256 为 `521e444b78a8ee1b9c4c79e6a49e3b1c4067197d322c2f11fa7677bce7e47412`，同名 `.apk.sha256` 文件随包生成。发布附件提供相同校验值，安装 APK 不会更新主控固件。
