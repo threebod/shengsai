@@ -61,3 +61,11 @@ Windows 构建及完整 CTest 13/13 通过。新增 `layout` 测试直接加载�
 移除 `main()` 启动阶段云台 65° 和转盘 26° 的两条目标指令，上电三个舵机通道均不启用 PWM；启动日志改为 `servo_pwm=off`。保留后续手动、按钮启动和动作组中的指令，以及比赛初始姿态检查。首次比赛前需手动建立所需姿态，软件中的角度初值不代表真实反馈。
 
 Keil 完整重建通过，0 错误、2 条已有第三方警告，日志为本地 `firmware/build-servo-startup.log`；Code81812、RO-data4356、RW-data824、ZI-data17448 字节。完整 CTest 13/13 通过。未烧录或进行实机上电验证，未重新打包或发布。
+
+## Android 本地重新打包（2026-10-21）
+
+按用户要求生成 `dist/shengsai-v0.1.0-preview.2-android-arm64.apk`，版本 `0.1.0-preview.2`、versionCode `2`，包含手机安全区域及窄屏布局修正。修正 Android 构建脚本使其执行 `apk` 目标，签名脚本从生成后的 Manifest 读取版本号并输出独立校验文件；保留原 preview.1 安装包及校验清单，不修改已发布 Release。
+
+Gradle `assembleRelease` 成功；签名验证与 16KB zipalign 校验通过。包名 `org.threebod.shengsai`、最低 API28、target API35、仅 arm64-v8a；APK 内的应用原生库与当前编译产物逐字节一致，且不同于旧 APK。新旧 APK 签名证书 SHA256 相同，因此具备覆盖更新所需的签名条件；尚未进行手机安装与蓝牙实测。
+
+APK 大小 25137917 字节；SHA256 为 `521e444b78a8ee1b9c4c79e6a49e3b1c4067197d322c2f11fa7677bce7e47412`，同名 `.apk.sha256` 文件随包生成。未上传远端。

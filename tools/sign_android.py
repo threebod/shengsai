@@ -1,6 +1,7 @@
 """Sign the internal preview APK; keep the reusable release key outside Git."""
 from pathlib import Path
-import os,json,secrets,subprocess
+import os,json,secrets,subprocess,hashlib
+import xml.etree.ElementTree as ET
 root=Path(__file__).resolve().parents[1]
 signing=root/'.deps/signing';signing.mkdir(parents=True,exist_ok=True)
 metadata=signing/'signing.json';keystore=signing/'shengsai-release.jks'
@@ -16,12 +17,15 @@ if not keystore.exists():
 dist=root/'dist';dist.mkdir(exist_ok=True)
 source=root/'build-android/upper_computer/android-build/shengsai_tuner.apk'
 aligned=root/'build-android/upper_computer/android-build/shengsai-aligned.apk'
-destination=dist/'shengsai-v0.1.0-preview.1-android-arm64.apk'
+manifest=ET.parse(source.parent/'AndroidManifest.xml').getroot()
+version=manifest.attrib['{http://schemas.android.com/apk/res/android}versionName']
+destination=dist/f'shengsai-v{version}-android-arm64.apk'
 subprocess.run([str(sdk/'zipalign.exe'),'-P','16','-f','4',str(source),str(aligned)],check=True)
 sign=[str(java/'bin/java.exe'),'-jar',str(sdk/'lib/apksigner.jar'),'sign','--ks',str(keystore),'--ks-key-alias',config['alias'],'--ks-pass','env:SS_KEYSTORE_PASSWORD','--key-pass','env:SS_KEYSTORE_PASSWORD','--v4-signing-enabled','false','--out',str(destination),str(aligned)]
 subprocess.run(sign,env=env,check=True)
 destination.with_suffix('.apk.idsig').unlink(missing_ok=True)
 subprocess.run([str(java/'bin/java.exe'),'-jar',str(sdk/'lib/apksigner.jar'),'verify','--verbose','--print-certs',str(destination)],check=True)
 subprocess.run([str(sdk/'zipalign.exe'),'-c','-P','16','4',str(destination)],check=True)
+destination.with_suffix('.apk.sha256').write_text(hashlib.sha256(destination.read_bytes()).hexdigest()+'  '+destination.name+'\n',encoding='utf-8')
 print('Signed APK:',destination)
 print('Reusable signing material stays in the ignored .deps/signing directory; back it up privately.')

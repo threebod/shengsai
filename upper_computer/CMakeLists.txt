@@ -17,8 +17,8 @@ if(ANDROID)
         QT_ANDROID_COMPILE_SDK_VERSION 36
         QT_ANDROID_MIN_SDK_VERSION 28
         QT_ANDROID_SDK_BUILD_TOOLS_REVISION "36.1.0"
-        QT_ANDROID_VERSION_NAME "0.1.0-preview.1"
-        QT_ANDROID_VERSION_CODE 1)
+        QT_ANDROID_VERSION_NAME "0.1.0-preview.2"
+        QT_ANDROID_VERSION_CODE 2)
 else()
     target_link_libraries(shengsai_tuner PRIVATE Qt6::SerialPort)
 endif()
