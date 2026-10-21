@@ -4,13 +4,14 @@ import QtQuick.Layouts
 
 ApplicationWindow {
     id: app
-    width: 1280; height: 860; minimumWidth: 360; minimumHeight: 640
+    width: 1280; height: 860; minimumWidth: 320; minimumHeight: 320
     visible: true; title: "省赛控制台"; color: "#F5F5F7"
     property int page: 0
     property string logText: ""
     property bool ringsDirty: false
     property bool scaleDirty: false
-    readonly property bool mobile: width < 760
+    readonly property bool mobile: width - SafeArea.margins.left - SafeArea.margins.right < 760 || (Qt.platform.os === "android" && height < 500)
+    readonly property int pageSpacing: mobile ? 14 : 20
     readonly property color blue: "#007AFF"
     readonly property bool motionReady: controller.connected && controller.confirmed && !controller.calibrating
     readonly property var pageNames: ["比赛", "圆环", "视觉", "手动"]
@@ -39,15 +40,15 @@ ApplicationWindow {
         id: card
         property string heading
         default property alias items: body.data
-        padding: 20; Layout.fillWidth: true
+        padding: app.mobile ? 16 : 20; Layout.fillWidth: true
         background: Rectangle { color: "white"; radius: 18; border.color: "#E5E5EA" }
         contentItem: ColumnLayout {
-            spacing: 16
+            spacing: app.mobile ? 12 : 16
             Label { text: card.heading; font.pixelSize: 17; font.weight: Font.DemiBold; color: "#1D1D1F"; Layout.fillWidth: true }
-            ColumnLayout { id: body; spacing: 14; Layout.fillWidth: true }
+            ColumnLayout { id: body; spacing: app.mobile ? 10 : 14; Layout.fillWidth: true }
         }
     }
-    component Hint: Label { color: "#86868B"; wrapMode: Text.WordWrap; Layout.fillWidth: true; font.pixelSize: 12 }
+    component Hint: Label { color: "#86868B"; wrapMode: Text.WordWrap; Layout.fillWidth: true; Layout.minimumWidth: 0; font.pixelSize: 12 }
     component NumberField: TextField {
         id: numberField
         property real minimum: -10000
@@ -63,47 +64,76 @@ ApplicationWindow {
     }
     component Choice: ComboBox {
         id: choice
-        implicitHeight: 44; Layout.fillWidth: true
+        implicitHeight: 44; Layout.fillWidth: true; Layout.minimumWidth: 0
         background: Rectangle { color: "#FAFAFC"; radius: 9; border.color: choice.activeFocus ? app.blue : "#DDDEE5" }
-        indicator: Text { text: "⌄"; color: "#86868B"; font.pixelSize: 20; anchors.right: parent.right; anchors.rightMargin: 12; anchors.verticalCenter: parent.verticalCenter }
+        rightPadding: 36
+        indicator: Canvas {
+            implicitWidth: 12; implicitHeight: 8
+            anchors.right: parent.right; anchors.rightMargin: 14; anchors.verticalCenter: parent.verticalCenter
+            onPaint: {
+                let ctx = getContext("2d")
+                ctx.clearRect(0, 0, width, height)
+                ctx.beginPath(); ctx.moveTo(1, 1); ctx.lineTo(width / 2, height - 1); ctx.lineTo(width - 1, 1)
+                ctx.strokeStyle = "#86868B"; ctx.lineWidth = 2; ctx.stroke()
+            }
+        }
     }
 
     header: Pane {
-        padding: app.mobile ? 16 : 24
+        objectName: "topBar"
+        padding: app.mobile ? 10 : 24
+        topPadding: padding + app.SafeArea.margins.top
+        leftPadding: (app.mobile ? 14 : 24) + app.SafeArea.margins.left
+        rightPadding: (app.mobile ? 14 : 24) + app.SafeArea.margins.right
         background: Rectangle { color: "#FAFAFC"; border.color: "#E5E5EA" }
         contentItem: RowLayout {
-            Label { text: "省赛控制台"; font.pixelSize: 18; font.weight: Font.DemiBold; Layout.fillWidth: true }
-            Rectangle { width: 8; height: 8; radius: 4; color: controller.connected ? "#30B451" : "#A1A1A6" }
-            Label { text: controller.connected ? (app.mobile ? "已连接" : controller.connectionName + " 已连接") : "未连接"; color: "#656570"; font.pixelSize: 12 }
-            ActionButton { text: "日志"; implicitWidth: 64; onClicked: logDialog.open() }
-            ActionButton { text: "连接"; implicitWidth: 64; onClicked: connectionDialog.open() }
+            objectName: "topBarContent"; spacing: app.mobile ? 8 : 12
+            ColumnLayout {
+                Layout.fillWidth: true; spacing: 2
+                Label { text: "省赛控制台"; font.pixelSize: 18; font.weight: Font.DemiBold; Layout.fillWidth: true; elide: Text.ElideRight }
+                Label { visible: app.mobile; text: controller.connected ? "已连接" : "未连接"; color: controller.connected ? "#30B451" : "#86868B"; font.pixelSize: 11 }
+            }
+            Rectangle { visible: !app.mobile; width: 8; height: 8; radius: 4; color: controller.connected ? "#30B451" : "#A1A1A6" }
+            Label { visible: !app.mobile; text: controller.connected ? controller.connectionName + " 已连接" : "未连接"; color: "#656570"; font.pixelSize: 12 }
+            ActionButton { text: "日志"; implicitWidth: app.mobile ? 56 : 64; onClicked: logDialog.open() }
+            ActionButton { text: "连接"; implicitWidth: app.mobile ? 56 : 64; onClicked: connectionDialog.open() }
         }
     }
-    footer: ColumnLayout {
-        spacing: 0
-        Rectangle { Layout.fillWidth: true; height: 1; color: "#E5E5EA" }
-        Pane {
-            Layout.fillWidth: true; padding: app.mobile ? 12 : 20
-            background: Rectangle { color: "#FAFAFC" }
-            contentItem: RowLayout {
-                Label { visible: !app.mobile; text: controller.status; color: "#686875"; elide: Text.ElideRight; Layout.fillWidth: true }
-                ActionButton { text: "停止"; Layout.fillWidth: app.mobile; enabled: controller.connected; onClicked: controller.stop() }
-                ActionButton { text: "急停"; danger: true; Layout.fillWidth: app.mobile; enabled: controller.connected; onClicked: controller.stop(true) }
+    footer: Pane {
+        objectName: "bottomBar"
+        padding: 0
+        bottomPadding: app.SafeArea.margins.bottom
+        leftPadding: app.SafeArea.margins.left
+        rightPadding: app.SafeArea.margins.right
+        background: Rectangle { color: "white" }
+        contentItem: ColumnLayout {
+            objectName: "bottomBarContent"
+            spacing: 0
+            Rectangle { Layout.fillWidth: true; height: 1; color: "#E5E5EA" }
+            Pane {
+                Layout.fillWidth: true; padding: app.mobile ? 8 : 20
+                background: Rectangle { color: "#FAFAFC" }
+                contentItem: RowLayout {
+                    Label { visible: !app.mobile; text: controller.status; color: "#686875"; elide: Text.ElideRight; Layout.fillWidth: true }
+                    ActionButton { text: "停止"; Layout.fillWidth: app.mobile; enabled: controller.connected; onClicked: controller.stop() }
+                    ActionButton { text: "急停"; danger: true; Layout.fillWidth: app.mobile; enabled: controller.connected; onClicked: controller.stop(true) }
+                }
             }
-        }
-        TabBar {
-            visible: app.mobile; Layout.fillWidth: true
-            currentIndex: app.page
-            onCurrentIndexChanged: app.page = currentIndex
-            background: Rectangle { color: "white" }
-            Repeater {
-                model: app.pageNames
-                TabButton {
-                    id: navTab
-                    required property int index; required property string modelData
-                    text: modelData; height: 52
-                    background: Rectangle { color: "white"; Rectangle { anchors.top: parent.top; width: parent.width; height: 2; color: app.page === navTab.index ? app.blue : "transparent" } }
-                    contentItem: Text { text: navTab.text; font: navTab.font; color: app.page === navTab.index ? app.blue : "#86868B"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+            TabBar {
+                objectName: "navigationBar"
+                visible: app.mobile; Layout.fillWidth: true
+                currentIndex: app.page
+                onCurrentIndexChanged: app.page = currentIndex
+                background: Rectangle { color: "white" }
+                Repeater {
+                    model: app.pageNames
+                    TabButton {
+                        id: navTab
+                        required property int index; required property string modelData
+                        text: modelData; implicitHeight: 48
+                        background: Rectangle { color: "white"; Rectangle { anchors.top: parent.top; width: parent.width; height: 2; color: app.page === navTab.index ? app.blue : "transparent" } }
+                        contentItem: Text { text: navTab.text; font: navTab.font; color: app.page === navTab.index ? app.blue : "#86868B"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                    }
                 }
             }
         }
@@ -128,15 +158,15 @@ ApplicationWindow {
             }
         }
         ScrollView {
-            id: scroll
+            id: scroll; objectName: "pageScroll"
             Layout.fillWidth: true; Layout.fillHeight: true; clip: true
             contentWidth: availableWidth
             ColumnLayout {
-                width: scroll.availableWidth; spacing: 20
-                Item { height: 4 }
+                width: scroll.availableWidth; spacing: app.pageSpacing
+                Item { height: app.mobile ? 0 : 4 }
                 ColumnLayout {
-                    Layout.fillWidth: true; Layout.leftMargin: app.mobile ? 16 : 28; Layout.rightMargin: app.mobile ? 16 : 28; spacing: 20
-                    Label { text: app.pageNames[app.page]; font.pixelSize: 28; font.weight: Font.DemiBold; color: "#1D1D1F" }
+                    Layout.fillWidth: true; Layout.leftMargin: app.mobile ? 14 : 28; Layout.rightMargin: app.mobile ? 14 : 28; spacing: app.pageSpacing
+                    Label { text: app.pageNames[app.page]; font.pixelSize: app.mobile ? 24 : 28; font.weight: Font.DemiBold; color: "#1D1D1F" }
                     Hint { visible: app.mobile; text: controller.status }
                     RowLayout {
                         Layout.fillWidth: true; visible: controller.connected && !controller.confirmed
@@ -145,7 +175,7 @@ ApplicationWindow {
                     }
                     GridLayout {
                         uniformCellWidths: true
-                        visible: app.page === 0; columns: app.mobile ? 1 : 2; columnSpacing: 20; rowSpacing: 20; Layout.fillWidth: true
+                        visible: app.page === 0; columns: app.mobile ? 1 : 2; columnSpacing: app.pageSpacing; rowSpacing: app.pageSpacing; Layout.fillWidth: true
                         Card {
                             heading: "比赛设置"; Layout.alignment: Qt.AlignTop
                             Label { text: "启停区"; color: "#656570" }
@@ -174,7 +204,7 @@ ApplicationWindow {
                         }
                     }
                     ColumnLayout {
-                        visible: app.page === 1; Layout.fillWidth: true; spacing: 20
+                        visible: app.page === 1; Layout.fillWidth: true; spacing: app.pageSpacing
                         Hint { text: "先读取，再修改并固化。保存参数不会驱动机构。" }
                         GridLayout {
                         uniformCellWidths: true
@@ -223,7 +253,7 @@ ApplicationWindow {
                     }
                     GridLayout {
                         uniformCellWidths: true
-                        visible: app.page === 2; columns: app.mobile ? 1 : 2; Layout.fillWidth: true; columnSpacing: 20; rowSpacing: 20
+                        visible: app.page === 2; columns: app.mobile ? 1 : 2; Layout.fillWidth: true; columnSpacing: app.pageSpacing; rowSpacing: app.pageSpacing
                         Card {
                             heading: "2号圆环 · 自动标定"; Layout.alignment: Qt.AlignTop
                             Hint { text: "自动采样五个稳定中心，小车以低速分别前后、左右往返移动 20 mm。" }
@@ -250,7 +280,7 @@ ApplicationWindow {
                         }
                     }
                     ColumnLayout {
-                        visible: app.page === 3; Layout.fillWidth: true; spacing: 20
+                        visible: app.page === 3; Layout.fillWidth: true; spacing: app.pageSpacing
                         Card {
                             heading: "舵机指令角度"
                             Repeater {
@@ -275,7 +305,7 @@ ApplicationWindow {
                         }
                         GridLayout {
                         uniformCellWidths: true
-                            Layout.fillWidth: true; columns: app.mobile ? 1 : 2; columnSpacing: 20; rowSpacing: 20
+                            Layout.fillWidth: true; columns: app.mobile ? 1 : 2; columnSpacing: app.pageSpacing; rowSpacing: app.pageSpacing
                             Card {
                                 heading: "机构微调"
                                 Choice { id: jogStep; model: ["0.1 mm", "1 mm", "5 mm"]; currentIndex: 1 }
@@ -306,38 +336,56 @@ ApplicationWindow {
         }
     }
     onPageChanged: controller.pauseManual()
-    Dialog {
-        id: connectionDialog; title: "连接主控"; anchors.centerIn: parent; width: Math.min(app.width-32,480); modal: true
+    component SafeDialog: Dialog {
+        parent: Overlay.overlay
+        readonly property real safeWidth: parent.width - parent.SafeArea.margins.left - parent.SafeArea.margins.right
+        readonly property real safeHeight: parent.height - parent.SafeArea.margins.top - parent.SafeArea.margins.bottom
+        width: Math.min(safeWidth - 32, 480)
+        height: Math.min(implicitHeight, safeHeight - 32)
+        x: parent.SafeArea.margins.left + (safeWidth - width) / 2
+        y: parent.SafeArea.margins.top + (safeHeight - height) / 2
+        modal: true
+    }
+    SafeDialog {
+        id: connectionDialog; objectName: "connectionDialog"; title: "连接主控"
         standardButtons: Dialog.Close
-        ColumnLayout {
-            width: parent.width; spacing: 16
-            Hint { text: Qt.platform.os === "android" ? "选择 HC-05 经典蓝牙设备。" : "USB 串口可直接连接；HC-05 请先在 Windows 配对，再选择对应的出站 COM 串口。两种方式互斥接入 UART5。" }
-            ComboBox { id: deviceChoice; Layout.fillWidth: true; model: controller.devices; textRole: "name"; valueRole: "address" }
-            Flow {
-                Layout.fillWidth: true; spacing: 8
-                ActionButton { text: "扫描设备"; onClicked: controller.scan() }
-                ActionButton { text: "连接"; primary: true; enabled: deviceChoice.currentIndex>=0; onClicked: {controller.connectDevice(deviceChoice.currentValue);connectionDialog.close()} }
-                ActionButton { text: "断开"; enabled: controller.connected; onClicked: {controller.stop();controller.disconnectDevice()} }
+        contentItem: ScrollView {
+            id: connectionScroll
+            clip: true; contentWidth: availableWidth
+            ColumnLayout {
+                width: connectionScroll.availableWidth; spacing: 16
+                Hint { text: Qt.platform.os === "android" ? "选择 HC-05 经典蓝牙设备。" : "USB 串口可直接连接；HC-05 请先在 Windows 配对，再选择对应的出站 COM 串口。两种方式互斥接入 UART5。" }
+                Choice { id: deviceChoice; model: controller.devices; textRole: "name"; valueRole: "address" }
+                Flow {
+                    Layout.fillWidth: true; Layout.minimumWidth: 0; spacing: 8
+                    ActionButton { text: "扫描设备"; onClicked: controller.scan() }
+                    ActionButton { text: "连接"; primary: true; enabled: deviceChoice.currentIndex>=0; onClicked: {controller.connectDevice(deviceChoice.currentValue);connectionDialog.close()} }
+                    ActionButton { text: "断开"; enabled: controller.connected; onClicked: {controller.stop();controller.disconnectDevice()} }
+                }
+                Hint { text: controller.status }
             }
-            Hint { text: controller.status }
         }
     }
-    Dialog {
-        id: logDialog; title: "运行日志"; anchors.centerIn: parent
-        width: Math.min(app.width-32,800); height: Math.min(app.height-64,600); modal: true
+    SafeDialog {
+        id: logDialog; objectName: "logDialog"; title: "运行日志"
+        width: Math.min(safeWidth-32,800); height: Math.min(safeHeight-32,600)
         standardButtons: Dialog.Close
         ScrollView { anchors.fill: parent; TextArea { text: app.logText || "尚无主控日志"; readOnly: true; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.family: "monospace"; font.pixelSize: 12 } }
     }
-    Dialog {
-        id: safetyDialog; title: "确认安全条件与物理零点"; anchors.centerIn: parent; width: Math.min(app.width-32,480); modal: true
+    SafeDialog {
+        id: safetyDialog; objectName: "safetyDialog"; title: "确认安全条件与物理零点"
         standardButtons: Dialog.Cancel | Dialog.Ok
         onAccepted: if(safetyCheck.checked)controller.confirmZero()
         onOpened: safetyCheck.checked=false
-        ColumnLayout {
-            width: parent.width; spacing: 16
-            Hint { text: "仅当升降轴和水平轴实际位于零点时确认。本操作将两轴软件坐标设为零，不会自动回零。" }
-            CheckBox { id: safetyCheck; Layout.fillWidth: true; text: "已确认映射、方向、机械限位、急停，以及两轴物理零点"; contentItem: Text { text: safetyCheck.text; font: safetyCheck.font; wrapMode: Text.Wrap; leftPadding: safetyCheck.indicator.width + 8; verticalAlignment: Text.AlignVCenter } }
-            Hint { text: "确认仅对当前连接有效；急停或坐标失效后需重新检查。" }
+        contentItem: ScrollView {
+            id: safetyScroll
+            clip: true; contentWidth: availableWidth
+            ColumnLayout {
+                width: safetyScroll.availableWidth; spacing: 16
+                Hint { text: "仅当升降轴和水平轴实际位于零点时确认。本操作将两轴软件坐标设为零，不会自动回零。" }
+                CheckBox { id: safetyCheck; Layout.fillWidth: true; Layout.minimumWidth: 0; text: "已确认映射、方向、机械限位、急停，以及两轴物理零点"; contentItem: Text { text: safetyCheck.text; font: safetyCheck.font; wrapMode: Text.Wrap; leftPadding: safetyCheck.indicator.width + 8; verticalAlignment: Text.AlignVCenter } }
+                Hint { text: "确认仅对当前连接有效；急停或坐标失效后需重新检查。" }
+            }
         }
         Component.onCompleted: standardButton(Dialog.Ok).enabled=Qt.binding(function(){return safetyCheck.checked})
     }
