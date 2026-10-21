@@ -22,6 +22,7 @@
 #include "obstacle_stop.h"
 #include "avoidance_run.h"
 #include "tjc_display.h"
+#include "tjc_obstacles.h"
 #include "hwt101.h"
 #include "jog_can.h"
 #include "axis_feedback.h"
@@ -208,6 +209,9 @@ static volatile VisionPacket visionRxPacket;
 static volatile uint8_t visionRxReady;
 static QrScanParser qrParser;
 static ObstacleStopParser obstacleParser;
+static TjcObstacleParser tjcObstacleParser;
+static volatile uint16_t tjcObstaclePending;
+static uint16_t tjcObstacleRegions;
 static volatile uint8_t obstacleStopPending;
 static AvRun avoidance;
 static AvParser avoidanceParser;
@@ -446,6 +450,7 @@ static void tjcDisplayInit(void)
 {
     GPIO_InitTypeDef gpio;
     USART_InitTypeDef uart;
+    NVIC_InitTypeDef nvic;
 
     RCC_AHB1PeriphClockCmd(RCC_AHB1Periph_GPIOC, ENABLE);
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_USART6, ENABLE);
@@ -462,7 +467,24 @@ static void tjcDisplayInit(void)
     uart.USART_BaudRate = 115200U;
     uart.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;
     USART_Init(USART6, &uart);
+    nvic.NVIC_IRQChannel = USART6_IRQn;
+    nvic.NVIC_IRQChannelPreemptionPriority = 2U;
+    nvic.NVIC_IRQChannelSubPriority = 0U;
+    nvic.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&nvic);
+    USART_ITConfig(USART6, USART_IT_RXNE, ENABLE);
     USART_Cmd(USART6, ENABLE);
+}
+
+void USART6_IRQHandler(void)
+{
+    uint16_t regions;
+    uint8_t byte;
+    if (USART_GetITStatus(USART6, USART_IT_RXNE) == RESET) return;
+    byte = (uint8_t)USART_ReceiveData(USART6);
+    regions = tjc_obstacles_feed(&tjcObstacleParser, byte);
+    if (regions != 0U) tjcObstaclePending = regions;
+    USART_ClearITPendingBit(USART6, USART_IT_RXNE);
 }
 
 static void tjcDisplaySend(const uint8_t *command, uint8_t length)
@@ -494,6 +516,32 @@ static void tjcDisplayCounts(void)
 static void tjcDisplayResetCounts(void)
 {
     missionGrabCount = missionPlaceCount = 0U;
+    tjcDisplayCounts();
+}
+
+static void serviceTjcObstacles(void)
+{
+    static const uint8_t showTask[] = "page page0\xFF\xFF\xFF";
+    uint16_t regions;
+    uint8_t i;
+    if (tjcObstaclePending == 0U) return;
+    __disable_irq();
+    regions = tjcObstaclePending;
+    tjcObstaclePending = 0U;
+    __enable_irq();
+    if (regions == 0U) return;
+    tjcObstacleRegions = regions;
+    serialSendString("HMI OBSTACLES regions=");
+    for (i = 0U; i < 15U; ++i) {
+        if ((tjcObstacleRegions & (1U << i)) != 0U) {
+            serialSendUint(i + 1U);
+            serialSendChar(' ');
+        }
+    }
+    serialSendString("\r\n");
+    /* Receipt acknowledgement: only a validated selection may change page.
+     * Keep the 15-region mask separate from the legacy four-way route setting. */
+    tjcDisplaySend(showTask, (uint8_t)(sizeof(showTask) - 1U));
     tjcDisplayCounts();
 }
 
@@ -3498,6 +3546,7 @@ int main(void)
         serviceMotion();
         serviceVision();
         serviceQrScan();
+        serviceTjcObstacles();
         serviceMechanism();
         mechanismActionService();
         serviceArcRoute();
