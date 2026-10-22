@@ -33,6 +33,15 @@ static void serviceMechanism(void)
                 if(mechanismFeedback[i].actualReplies) serialSendInt32(mechanismFeedback[i].actual);
                 else serialSendString("unknown");
                 serialSendString("\r\n");
+                {
+                    uint8_t sample;
+                    for(sample=0;sample<mechanismFeedback[i].sampleCount;++sample) {
+                        serialSendString("AXIS SAMPLE motor=");serialSendUint((uint16_t)(5+i));
+                        serialSendString(" elapsed_ms=");serialSendUint32(mechanismFeedback[i].samples[sample].elapsedMs);
+                        serialSendString(" actual_enc=");serialSendInt32(mechanismFeedback[i].samples[sample].position);
+                        serialSendString("\r\n");
+                    }
+                }
             }
         }
         return;
@@ -50,9 +59,20 @@ static void serviceMechanism(void)
             jogCanClearReply(id,0x3a);
         }
         if(jogCanTakeReply(id,0x36,&value)) {
-            mechanismFeedback[i].actual=value;
-            ++mechanismFeedback[i].actualReplies;
-            if(mechanismFeedback[i].reached) mechanismFeedback[i].actualAfterArrival=1;
+            AxisFeedback *axis=&mechanismFeedback[i];
+            axis->actual=value;
+            ++axis->actualReplies;
+            if(!axis->reached && mechanismFeedbackTimeout-clockMs<=MECHANISM_FEEDBACK_DIAG_MS) {
+                uint8_t sample,n=axis->sampleCount;
+                if(n==MECHANISM_FEEDBACK_SAMPLES) {
+                    for(sample=1;sample<n;++sample) axis->samples[sample-1]=axis->samples[sample];
+                    --n;
+                }
+                axis->samples[n].position=value;
+                axis->samples[n].elapsedMs=clockMs-mechanismState.startMs;
+                axis->sampleCount=(uint8_t)(n+1);
+            }
+            if(axis->reached) axis->actualAfterArrival=1;
         }
         if(jogCanTakeReply(id,0x3a,&value) && axisStatus(&mechanismFeedback[i],(uint8_t)value)<0) {
             serialSendString("ERR MECH: motor disabled/stalled; coordinates invalid\r\n");
@@ -83,18 +103,13 @@ static void serviceMechanism(void)
         }
         id=(uint8_t)(5+mechanismPollAxis);
         if(mechanismPreparing || !mechanismFeedback[mechanismPollAxis].targetVerified) param=S_TPOS;
-        else if(mechanismFeedback[mechanismPollAxis].reached &&
-                !mechanismFeedback[mechanismPollAxis].actualAfterArrival) {
-            /* Read position first after arrival; keep checking faults if its reply is lost. */
+        else if((mechanismFeedback[mechanismPollAxis].reached &&
+                 !mechanismFeedback[mechanismPollAxis].actualAfterArrival) ||
+                (!mechanismFeedback[mechanismPollAxis].reached &&
+                 mechanismFeedbackTimeout-clockMs<=MECHANISM_FEEDBACK_DIAG_MS)) {
+            /* Late position samples are diagnostic only; alternate status to retain fault checks. */
             mechanismPollKind[mechanismPollAxis]^=1;
             param=mechanismPollKind[mechanismPollAxis]?S_CPOS:S_FLAG;
-        }
-        else if(!mechanismFeedback[mechanismPollAxis].reached &&
-                !(mechanismDiagnosticPositionMask&(1U<<mechanismPollAxis)) &&
-                mechanismFeedbackTimeout-clockMs<=MECHANISM_FEEDBACK_DIAG_MS) {
-            /* One pre-stop position sample diagnoses a missing arrival flag; it cannot complete a move. */
-            mechanismDiagnosticPositionMask|=(uint8_t)(1U<<mechanismPollAxis);
-            param=S_CPOS;
         }
         else param=S_FLAG;
         if(mechanismAxes) Emm_V5_Read_Sys_Params(id,param);

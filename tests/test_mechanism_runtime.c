@@ -9,7 +9,6 @@ typedef enum { S_FLAG,S_TPOS,S_CPOS } SysParams_t;
 static MechanismState mechanismState;
 static AxisFeedback mechanismFeedback[2];
 static uint8_t mechanismAxes,mechanismPreparing,mechanismPollAxis,mechanismPollKind[2],mechanismBaselineMask;
-static uint8_t mechanismDiagnosticPositionMask;
 static uint8_t servoChannelMoving[3],fault;
 static uint32_t clockMs,mechanismFeedbackTimeout,mechanismPollAt;
 static int32_t mechanismBaseline[2];
@@ -20,6 +19,7 @@ static unsigned queryKinds[2][3];
 static unsigned prematurePositions;
 static uint32_t arrivalAt[2];
 static uint32_t faultAt[2];
+static int32_t positionOffset[2],positionStep[2];
 static uint32_t lastQueryAt;
 static char logText[4096];
 static int slot(uint8_t fn){return fn==0x33?0:fn==0x3a?1:2;}
@@ -41,7 +41,8 @@ static void Emm_V5_Read_Sys_Params(uint8_t id,SysParams_t p){
     if(simulateReplies && p==S_CPOS && clockMs<arrivalAt[id-5]) ++prematurePositions;
     if(simulateReplies && !(id==missingMotor && (!missingFn || fn==missingFn)))
         reply(id,fn,p==S_FLAG?(faultAt[id-5] && clockMs>=faultAt[id-5]?7:
-              clockMs>=arrivalAt[id-5]?3:1):mechanismFeedback[id-5].expected);
+              clockMs>=arrivalAt[id-5]?3:1):mechanismFeedback[id-5].expected+
+              (p==S_CPOS?positionOffset[id-5]+positionStep[id-5]*(int32_t)queryKinds[id-5][2]:0));
 }
 static void printMechanismPose(const char *s,const MechanismPose *p){(void)s;(void)p;++dones;}
 #include "../firmware/mechanism_runtime.h"
@@ -51,10 +52,11 @@ static void reset(void){
     mechanismFeedbackTimeout=3000;clockMs=500;mechanismAxes=3;mechanismPreparing=0;mechanismPollAt=clockMs;
     stops=dones=queries=0;fault=servoChannelMoving[2]=0;
     simulateReplies=missingMotor=missingFn=0;mechanismPollAxis=0;prematurePositions=0;
-    mechanismDiagnosticPositionMask=0;logText[0]='\0';
+    logText[0]='\0';
     mechanismPollKind[0]=mechanismPollKind[1]=0;mechanismBaselineMask=0;
     memset(queryKinds,0,sizeof(queryKinds));arrivalAt[0]=arrivalAt[1]=0;
     faultAt[0]=faultAt[1]=0;
+    positionOffset[0]=positionOffset[1]=positionStep[0]=positionStep[1]=0;
     axisBegin(&mechanismFeedback[0],0,3200);axisBegin(&mechanismFeedback[1],0,1600);
 }
 int main(void){
@@ -68,6 +70,16 @@ int main(void){
     reply(5,0x36,65536);reply(6,0x3a,3);serviceMechanism();assert(!dones);
     servoChannelMoving[2]=1;reply(6,0x36,32768);serviceMechanism();assert(!dones);
     servoChannelMoving[2]=0;serviceMechanism();assert(dones==1 && !stops && !mechanismState.running);
+    /* Losing arrival while the other axis/servo is pending invalidates the old position. */
+    reset();mechanismAxes=2;servoChannelMoving[2]=1;
+    reply(6,0x33,32768);serviceMechanism();
+    reply(6,0x3a,3);serviceMechanism();reply(6,0x36,32768);serviceMechanism();
+    assert(mechanismFeedback[1].actualAfterArrival && !dones);
+    reply(6,0x36,32952);reply(6,0x3a,1);serviceMechanism();
+    assert(!mechanismFeedback[1].reached && !mechanismFeedback[1].actualAfterArrival);
+    servoChannelMoving[2]=0;serviceMechanism();assert(!dones && mechanismState.running);
+    reply(6,0x36,32768);reply(6,0x3a,3);serviceMechanism();assert(!dones);
+    reply(6,0x36,32768);serviceMechanism();assert(dones==1 && !stops);
     reset();clockMs=3000;serviceMechanism();assert(stops==1 && !mechanismState.valid && !dones);
     reset();reply(5,0x3a,7);serviceMechanism();assert(stops==1 && !mechanismState.valid);
     reset();fault=1;serviceMechanism();assert(stops==1 && !mechanismState.valid);
@@ -125,14 +137,35 @@ int main(void){
     reset();simulateReplies=1;arrivalAt[1]=4000;
     while(mechanismState.running && clockMs<3000){++clockMs;serviceMechanism();}
     assert(stops==1 && !dones && !mechanismFeedback[1].reached &&
-           !mechanismFeedback[1].actualAfterArrival && mechanismFeedback[1].actualReplies==1);
+           !mechanismFeedback[1].actualAfterArrival && mechanismFeedback[1].actualReplies>1);
     assert(mechanismFeedback[1].lastStatus==1 && mechanismFeedback[1].statusReplies>0);
     assert(strstr(logText,"AXIS FEEDBACK motor=6 status_rx=") && strstr(logText,"actual_enc=32768"));
+    assert(mechanismFeedback[1].sampleCount==4 && strstr(logText,"AXIS SAMPLE motor=6 elapsed_ms="));
+    for(phase=0;phase<4;++phase) {
+        assert(mechanismFeedback[1].samples[phase].elapsedMs>=2500 &&
+               mechanismFeedback[1].samples[phase].elapsedMs<3000);
+        if(phase) assert(mechanismFeedback[1].samples[phase-1].elapsedMs<mechanismFeedback[1].samples[phase].elapsedMs);
+    }
+    /* Reproduce the observed 184-count residual without allowing a position-only completion. */
+    reset();simulateReplies=1;arrivalAt[1]=4000;mechanismFeedback[1].expected=28622;positionOffset[1]=184;
+    while(mechanismState.running && clockMs<3000){++clockMs;serviceMechanism();}
+    assert(stops==1 && !dones && !mechanismState.valid && !mechanismFeedback[1].reached);
+    assert(strstr(logText,"expected_enc=28622 actual_enc=28806") && mechanismFeedback[1].sampleCount==4);
+    for(phase=0;phase<4;++phase) assert(mechanismFeedback[1].samples[phase].position==28806);
+    /* Keep the most recent four changing samples in chronological order. */
+    reset();simulateReplies=1;arrivalAt[1]=4000;positionStep[1]=-20;
+    while(mechanismState.running && clockMs<3000){++clockMs;serviceMechanism();}
+    assert(mechanismFeedback[1].sampleCount==4 && mechanismFeedback[1].actualReplies>4);
+    for(phase=0;phase<4;++phase)
+        assert(mechanismFeedback[1].samples[phase].position==32768-20*(int32_t)(mechanismFeedback[1].actualReplies-3+phase));
+    reset();simulateReplies=1;arrivalAt[1]=4000;faultAt[1]=2800;
+    while(mechanismState.running && clockMs<3000){++clockMs;serviceMechanism();}
+    assert(stops==1 && !dones && !mechanismState.valid && clockMs<2900);
     reset();simulateReplies=1;missingMotor=6;missingFn=0x3a;
     while(mechanismState.running && clockMs<3000){++clockMs;serviceMechanism();}
     assert(stops==1 && !dones && mechanismFeedback[1].statusReplies==0 &&
-           mechanismFeedback[1].actualReplies==1 && !mechanismFeedback[1].reached);
-    assert(strstr(logText,"AXIS FEEDBACK motor=6 status_rx=0 status=0 position_rx=1"));
+           mechanismFeedback[1].actualReplies>1 && !mechanismFeedback[1].reached);
+    assert(strstr(logText,"AXIS FEEDBACK motor=6 status_rx=0 status=0 position_rx="));
     reset();clockMs=3000;serviceMechanism();assert(strstr(logText,"actual_enc=unknown"));
     reset();serialSendInt32(-1);serialSendString(" ");serialSendInt32(INT32_MIN);
     serialSendString(" ");serialSendInt32(INT32_MAX);serialSendString(" ");serialSendInt32(0);

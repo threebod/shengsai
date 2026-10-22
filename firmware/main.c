@@ -179,7 +179,6 @@ static uint8_t mechanismAxes, mechanismPreparing, mechanismPollAxis, mechanismPo
 static uint32_t mechanismPollAt, mechanismFeedbackTimeout;
 static int32_t mechanismBaseline[2];
 static uint8_t mechanismBaselineMask;
-static uint8_t mechanismDiagnosticPositionMask;
 static int32_t mechanismSignedPulses[2];
 static const MechanismInitialState *mechanismActionInitial;
 static const MechanismAction *mechanismActions;
@@ -1258,7 +1257,7 @@ static void startMechanismPose(const MechanismPose *target)
         if (turretMs > mechanismState.durationMs) mechanismState.durationMs = turretMs;
         mechanismState.deadlineMs = clockMs + mechanismState.durationMs;
     }
-    mechanismAxes=0;mechanismBaselineMask=0;mechanismDiagnosticPositionMask=0;
+    mechanismAxes=0;mechanismBaselineMask=0;
     mechanismSignedPulses[0]=liftDelta>0?(int32_t)liftPulses:-(int32_t)liftPulses;
     mechanismSignedPulses[1]=horizontalDelta>0?(int32_t)horizontalPulses:-(int32_t)horizontalPulses;
     if(liftPulses) mechanismAxes|=1;
