@@ -66,6 +66,9 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
     if(q->command==SS_HELLO) {
         if(q->length!=4) {r->data[0]=1;return;}
         if(hostSession!=ss_get32(q->data)) {
+            if(axis6TestActive()) {
+                hostCancelled=hostOperationFailed=1;stopServoMotion();stopAllMotors();
+            }
             memset(hostCache,0,sizeof(hostCache));hostConfirmed=0;hostSession=ss_get32(q->data);
         }
         r->length=4;r->data[1]=1;r->data[2]=0;r->data[3]=1;return;
@@ -136,7 +139,16 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
         hostStartPending=q->command;hostStartZone=q->data[0];hostStartRpm=a;
         return;
     case SS_ACTION:
-        if(q->length!=1 || !mechanismState.valid) break;
+        if(q->length!=1) break;
+        if(!mechanismState.valid) {r->data[0]=6;return;}
+        if(q->data[0]==SS_ACTION_AXIS6_TEST) {
+            if(!axis6TestBuild(&mechanismState.current,axis6TestActions)) {r->data[0]=1;return;}
+            if(motionInterrupted() || !mechanismActionStart(&rawPickInitial,axis6TestActions,2)) {
+                r->data[0]=4;return;
+            }
+            hostHeartbeatActive=1;hostHeartbeatStamp=clockMs;
+            serialSendString("AXIS6 TEST START delta_dmm=50 rpm=30 accel=50\r\n");return;
+        }
         if(q->data[0]==0) {
             rawPickActionsForSlot(rawPickRouteActions,1);
             if(!mechanismActionStart(&rawPickInitial,rawPickRouteActions,RAW_PICK_ACTION_COUNT)) {r->data[0]=2;}return;

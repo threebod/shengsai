@@ -26,6 +26,7 @@
 #include "hwt101.h"
 #include "jog_can.h"
 #include "axis_feedback.h"
+#include "axis6_test.h"
 
 #define COMMAND_BAUD_RATE  115200U
 
@@ -184,6 +185,11 @@ static const MechanismInitialState *mechanismActionInitial;
 static const MechanismAction *mechanismActions;
 static uint16_t mechanismActionCount, mechanismActionIndex;
 static uint8_t mechanismActionActive, mechanismActionDispatched;
+static MechanismAction axis6TestActions[2];
+static uint8_t axis6TestActive(void)
+{
+    return mechanismActionActive && mechanismActions == axis6TestActions;
+}
 static uint32_t mechanismActionWaitUntil;
 static uint8_t rawPickPlatformSlot;
 static uint32_t rawPickPlatformReadyAt;
@@ -1265,7 +1271,10 @@ static void startMechanismPose(const MechanismPose *target)
     mechanismPreparing=1;mechanismPollAxis=0;
     mechanismPollKind[0]=mechanismPollKind[1]=0;
     mechanismPollAt=clockMs-MECHANISM_FEEDBACK_POLL_MS;mechanismFeedbackTimeout=clockMs+3000;
-    setAuxMotorsEnabled(true);
+    if (axis6TestActive()) {
+        Emm_V5_En_Control(6U, true, false);
+        delay_ms(2U);
+    } else setAuxMotorsEnabled(true);
     jogCanClearReply(5,0x33);jogCanClearReply(6,0x33);
 }
 static void dispatchMechanismPose(void)
@@ -1298,10 +1307,11 @@ static void dispatchMechanismPose(void)
                            mechanismLiftPulses(liftDelta), false, true);
         delay_ms(2U);
     }
-    servoSetTargetMdeg(4U, (uint32_t)target->turretDdeg * 100U,
-                       target->turretDps10);
+    if (!axis6TestActive())
+        servoSetTargetMdeg(4U, (uint32_t)target->turretDdeg * 100U,
+                           target->turretDps10);
     if (motionInterrupted()) { stopServoMotion(); stopAllMotors(); return; }
-    Emm_V5_Synchronous_motion(0x00);
+    Emm_V5_Synchronous_motion(axis6TestActive() ? 6U : 0x00);
     if (motionInterrupted()) { stopServoMotion(); stopAllMotors(); return; }
     printMechanismPose("MECH RUN", target);
 }
@@ -1381,6 +1391,7 @@ void mechanismActionService(void)
     }
     if (mechanismActionIndex >= mechanismActionCount) {
         if (rawPickPlatformSlot) return;
+        if (axis6TestActive()) serialSendString("AXIS6 TEST DONE\r\n");
         mechanismActionActive = 0U;
         return;
     }

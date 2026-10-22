@@ -49,6 +49,40 @@ private slots:
         QCOMPARE(int(q.command),int(SS_AUX));QTest::qWait(150);QVERIFY(wire.written.isEmpty());
         c.disconnectDevice();c.device_=nullptr;
     }
+    void axis6TestRequiresSafeIdleAndCompletionEvent(){
+        Wire wire;Controller c;c.device_=&wire;
+        c.testAxis6();QVERIFY(wire.written.isEmpty());
+        c.connected_=true;c.testAxis6();QVERIFY(wire.written.isEmpty());
+        c.confirmed_=true;c.testAxis6();QVERIFY(wire.written.isEmpty());
+        c.mechanismValid_=c.busy_=true;c.testAxis6();QVERIFY(wire.written.isEmpty());
+        c.busy_=false;c.testAxis6();auto q=wire.last();
+        QCOMPARE(int(q.command),int(SS_ACTION));QCOMPARE(int(q.length),1);QCOMPARE(int(q.data[0]),3);
+        QVERIFY(c.axis6Testing() && c.busy());
+        c.testAxis6();QVERIFY(wire.written.isEmpty());
+        SsFrame r{};r.flags=SS_RESPONSE;r.sequence=q.sequence;r.command=SS_ACTION;r.length=1;c.handle(r);
+        QVERIFY(c.axis6Testing() && c.axis6TestState().contains("进行中"));
+        r.flags=SS_EVENT;r.sequence=q.sequence+1;c.handle(r);QVERIFY(c.axis6Testing());
+        r.sequence=q.sequence;c.handle(r);QVERIFY(!c.axis6Testing() && c.axis6TestState().contains("完成"));
+        c.disconnectDevice();c.device_=nullptr;
+    }
+    void axis6TestRejectionAndFailureAreNotSuccess(){
+        Wire wire;Controller c;c.device_=&wire;c.connected_=c.confirmed_=c.mechanismValid_=true;
+        c.testAxis6();auto q=wire.last();SsFrame r{};r.flags=SS_RESPONSE|SS_ERROR;
+        r.command=SS_ACTION;r.sequence=q.sequence;r.length=1;r.data[0]=1;c.handle(r);
+        QVERIFY(!c.axis6Testing() && c.axis6TestState().contains("未启动"));
+        c.testAxis6();q=wire.last();r.flags=SS_RESPONSE;r.sequence=q.sequence;r.data[0]=0;c.handle(r);
+        r.flags=SS_EVENT;r.data[0]=4;c.handle(r);
+        QVERIFY(!c.axis6Testing() && !c.mechanismValid() && c.axis6TestState().contains("中止"));
+        c.disconnectDevice();c.device_=nullptr;
+    }
+    void axis6TestPausesAndDisconnectsWithoutRepeatingMovement(){
+        Wire wire;Controller c;c.device_=&wire;c.connected_=c.confirmed_=c.mechanismValid_=true;
+        c.testAxis6();wire.last();QTest::qWait(150);QVERIFY(wire.written.isEmpty());
+        c.pauseManual();auto q=wire.last();QCOMPARE(int(q.command),int(SS_STOP));
+        QVERIFY(c.axis6TestState().contains("停止"));
+        c.disconnectDevice();q=wire.last();QCOMPARE(int(q.command),int(SS_STOP));
+        QVERIFY(!c.axis6Testing() && c.axis6TestState().contains("未知"));c.device_=nullptr;
+    }
     void failedSaveIsNotDisplayedAsSuccess(){
         Wire wire;Controller c;c.device_=&wire;c.connected_=true;c.applyScale(1.111,1.143,true);
         QVERIFY(c.parametersPending());auto q=wire.last();SsFrame r{};r.command=q.command;r.sequence=q.sequence;r.flags=SS_RESPONSE|SS_ERROR;r.length=1;r.data[0]=4;c.handle(r);

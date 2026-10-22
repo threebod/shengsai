@@ -13,6 +13,7 @@ enum {
     SS_SAMPLE=0x40, SS_VISION_JOG, SS_ALIGN,
     SS_LOG=0x80, SS_STATE
 };
+enum { SS_ACTION_AXIS6_TEST=3 };
 typedef struct { uint8_t flags, sequence, command; uint16_t length; uint8_t data[SS_MAX_PAYLOAD]; } SsFrame;
 typedef struct { uint8_t data[SS_MAX_FRAME]; uint16_t count; } SsParser;
 static uint16_t ss_get16(const uint8_t *p) { return (uint16_t)(p[0] | ((uint16_t)p[1]<<8)); }

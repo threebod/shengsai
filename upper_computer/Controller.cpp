@@ -87,6 +87,10 @@ void Controller::opened(){
     request(SS_HELLO,data);
 }
 void Controller::disconnectDevice(){
+    if(axis6Testing()){
+        if(device_ && device_->isOpen())request(SS_STOP);
+        axis6TestSequence_=-1;axis6TestState_=QStringLiteral("连接已断开，测试结果未知");
+    }
     driveTimer_.stop();heartbeat_.stop();watchdog_.stop();servoTimer_.stop();servoTargets_.clear();
     calibrationTimeout_.stop();calibrationStage_=0;++calibrationGeneration_;
     connected_=confirmed_=ringsRead_=busy_=mechanismValid_=false;pending_.clear();parser_={};
@@ -112,6 +116,13 @@ void Controller::ingest(){
 void Controller::handle(const SsFrame &f){
     if(f.flags==SS_EVENT){
         if(f.command==SS_LOG){log(QString::fromUtf8(reinterpret_cast<const char *>(f.data),f.length));return;}
+        if(f.command==SS_ACTION && f.length==1 && f.sequence==axis6TestSequence_){
+            axis6TestSequence_=-1;
+            if(f.data[0])mechanismValid_=false;
+            axis6TestState_=f.data[0]?QStringLiteral("测试中止，请检查日志及机构状态"):QStringLiteral("往返测试完成，请查看日志");
+            if(f.data[0])setStatus(axis6TestState_);else emit changed();
+            return;
+        }
         if(f.command==SS_STATE && f.length==21){
             busy_=f.data[1];confirmed_=f.data[8];mechanismValid_=f.data[3];
             const QStringList phases{QStringLiteral("待启动"),QStringLiteral("取料准备"),QStringLiteral("取料"),QStringLiteral("圆环对准"),QStringLiteral("暂存对准"),QStringLiteral("粗加工放置"),QStringLiteral("粗加工回收"),QStringLiteral("暂存放置")};
@@ -130,6 +141,9 @@ void Controller::handle(const SsFrame &f){
         if(f.command==SS_APPLY_SCALE || f.command==SS_SAVE_SCALE)scaleState_=QStringLiteral("写入失败，尚未获得主控确认");
         static const QStringList errors{QString(),QStringLiteral("参数或命令无效"),QStringLiteral("主控忙，请等待或停止"),QStringLiteral("急停锁定"),QStringLiteral("主控执行失败，请检查日志"),QStringLiteral("协议不匹配"),QStringLiteral("请先确认机构零点及安全条件")};
         const QString message=errors.value(f.data[0],QStringLiteral("主控拒绝指令"));
+        if(f.command==SS_ACTION && f.sequence==axis6TestSequence_){
+            axis6TestSequence_=-1;axis6TestState_=QStringLiteral("测试未启动：")+message;
+        }
         if(calibrating())failCalibration(message);else setStatus(message);return;
     }
     switch(f.command){
@@ -137,6 +151,9 @@ void Controller::handle(const SsFrame &f){
         if(f.length!=4 || f.data[1]!=1 || f.data[3]!=1){disconnectDevice();setStatus(QStringLiteral("固件版本或协议不匹配"));return;}
         connected_=true;heartbeat_.start();setStatus(QStringLiteral("已连接，请确认机构零点和安全条件"));readScale();break;
     case SS_CLEAR:confirmed_=mechanismValid_=true;setStatus(QStringLiteral("安全条件已确认，机构坐标设为物理零点"));break;
+    case SS_ACTION:
+        if(f.sequence==axis6TestSequence_)axis6TestState_=QStringLiteral("测试进行中 · 正向5mm后返回起点");
+        else setStatus(QStringLiteral("主控已接受指令，执行状态以反馈为准"));break;
     case SS_GET_RINGS:
         if(f.length!=14)return;rings_.clear();
         for(int i=0;i<3;++i)rings_.append(QVariantMap{{"horizontal",qint16(ss_get16(f.data+2+i*4))/10.0},{"turret",ss_get16(f.data+4+i*4)/10.0}});
@@ -154,10 +171,11 @@ void Controller::confirmZero(){if(connected_)request(SS_CLEAR,QByteArray(1,1));}
 void Controller::stop(bool emergency){
     driveTimer_.stop();servoTimer_.stop();servoTargets_.clear();
     calibrationTimeout_.stop();calibrationStage_=0;++calibrationGeneration_;
+    if(axis6Testing())axis6TestState_=QStringLiteral("正在停止测试…");
     request(emergency?SS_ESTOP:SS_STOP);confirmed_=emergency?false:confirmed_;emit changed();
 }
 void Controller::pauseManual(){
-    if(driveTimer_.isActive() || calibrating() || !servoTargets_.isEmpty())stop();
+    if(driveTimer_.isActive() || calibrating() || !servoTargets_.isEmpty() || axis6Testing())stop();
     servoTimer_.stop();servoTargets_.clear();
 }
 void Controller::readRings(){if(connected_)request(SS_GET_RINGS);}
@@ -191,6 +209,12 @@ void Controller::flushServos(){
 void Controller::jogAxis(int motor,double mm){
     if(!connected_ || !confirmed_ || busy_ || (motor!=5 && motor!=6) || !qIsFinite(mm))return;
     const int d=qRound(mm*10);if(!d || qAbs(d)>50)return;QByteArray data(3,0);data[0]=char(motor);ss_put16(reinterpret_cast<uint8_t *>(data.data()+1),quint16(d));request(SS_AUX,data);
+}
+void Controller::testAxis6(){
+    if(!connected_ || !confirmed_ || !mechanismValid_ || busy() || calibrating() || !servoTargets_.isEmpty())return;
+    const int sequence=request(SS_ACTION,QByteArray(1,char(SS_ACTION_AXIS6_TEST)));
+    if(sequence<0)return;
+    axis6TestSequence_=sequence;axis6TestState_=QStringLiteral("等待主控开始测试");emit changed();
 }
 void Controller::drive(int direction){
     if(!connected_ || !confirmed_ || calibrating() || (direction!=1 && direction!=-1))return;

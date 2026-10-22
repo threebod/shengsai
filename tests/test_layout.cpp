@@ -61,6 +61,12 @@ private slots:
         for (int page = 0; page < 4; ++page) {
             window->setProperty("page", page);
             QTest::qWait(100);
+            if (page == 3) {
+                auto *testButton = window->findChild<QQuickItem *>("axis6TestButton");
+                QVERIFY(testButton && testButton->isVisible());
+                QVERIFY(!testButton->isEnabled());
+                QVERIFY(testButton->height() >= 44);
+            }
             QVERIFY(insideSafeArea(top));
             QVERIFY(insideSafeArea(bottom));
             QVERIFY(insideSafeArea(scroll));

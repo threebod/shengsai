@@ -13,7 +13,7 @@ ApplicationWindow {
     readonly property bool mobile: width - SafeArea.margins.left - SafeArea.margins.right < 760 || (Qt.platform.os === "android" && height < 500)
     readonly property int pageSpacing: mobile ? 14 : 20
     readonly property color blue: "#007AFF"
-    readonly property bool motionReady: controller.connected && controller.confirmed && !controller.calibrating
+    readonly property bool motionReady: controller.connected && controller.confirmed && !controller.calibrating && !controller.axis6Testing
     readonly property var pageNames: ["比赛", "圆环", "视觉", "手动"]
     font.family: Qt.platform.os === "windows" ? "Microsoft YaHei UI" : "sans-serif"
     font.pixelSize: 14
@@ -320,6 +320,14 @@ ApplicationWindow {
                                     }
                                 }
                                 ActionButton { text: "重新确认物理零点"; enabled: controller.connected && !controller.busy; onClicked: safetyDialog.open() }
+                                ActionButton {
+                                    objectName: "axis6TestButton"; text: controller.axis6Testing ? "6号轴测试中…" : "6号轴往返测试"
+                                    Layout.fillWidth: true
+                                    enabled: app.motionReady && controller.mechanismValid && !controller.busy
+                                    onClicked: controller.testAxis6()
+                                }
+                                Hint { text: "正向5mm → 返回起点，30RPM；请留足行程。切页或失焦停止，目标、实际位置和耗时见日志。" }
+                                Hint { text: controller.axis6TestState }
                                 Hint { visible: controller.connected && !controller.mechanismValid; text: "机构坐标已失效，请先将机构实际回到零点，再重新确认。" }
                             }
                             Card {

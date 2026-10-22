@@ -20,6 +20,8 @@ class Controller : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool connected READ connected NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
+    Q_PROPERTY(bool axis6Testing READ axis6Testing NOTIFY changed)
+    Q_PROPERTY(QString axis6TestState READ axis6TestState NOTIFY changed)
     Q_PROPERTY(bool confirmed READ confirmed NOTIFY changed)
     Q_PROPERTY(bool mechanismValid READ mechanismValid NOTIFY changed)
     Q_PROPERTY(bool ringsRead READ ringsRead NOTIFY changed)
@@ -37,7 +39,9 @@ class Controller : public QObject {
     Q_PROPERTY(double rightScale READ rightScale NOTIFY changed)
 public:
     explicit Controller(QObject *parent=nullptr);
-    bool connected()const{return connected_;} bool busy()const{return busy_;}
+    bool connected()const{return connected_;} bool busy()const{return busy_ || axis6Testing();}
+    bool axis6Testing()const{return axis6TestSequence_>=0;}
+    QString axis6TestState()const{return axis6TestState_;}
     bool confirmed()const{return confirmed_;} bool ringsRead()const{return ringsRead_;}
     bool mechanismValid()const{return mechanismValid_;}
     bool calibrating()const{return calibrationStage_!=0;}
@@ -60,6 +64,7 @@ public:
     Q_INVOKABLE void applyScale(double forward,double right,bool save);
     Q_INVOKABLE void setServo(int channel,double angle,bool finalValue=false);
     Q_INVOKABLE void jogAxis(int motor,double mm);
+    Q_INVOKABLE void testAxis6();
     Q_INVOKABLE void drive(int direction);
     Q_INVOKABLE void run(int type,int zone,int obstacle,int rpm=240);
     Q_INVOKABLE void runAction(int action);
@@ -90,6 +95,8 @@ private:
     QElapsedTimer clock_;qint64 lastRx_{};
     QHash<int,int> servoTargets_;
     bool connected_{},busy_{},confirmed_{},ringsRead_{},mechanismValid_{};
+    int axis6TestSequence_{-1};
+    QString axis6TestState_{QStringLiteral("尚未测试")};
     QString status_{QStringLiteral("未连接")},task_{QStringLiteral("待启动")};
     QString scaleState_{QStringLiteral("尚未读取主控比例")},ringState_{QStringLiteral("请先读取主控参数")},connectionName_;
     QVariantList devices_,rings_,angles_{0.0,0.0,0.0};
