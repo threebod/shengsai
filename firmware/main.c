@@ -212,6 +212,8 @@ static ObstacleStopParser obstacleParser;
 static TjcObstacleParser tjcObstacleParser;
 static volatile uint16_t tjcObstaclePending;
 static uint16_t tjcObstacleRegions;
+static uint8_t obstacleTurretPending, obstacleTurretReady;
+static uint8_t prepareObstacleTurret(void);
 static volatile uint8_t obstacleStopPending;
 static AvRun avoidance;
 static AvParser avoidanceParser;
@@ -530,6 +532,10 @@ static void serviceTjcObstacles(void)
     tjcObstaclePending = 0U;
     __enable_irq();
     if (regions == 0U) return;
+    if (!prepareObstacleTurret()) {
+        serialSendString("HMI OBSTACLES rejected: busy or stopped; resend selection\r\n");
+        return;
+    }
     tjcObstacleRegions = regions;
     serialSendString("HMI OBSTACLES regions=");
     for (i = 0U; i < 15U; ++i) {
@@ -640,6 +646,7 @@ static void stopAuxMotors(void)
 
 static void stopAllMotors(void)
 {
+    obstacleTurretPending = obstacleTurretReady = 0U;
     if (visionSession.state == VISION_STATE_REQUEST ||
         visionSession.state == VISION_STATE_WAIT ||
         visionSession.state == VISION_STATE_MOVE ||
@@ -881,6 +888,7 @@ static void stopServoMotion(void)
     uint8_t index;
 
     __disable_irq();
+    obstacleTurretPending = obstacleTurretReady = 0U;
     for (index = 0U; index < 3U; ++index) {
         targetAngleMdeg[index] = currentAngleMdeg[index];
         servoChannelMoving[index] = 0U;
@@ -3340,7 +3348,7 @@ static void startButtonMission(uint8_t zone)
     char digits[3];
     uint8_t count = 0U, length = 16U;
     uint16_t value = missionButtonRpm;
-    if (motionMode || routeActive || mechanismState.running ||
+    if (obstacleTurretPending || motionMode || routeActive || mechanismState.running ||
         mechanismActionActive || visionSessionActive()) {
         serialSendString("BUTTON IGNORED busy\r\n");
         return;
@@ -3540,6 +3548,7 @@ int main(void)
             serialSendString("EMERGENCY STOP; motors 1..6 stopped; disarmed\r\n");
         }
 
+        serviceObstacleTurret();
         hostService();
         serviceHostWatchdog();
         serviceMissionButton();

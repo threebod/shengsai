@@ -12,11 +12,15 @@ static uint8_t hostLog[128];
 static uint8_t hostDriveActive;
 static uint8_t hostCancelled;
 static uint8_t hostOperationFailed;
+static uint8_t hostStartPending,hostStartZone;
+static uint16_t hostStartRpm;
 static uint32_t hostDriveAt,hostStateAt,hostSession;
 static uint16_t scaleForward=VISION_RING2_FORWARD_MILLI,scaleRight=VISION_RING2_RIGHT_MILLI;
 static uint8_t scaleSaved;
 typedef struct { uint8_t valid; uint32_t at; SsFrame request,response; } HostCached;
 static HostCached hostCache[16];static uint8_t hostCacheIndex;
+
+#include "obstacle_turret.h"
 
 static void hostSend(const SsFrame *f) {
     uint8_t bytes[SS_MAX_FRAME];unsigned i,n=ss_encode(f,bytes);
@@ -37,7 +41,7 @@ static void hostLogChar(char c) {
     if(c!='\n') hostLog[hostLogLength++]=(uint8_t)c;
 }
 static uint8_t hostBusy(void) {
-    return motionMode || routeActive || mechanismState.running || mechanismActionActive ||
+    return hostStartPending || obstacleTurretPending || motionMode || routeActive || mechanismState.running || mechanismActionActive ||
            visionSessionActive() || servoChannelMoving[0] || servoChannelMoving[1] || servoChannelMoving[2];
 }
 static void hostApplyScale(void) {
@@ -90,7 +94,8 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
         r->length=6;r->data[1]=scaleSaved;ss_put16(r->data+2,scaleForward);ss_put16(r->data+4,scaleRight);return;
     }
     if(hostBusy() && !(q->command==SS_DRIVE && hostDriveActive) &&
-       !(q->command==SS_SERVO && !motionMode && !routeActive && !mechanismState.running &&
+       !(q->command==SS_SERVO && !hostStartPending && !obstacleTurretPending &&
+         !motionMode && !routeActive && !mechanismState.running &&
          !mechanismActionActive && !visionSessionActive())) {r->data[0]=2;return;}
     hostError=hostCancelled=0;command[0]=0;
     switch(q->command) {
@@ -121,17 +126,15 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
     case SS_PREPARE: case SS_MISSION: case SS_ROUTE:
         if(q->length!=4 || q->data[0]<1 || q->data[0]>2 || q->data[1]>3) break;
         a=ss_get16(q->data+2);if(a<10 || a>250) break;
+        if(q->command!=SS_ROUTE && !mechanismState.valid) {r->data[0]=6;return;}
+        if(!prepareObstacleTurret()) {r->data[0]=4;return;}
         routeObstaclePosition=q->data[1];
-        if(q->command==SS_ROUTE) sprintf(command,"route auto %u %u",q->data[0],a);
-        else {
-            if(!mechanismState.valid) {r->data[0]=6;return;}
+        if(q->command==SS_PREPARE) {
             missionButtonRpm=a;missionButtonReady=1;
-            if(q->command==SS_PREPARE) return;
-            startButtonMission(q->data[0]);
-            if(!missionActive) {r->data[0]=4;return;}
-            missionOffline=1;return;
+            return;
         }
-        break;
+        hostStartPending=q->command;hostStartZone=q->data[0];hostStartRpm=a;
+        return;
     case SS_ACTION:
         if(q->length!=1 || !mechanismState.valid) break;
         if(q->data[0]==0) {
@@ -190,6 +193,7 @@ static void hostService(void) {
             hostOperationFailed=0;operationActive=1;operationSequence=q.sequence;operationCommand=q.command;
         }
     }
+    serviceObstacleHostStart();
     if(clockMs-hostStateAt>=200) {
         hostStateAt=clockMs;r.flags=SS_EVENT;r.sequence=0;r.command=SS_STATE;r.data[0]=0;hostSnapshot(&r);hostSend(&r);
     }
