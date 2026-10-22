@@ -1,0 +1,11 @@
+{
+  "name": "shengsai-action-viewer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test timeline.test.js"
+  },
+  "dependencies": {
+    "three": "0.186.1"
+  }
+}

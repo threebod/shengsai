@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f6f7">
+  <title>动作实验室 · 省赛机构回放</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23158d7c'/%3E%3Cpath d='m8 12 8-5 8 5v9l-8 5-8-5zM8 12l8 5 8-5M16 17v9' fill='none' stroke='white' stroke-width='2'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">{"imports":{"three":"./node_modules/three/build/three.module.js","three/addons/":"./node_modules/three/examples/jsm/"}}</script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="动作实验室首页"><span class="brand-icon"><svg viewBox="0 0 32 32"><path d="m7 11 9-5 9 5v10l-9 5-9-5zM7 11l9 5 9-5M16 16v10"/></svg></span><div><h1>动作实验室<span> / ACTION LAB</span></h1><p>省赛机器人 · 机构动作组回放</p></div></a>
+    <div class="source-status"><i></i><span id="source-status">正在读取当前工程…</span></div>
+    <button id="reload" class="button subtle"><svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2 6M20 4v7h-7"/></svg>重读固件</button>
+  </header>
+  <main class="workspace">
+    <aside class="library panel">
+      <div class="section-heading"><h2>动作库</h2><span id="group-count" class="tiny-badge">—</span></div>
+      <p class="muted intro">选择动作组，逐步观察机构配合。</p>
+      <nav id="families" aria-label="选择动作组">
+        <button class="family" data-family="raw"><span class="family-symbol">01</span><span><strong>原料夹取</strong><small>识别位置 → 车载转盘</small></span><b>›</b></button>
+        <button class="family active" data-family="coarse"><span class="family-symbol">02</span><span><strong>粗加工放置</strong><small>转盘取料 → 三个圆环</small></span><b>›</b></button>
+        <button class="family" data-family="return"><span class="family-symbol">03</span><span><strong>粗加工回收</strong><small>圆环取料 → 车载转盘</small></span><b>›</b></button>
+        <button class="family" data-family="storage1"><span class="family-symbol">04</span><span><strong>暂存 · 第一层</strong><small>下层放置动作</small></span><b>›</b></button>
+        <button class="family" data-family="storage2"><span class="family-symbol">05</span><span><strong>暂存 · 第二层</strong><small>上层码放动作</small></span><b>›</b></button>
+      </nav>
+      <div class="variant-fields" id="order-fields"><label for="order">圆环任务顺序</label><select id="order"><option value="231">2 → 3 → 1</option><option value="123">1 → 2 → 3</option><option value="132">1 → 3 → 2</option><option value="213">2 → 1 → 3</option><option value="312">3 → 1 → 2</option><option value="321">3 → 2 → 1</option></select></div>
+      <div class="variant-fields" id="raw-fields" hidden><label for="position">原料位置</label><select id="position"><option value="1">下方物料</option><option value="2">左上物料</option><option value="3">右上物料</option></select><label for="slot">放入转盘槽位</label><select id="slot"><option value="1">1 号槽</option><option value="2">2 号槽</option><option value="3">3 号槽</option></select></div>
+      <div class="variant-fields" id="return-fields" hidden><label for="round">回收轮次</label><select id="round"><option value="1">第一轮 · 水平 −45 mm</option><option value="2">第二轮 · 水平 −47 mm</option></select></div>
+      <div class="source-note"><span class="note-icon">i</span><p>直接读取工程中的动作生成函数。修改固件后，点击“重读固件”更新。</p></div>
+      <div class="library-bottom"><span>只读预览</span><span>不连接硬件</span></div>
+    </aside>
+
+    <section class="stage-column">
+      <div class="scene panel">
+        <div class="scene-top"><div><span class="eyebrow">MECHANISM PREVIEW</span><h2 id="scene-title">粗加工放置</h2></div><div class="view-switch" aria-label="视角"><button id="top-view" class="selected">俯视</button><button id="angle-view">斜视</button></div></div>
+        <div id="viewport" aria-label="Three.js机构动作三维视图"><div id="scene-error" class="scene-error" hidden></div><div id="tool-label" class="tool-label">夹爪</div></div>
+        <div class="scene-bottom"><div class="scene-legend"><span><i class="dot mint"></i>当前工具端</span><span><i class="dot blue"></i>动作轨迹</span></div><label class="path-toggle"><input id="show-path" type="checkbox" checked>显示轨迹</label></div>
+        <div class="model-note">示意模型 · 尺寸与云台零角方向未标定 · 滚轮缩放 / 拖动平移</div>
+      </div>
+
+      <section class="transport panel" aria-label="播放控制">
+        <div class="transport-heading"><div><span class="eyebrow">TIMELINE</span><h2>动作时间轴 <span id="step-count">—</span></h2></div><span id="play-state" class="status-pill">准备就绪</span></div>
+        <div id="step-strip" class="step-strip" aria-label="点击跳转动作步骤"></div>
+        <div class="scrubber-row"><output id="current-time">00:00.0</output><input id="scrubber" type="range" min="0" max="1" step="1" value="0" aria-label="动作播放进度"><span id="total-time">00:00.0</span></div>
+        <div class="playback-row"><span class="keyboard-hint"><kbd>Space</kbd> 播放 / 暂停</span><div class="play-buttons"><button id="restart" class="icon-button" title="回到起点" aria-label="回到起点"><svg viewBox="0 0 24 24"><path d="M5 5v14M19 6l-9 6 9 6z"/></svg></button><button id="previous" class="icon-button" title="上一步" aria-label="上一步"><svg viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg></button><button id="play" class="play-button" disabled><svg id="play-icon" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z"/></svg><span>播放动作</span></button><button id="next" class="icon-button" title="下一步" aria-label="下一步"><svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></button></div><div class="speed-controls"><label for="speed">速度</label><select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select><label class="loop-label"><input id="loop" type="checkbox">循环</label></div></div>
+      </section>
+    </section>
+
+    <aside class="inspector">
+      <section class="panel current-action"><span class="eyebrow">CURRENT ACTION</span><div class="current-step"><span id="current-step">01</span><span id="action-kind">机构运动</span></div><h2 id="action-title">正在读取动作…</h2><p id="action-detail" class="muted">从固件生成当前动作数据。</p><div class="action-progress"><i id="action-progress"></i></div><p id="source-step" class="micro">源码步骤 —</p></section>
+      <section class="panel live-state"><div class="section-heading"><h2>当前指令姿态</h2><span class="live-dot"></span></div><dl class="readouts"><div><dt><i class="axis-icon">H</i>水平位置</dt><dd><strong id="value-h">0.0</strong><span>mm</span></dd></div><div><dt><i class="axis-icon">θ</i>云台角度</dt><dd><strong id="value-turret">260.0</strong><span>°</span></dd></div><div><dt><i class="axis-icon">G</i>夹爪角度</dt><dd><strong id="value-gripper">200.0</strong><span>°</span></dd></div><div><dt><i class="axis-icon">P</i>转盘角度</dt><dd><strong id="value-platform">26.0</strong><span>°</span></dd></div></dl><div class="lift-section"><div class="lift-title"><span>升降 · 向下深度</span><strong><span id="value-lift">0.0</span><small> mm</small></strong></div><div class="lift-ruler"><div class="lift-track"><i id="lift-fill"></i><b id="lift-pointer"></b></div><div class="lift-scale"><span>0</span><span>50</span><span>100</span><span>150 mm</span></div></div><p class="micro">俯视图中的升降变化，可在此查看。</p></div></section>
+      <section class="panel parameters"><h2>当前放置深度</h2><dl><div><dt>一层 / 二层</dt><dd id="heights-layers">—</dd></div><div><dt>原料 / 回收落盘</dt><dd id="heights-tray">—</dd></div></dl><p>回放使用源码默认参数，不读取设备已固化的参数。</p></section>
+    </aside>
+  </main>
+  <footer class="page-footer"><span><i></i>Three.js · 本地动作回放</span><span>指令轨迹与估算时序，不代表真实到位反馈或碰撞验证。</span><span id="source-hash">SOURCE —</span></footer>
+  <div id="notification" class="notification" role="status" hidden></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
