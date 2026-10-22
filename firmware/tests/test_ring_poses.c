@@ -1,5 +1,39 @@
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include <assert.h>
 #include "../mission_actions.h"
+#include "../raw_pick_action.h"
+
+static void checkTurretRemount(void)
+{
+    const int observation = rawPickObservePose.turretDdeg;
+    uint16_t i;
+    assert(observation == 2600);
+    assert(rawPickInitial.pose.turretDdeg == observation);
+    assert(missionInitial.pose.turretDdeg == observation && missionCoarseInitial.pose.turretDdeg == observation);
+    /* Preserve the recorded geometry relative to the observation direction. */
+    assert((int)rawPickLowerPose.turretDdeg - observation == -40);
+    assert((int)rawPickUpperPoses[0].turretDdeg - observation == 173);
+    assert((int)rawPickUpperPoses[1].turretDdeg - observation == -216);
+    assert((int)rawPickTravelPose.turretDdeg - observation == -2070);
+    assert((int)missionRingPoses[0].turretDdeg - observation == 358);
+    assert((int)missionRingPoses[1].turretDdeg - observation == -83);
+    assert((int)missionRingPoses[2].turretDdeg - observation == -420);
+    assert((int)rawPickActions[5].pose.turretDdeg - observation == -1400);
+    assert(rawPickActions[2].pose.turretDdeg == rawPickLowerPose.turretDdeg);
+    assert(rawPickActions[11].pose.turretDdeg == observation);
+    for (i = 0U; i < MISSION_PLACE_COUNT; ++i)
+        if (missionPlaceActions[i].type == MECHANISM_ACTION_POSE) {
+            assert(mechanismPoseValid(&missionPlaceActions[i].pose));
+            if (i < MISSION_COARSE_PLACE_COUNT)
+                assert(missionCoarsePlaceActions[i].pose.turretDdeg == missionPlaceActions[i].pose.turretDdeg);
+        }
+    /* Other servos and mechanism coordinates must not inherit the turret offset. */
+    assert(rawPickInitial.platformDeg[0] == 26U && rawPickInitial.platformDeg[1] == 146U && rawPickInitial.platformDeg[2] == 264U);
+    assert(rawPickInitial.gripperOpenDeg == 200U && rawPickInitial.gripperCloseDeg == 155U);
+    assert(rawPickObservePose.horizontalDmm == 650 && rawPickLowerPose.liftDmm == 530U);
+}
 
 static void checkUnchanged(const MechanismAction *before, const MechanismAction *after, uint16_t count)
 {
@@ -25,6 +59,7 @@ int main(void)
     RingPose original[3], changed[3] = {{-80,3000},{-360,2600},{410,2300}};
     MechanismAction before[MISSION_PICK_BACK_COUNT], after[MISSION_PICK_BACK_COUNT];
     uint8_t order, layer, coarse, item;
+    checkTurretRemount();
     assert(missionInitial.gripperOpenDeg == missionCoarseInitial.gripperOpenDeg);
     memcpy(original, missionRingPoses, sizeof(original));
     assert(ringPosesValid(changed));

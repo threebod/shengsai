@@ -46,6 +46,8 @@ flags：请求01、响应02、事件04、错误响应0A。响应的 command/sequ
 
 圆环水平范围为-1220–850，云台范围0–3600。三组一次保存，需空闲；不会驱动机构。上位机必须先读取后允许覆盖。
 
+2026-10-22 云台重新安装后，观察角度由272°变为260°，固件已有动作与圆环默认值统一减12°。圆环读取和写入载荷始终使用当前安装后的绝对角度，上位机不得再减12°。扇区9旧格式记录（magic `0x524E4701`）仅在加载时换算；显式保存写入当前格式（magic `0x524E4702`），之后直接加载，防止重复偏移。此变更不改变线上的帧格式或版本。读取旧记录不触发运动或自动写Flash。
+
 ## 周期状态与完成
 
 状态81和状态02响应：`status,busy,estop,mechanismValid,missionPhase,routeIndex,buttonReady,fullRouteRunning,safetyConfirmed,horizontal:i16,lift:u16,servo2:u16,servo3:u16,servo4:u16,mechanismRunning,actionRunning`，共21字节。

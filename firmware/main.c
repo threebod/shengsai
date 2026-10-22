@@ -164,7 +164,7 @@ static float missionOffsetForward, missionOffsetRight;
 static MechanismAction missionWorkActions[MISSION_PLACE_COUNT];
 static MechanismAction missionPickBackActions[MISSION_PICK_BACK_COUNT];
 static const MechanismPose missionRingObservePose =
-    {-770, 0, 2720, 1000, 200, 2000, 240, 2200};
+    {-770, 0, 2600, 1000, 200, 2000, 240, 2200};
 static int8_t routeHeading, routeNextHeading;
 static float routeBaseYaw;
 static uint32_t routeTurnStart, routeTurnStable;
@@ -1417,7 +1417,7 @@ static void missionCountAction(const MechanismAction *action)
     } else if (action->value &&
                (missionPhase == MISSION_COARSE_PLACE || missionPhase == MISSION_TEMP_PLACE) &&
                mechanismState.current.liftDmm != 0U &&
-               mechanismState.current.turretDdeg != 1320U) {
+               mechanismState.current.turretDdeg != 1200U) {
         /* Exclude opening at the observation pose and transfers on the tray. */
         ++missionPlaceCount;
     } else {
@@ -1466,11 +1466,11 @@ void mechanismActionService(void)
         if (action->type == MECHANISM_ACTION_POSE &&
             (action->pose.horizontalDmm == -500 || action->pose.horizontalDmm == -450 ||
              action->pose.horizontalDmm == -470) &&
-            action->pose.turretDdeg == 1320U &&
+            action->pose.turretDdeg == 1200U &&
             action->pose.liftDmm > mechanismState.current.liftDmm &&
             servoChannelMoving[1]) return;
         if (action->type == MECHANISM_ACTION_GRIPPER && action->value &&
-            mechanismState.current.turretDdeg == 1320U && servoChannelMoving[1]) return;
+            mechanismState.current.turretDdeg == 1200U && servoChannelMoving[1]) return;
         if ((action->type == MECHANISM_ACTION_PLATFORM ||
              (action->type == MECHANISM_ACTION_SERVO && action->channel == 3U)) &&
             servoChannelMoving[1]) return;
@@ -1494,7 +1494,7 @@ void mechanismActionService(void)
                                     mechanismActionInitial->gripperCloseDeg;
             servoSetTarget(2U, angle, mechanismActionInitial->gripperDps10);
             if (mechanismActionInitial == &rawPickInitial && action->value &&
-                mechanismState.current.turretDdeg == 1320U) {
+                mechanismState.current.turretDdeg == 1200U) {
                 serialSendString("RAW RELEASE target_deg=");
                 serialSendUint(angle);
                 serialSendString(" step=");
@@ -1550,7 +1550,7 @@ void mechanismActionService(void)
         !(action->channel == 3U && action->waitMs == 0U)) return;
     if (mechanismActionInitial == &rawPickInitial &&
         action->type == MECHANISM_ACTION_GRIPPER && action->value &&
-        mechanismState.current.turretDdeg == 1320U) {
+        mechanismState.current.turretDdeg == 1200U) {
         serialSendString("RAW RELEASE pwm_deg=");
         serialSendUint((uint16_t)(currentAngleMdeg[0] / 1000U));
         serialSendString(" step=");
@@ -2175,9 +2175,9 @@ static uint8_t processRouteCommand(const char *command)
     }
     if ((rawRun || missionRun) && (mechanismState.current.horizontalDmm != 0 ||
                    mechanismState.current.liftDmm != 0U ||
-                   (mechanismState.current.turretDdeg != 650U &&
-                    mechanismState.current.turretDdeg != 2720U))) {
-        serialSendString("ERR ROUTE: rawpick needs pose h=0 l=0 t=650 or 2720; check mech status\r\n");
+                   (mechanismState.current.turretDdeg != 530U &&
+                    mechanismState.current.turretDdeg != 2600U))) {
+        serialSendString("ERR ROUTE: rawpick needs pose h=0 l=0 t=530 or 2600; check mech status\r\n");
         return 1U;
     }
     if ((rawRun || missionRun) && (servoChannelMoving[0] || servoChannelMoving[1] ||
@@ -2536,9 +2536,9 @@ static void serviceRawPickRoute(void)
     if (!mechanismState.valid || mechanismState.running ||
         mechanismState.current.horizontalDmm != 0 ||
         mechanismState.current.liftDmm != 0U ||
-        (mechanismState.current.turretDdeg != 2720U &&
+        (mechanismState.current.turretDdeg != 2600U &&
          !(rawPickItemIndex == 0U &&
-           mechanismState.current.turretDdeg == 650U))) {
+           mechanismState.current.turretDdeg == 530U))) {
         visionPickActive = 1U;
         failVision("PICK_REQUIRES_INITIAL_POSE");
         return;
@@ -2594,7 +2594,7 @@ static void serviceVision(void)
         } else if (!mechanismState.running && !servoChannelMoving[0]) {
             if (mechanismState.current.horizontalDmm != rawPickObservePose.horizontalDmm ||
                 mechanismState.current.liftDmm != 0U ||
-                mechanismState.current.turretDdeg != 2720U ||
+                mechanismState.current.turretDdeg != 2600U ||
                 !vision_session_start(&visionSession, VISION_MODE_MATERIAL,
                                       color, 0U, visionCalibration(),
                                       clockMs)) {
@@ -2621,7 +2621,7 @@ static void serviceVision(void)
         } else if (!mechanismActionActive) {
             if (rawPickAtStation && rawPickItemIndex == 2U) {
                 if (mechanismState.running) return;
-                if (mechanismState.current.turretDdeg != 650U) {
+                if (mechanismState.current.turretDdeg != 530U) {
                     startMechanismPose(&rawPickTravelPose);
                     if (!mechanismState.running) failVision("PICK_RETURN_FAILED");
                     return;
@@ -2872,10 +2872,10 @@ static void serviceMission(void)
             if (missionPhase == MISSION_TEMP_ALIGN && mechanismState.running) return;
             if (!mechanismState.valid || mechanismState.running ||
                 mechanismState.current.liftDmm != 0U ||
-                (mechanismState.current.turretDdeg != 2720U &&
-                 mechanismState.current.turretDdeg != 650U &&
+                (mechanismState.current.turretDdeg != 2600U &&
+                 mechanismState.current.turretDdeg != 530U &&
                  !(missionPhase == MISSION_TEMP_ALIGN &&
-                   mechanismState.current.turretDdeg == 1320U &&
+                   mechanismState.current.turretDdeg == 1200U &&
                    mechanismState.current.horizontalDmm ==
                        (routeIndex == 16U ? -470 : -450)))) {
                 missionAbort("ring_prep_pose");
@@ -2897,7 +2897,7 @@ static void serviceMission(void)
             if (!mechanismState.valid ||
                 mechanismState.current.horizontalDmm != missionRingObservePose.horizontalDmm ||
                 mechanismState.current.liftDmm != 0U ||
-                mechanismState.current.turretDdeg != 2720U) {
+                mechanismState.current.turretDdeg != 2600U) {
                 missionAbort("ring_prep_failed");
                 return;
             }
@@ -2965,7 +2965,7 @@ static void serviceMission(void)
                     (mechanismState.current.horizontalDmm !=
                          (routeIndex == 14U ? -470 : -450) ||
                      mechanismState.current.liftDmm != 0U ||
-                     mechanismState.current.turretDdeg != 1320U)) {
+                     mechanismState.current.turretDdeg != 1200U)) {
                     missionAbort("recovery_release_pose");
                     return;
                 }
@@ -3002,10 +3002,10 @@ static void serviceMission(void)
     if (motionMode || mechanismState.running || mechanismActionActive) return;
     if (!mechanismState.valid || mechanismState.current.horizontalDmm != 0 ||
         mechanismState.current.liftDmm != 0U ||
-        (mechanismState.current.turretDdeg != 2720U &&
+        (mechanismState.current.turretDdeg != 2600U &&
           !((routeIndex == 4U || routeIndex == 7U ||
              routeIndex == 11U || routeIndex == 14U) &&
-           mechanismState.current.turretDdeg == 650U))) {
+           mechanismState.current.turretDdeg == 530U))) {
         missionAbort("unsafe_recenter_pose");
         return;
     }
@@ -3159,7 +3159,7 @@ static uint8_t processVisionCommand(const char *command)
         }
         if (mechanismState.current.horizontalDmm != 0 ||
             mechanismState.current.liftDmm != 0U ||
-            mechanismState.current.turretDdeg != 2720U) {
+            mechanismState.current.turretDdeg != 2600U) {
             serialSendString("VISION ERROR reason=PICK_REQUIRES_INITIAL_POSE\r\n");
             return 1U;
         }
@@ -3325,7 +3325,7 @@ static void prepareOfflineMission(void)
     MechanismPose zero = rawPickInitial.pose;
     zero.horizontalDmm = 0;
     zero.liftDmm = 0U;
-    zero.turretDdeg = 650U;
+    zero.turretDdeg = 530U;
     /* The user confirms the axes are physically at zero on power-on. */
     mechanismStateInitialize(&mechanismState, &zero);
     visionMaterialCalibration.calibrated = 1U;

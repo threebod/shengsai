@@ -9,6 +9,11 @@
 #define RING_STORE_WORDS (0x20000U / 4U)
 #endif
 
+#define RING_RECORD_LEGACY 0x524E4701UL
+#define RING_RECORD_CURRENT 0x524E4702UL
+/* Old observation 272.0 degrees -> remounted observation 260.0 degrees. */
+#define RING_LEGACY_TURRET_SHIFT_DDEG 120U
+
 static uint32_t ringRecordCheck(const uint32_t data[4])
 {
     uint32_t crc = 0xFFFFFFFFUL;
@@ -27,26 +32,40 @@ static uint8_t ringRecordRead(uint32_t index, RingPose poses[3])
     uint32_t data[4];
     uint8_t i;
     for (i = 0U; i < 4U; ++i) data[i] = words[index + i];
-    if (data[0] != 0x524E4701UL || words[index + 5U] != ~0x524E4701UL ||
+    if ((data[0] != RING_RECORD_LEGACY && data[0] != RING_RECORD_CURRENT) ||
+        words[index + 5U] != ~data[0] ||
         words[index + 4U] != ringRecordCheck(data)) return 0U;
     for (i = 0U; i < 3U; ++i) {
         poses[i].horizontalDmm = (int16_t)(data[i + 1U] & 65535U);
         poses[i].turretDdeg = (uint16_t)(data[i + 1U] >> 16);
     }
-    return ringPosesValid(poses);
+    if (!ringPosesValid(poses)) return 0U;
+    if (data[0] == RING_RECORD_LEGACY) {
+        for (i = 0U; i < 3U; ++i) {
+            if (poses[i].turretDdeg < RING_LEGACY_TURRET_SHIFT_DDEG) return 0U;
+            poses[i].turretDdeg -= RING_LEGACY_TURRET_SHIFT_DDEG;
+        }
+    }
+    return 1U;
+}
+
+static uint32_t ringPosesLoadVersion(RingPose poses[3])
+{
+    volatile const uint32_t *words = (volatile const uint32_t *)RING_STORE_BASE;
+    RingPose candidate[3];
+    uint32_t i;
+    uint32_t version = 0U;
+    for (i = 0U; i + 5U < RING_STORE_WORDS; i += 6U)
+        if (ringRecordRead(i, candidate)) {
+            memcpy(poses, candidate, sizeof(candidate));
+            version = words[i];
+        }
+    return version;
 }
 
 static uint8_t ringPosesLoad(RingPose poses[3])
 {
-    RingPose candidate[3];
-    uint32_t i;
-    uint8_t found = 0U;
-    for (i = 0U; i + 5U < RING_STORE_WORDS; i += 6U)
-        if (ringRecordRead(i, candidate)) {
-            memcpy(poses, candidate, sizeof(candidate));
-            found = 1U;
-        }
-    return found;
+    return ringPosesLoadVersion(poses) != 0U;
 }
 
 static uint8_t ringPosesSave(const RingPose poses[3])
@@ -56,11 +75,12 @@ static uint8_t ringPosesSave(const RingPose poses[3])
     uint32_t i, j, next = 0U, data[6];
     FLASH_Status status = FLASH_COMPLETE;
     if (!ringPosesValid(poses)) return 0U;
-    if (ringPosesLoad(previous) && memcmp(previous, poses, sizeof(previous)) == 0) return 1U;
+    if (ringPosesLoadVersion(previous) == RING_RECORD_CURRENT &&
+        memcmp(previous, poses, sizeof(previous)) == 0) return 1U;
     for (i = 0U; i + 5U < RING_STORE_WORDS; i += 6U)
         for (j = 0U; j < 6U; ++j)
             if (words[i + j] != 0xFFFFFFFFUL) next = i + 6U;
-    data[0] = 0x524E4701UL;
+    data[0] = RING_RECORD_CURRENT;
     for (i = 0U; i < 3U; ++i)
         data[i + 1U] = (uint16_t)poses[i].horizontalDmm | ((uint32_t)poses[i].turretDdeg << 16);
     data[4] = ringRecordCheck(data);
