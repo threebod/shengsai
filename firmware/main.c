@@ -1289,7 +1289,7 @@ static void startMechanismPose(const MechanismPose *target)
     if(horizontalPulses) mechanismAxes|=2;
     mechanismPreparing=1;mechanismPollAxis=0;
     mechanismPollKind[0]=mechanismPollKind[1]=0;
-    mechanismPollAt=clockMs-50;mechanismFeedbackTimeout=clockMs+3000;
+    mechanismPollAt=clockMs-MECHANISM_FEEDBACK_POLL_MS;mechanismFeedbackTimeout=clockMs+3000;
     setAuxMotorsEnabled(true);
     jogCanClearReply(5,0x33);jogCanClearReply(6,0x33);
 }

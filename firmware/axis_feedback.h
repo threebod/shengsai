@@ -2,6 +2,7 @@
 #define SHENGSAI_AXIS_FEEDBACK_H
 #include <stdint.h>
 #include <stdlib.h>
+#define MECHANISM_FEEDBACK_POLL_MS 20U
 /* Emm relative mode 0 accumulates from the previous input target, not a timer estimate. */
 typedef struct { int32_t expected, actual; uint8_t targetVerified, reached, actualAfterArrival; } AxisFeedback;
 static void axisBegin(AxisFeedback *a, int32_t baseline, int32_t signedPulses) {

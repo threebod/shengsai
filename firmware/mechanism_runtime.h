@@ -54,7 +54,7 @@ static void serviceMechanism(void)
         }
         return;
     }
-    if(clockMs-mechanismPollAt>=50) {
+    if(clockMs-mechanismPollAt>=MECHANISM_FEEDBACK_POLL_MS) {
         uint8_t id;SysParams_t param;
         mechanismPollAt=clockMs;
         for(i=0;i<2;++i) {
@@ -63,10 +63,13 @@ static void serviceMechanism(void)
         }
         id=(uint8_t)(5+mechanismPollAxis);
         if(mechanismPreparing || !mechanismFeedback[mechanismPollAxis].targetVerified) param=S_TPOS;
-        else {
+        else if(mechanismFeedback[mechanismPollAxis].reached &&
+                !mechanismFeedback[mechanismPollAxis].actualAfterArrival) {
+            /* Read position first after arrival; keep checking faults if its reply is lost. */
             mechanismPollKind[mechanismPollAxis]^=1;
-            param=mechanismPollKind[mechanismPollAxis]?S_FLAG:S_CPOS;
+            param=mechanismPollKind[mechanismPollAxis]?S_CPOS:S_FLAG;
         }
+        else param=S_FLAG;
         if(mechanismAxes) Emm_V5_Read_Sys_Params(id,param);
     }
 }
