@@ -9,6 +9,7 @@ typedef enum { S_FLAG,S_TPOS,S_CPOS } SysParams_t;
 static MechanismState mechanismState;
 static AxisFeedback mechanismFeedback[2];
 static uint8_t mechanismAxes,mechanismPreparing,mechanismPollAxis,mechanismPollKind[2],mechanismBaselineMask;
+static uint8_t mechanismDiagnosticPositionMask;
 static uint8_t servoChannelMoving[3],fault;
 static uint32_t clockMs,mechanismFeedbackTimeout,mechanismPollAt;
 static int32_t mechanismBaseline[2];
@@ -20,6 +21,7 @@ static unsigned prematurePositions;
 static uint32_t arrivalAt[2];
 static uint32_t faultAt[2];
 static uint32_t lastQueryAt;
+static char logText[4096];
 static int slot(uint8_t fn){return fn==0x33?0:fn==0x3a?1:2;}
 static uint8_t jogCanTakeReply(uint8_t id,uint8_t fn,int32_t *v){int s=slot(fn);if(!ready[id-5][s])return 0;*v=replies[id-5][s];ready[id-5][s]=0;return 1;}
 static void jogCanClearReply(uint8_t id,uint8_t fn){ready[id-5][slot(fn)]=0;}
@@ -28,9 +30,9 @@ static uint8_t motionInterrupted(void){return fault;}
 static void stopServoMotion(void){servoChannelMoving[2]=0;}
 static void stopAllMotors(void){++stops;mechanismStateInvalidate(&mechanismState);}
 static void dispatchMechanismPose(void){mechanismPreparing=0;}
-static void serialSendString(const char *s){(void)s;}
-static void serialSendUint(uint16_t v){(void)v;}
-static void serialSendUint32(uint32_t v){(void)v;}
+static void serialSendString(const char *s){assert(strlen(logText)+strlen(s)<sizeof(logText));strcat(logText,s);}
+static void serialSendUint32(uint32_t v){char text[12];snprintf(text,sizeof(text),"%lu",(unsigned long)v);serialSendString(text);}
+static void serialSendUint(uint16_t v){serialSendUint32(v);}
 static void Emm_V5_Read_Sys_Params(uint8_t id,SysParams_t p){
     uint8_t fn=p==S_TPOS?0x33:p==S_FLAG?0x3a:0x36;
     assert(!queries || clockMs-lastQueryAt>=MECHANISM_FEEDBACK_POLL_MS);
@@ -49,6 +51,7 @@ static void reset(void){
     mechanismFeedbackTimeout=3000;clockMs=500;mechanismAxes=3;mechanismPreparing=0;mechanismPollAt=clockMs;
     stops=dones=queries=0;fault=servoChannelMoving[2]=0;
     simulateReplies=missingMotor=missingFn=0;mechanismPollAxis=0;prematurePositions=0;
+    mechanismDiagnosticPositionMask=0;logText[0]='\0';
     mechanismPollKind[0]=mechanismPollKind[1]=0;mechanismBaselineMask=0;
     memset(queryKinds,0,sizeof(queryKinds));arrivalAt[0]=arrivalAt[1]=0;
     faultAt[0]=faultAt[1]=0;
@@ -119,5 +122,20 @@ int main(void){
     reset();simulateReplies=1;missingMotor=5;missingFn=0x3a;
     while(mechanismState.running && clockMs<3000){++clockMs;serviceMechanism();}
     assert(stops==1 && !dones && !mechanismState.valid && !mechanismFeedback[0].reached);
+    reset();simulateReplies=1;arrivalAt[1]=4000;
+    while(mechanismState.running && clockMs<3000){++clockMs;serviceMechanism();}
+    assert(stops==1 && !dones && !mechanismFeedback[1].reached &&
+           !mechanismFeedback[1].actualAfterArrival && mechanismFeedback[1].actualReplies==1);
+    assert(mechanismFeedback[1].lastStatus==1 && mechanismFeedback[1].statusReplies>0);
+    assert(strstr(logText,"AXIS FEEDBACK motor=6 status_rx=") && strstr(logText,"actual_enc=32768"));
+    reset();simulateReplies=1;missingMotor=6;missingFn=0x3a;
+    while(mechanismState.running && clockMs<3000){++clockMs;serviceMechanism();}
+    assert(stops==1 && !dones && mechanismFeedback[1].statusReplies==0 &&
+           mechanismFeedback[1].actualReplies==1 && !mechanismFeedback[1].reached);
+    assert(strstr(logText,"AXIS FEEDBACK motor=6 status_rx=0 status=0 position_rx=1"));
+    reset();clockMs=3000;serviceMechanism();assert(strstr(logText,"actual_enc=unknown"));
+    reset();serialSendInt32(-1);serialSendString(" ");serialSendInt32(INT32_MIN);
+    serialSendString(" ");serialSendInt32(INT32_MAX);serialSendString(" ");serialSendInt32(0);
+    assert(strcmp(logText,"-1 -2147483648 2147483647 0")==0);
     puts("PASS production service: independent single/dual-axis polling, both arrival orders, stale feedback and servo gate, timeout/fault invalidate");return 0;
 }
