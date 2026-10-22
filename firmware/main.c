@@ -40,7 +40,6 @@
 #define AUX_MOVE_STATUS_POLL_MS  50U
 #define AUX_MOVE_TIMEOUT_MARGIN_MS  3000U
 #define VISION_MOVE_STATUS_POLL_MS  20U
-#define VISION_MOVE_STATUS_MIN_MS   2000U
 #define HOST_HEARTBEAT_TIMEOUT_MS  1000U
 #define MISSION_BUTTON_DEBOUNCE_MS 30U
 #define MISSION_BUTTON_LONG_PRESS_MS 1000U
@@ -225,7 +224,7 @@ static volatile uint8_t qrRxReady;
 static volatile char qrRxPayload[QR_SCAN_PAYLOAD_MAX + 1U];
 static uint8_t qrAtStation, qrResultAtStation;
 static uint8_t visionMotionAutomatic;
-static uint8_t visionMotionPendingMask, visionMotionQueryId;
+static uint8_t visionMotionMotorMask, visionMotionQueryId;
 static uint8_t visionMotionSeenMask, visionMotionStatus[4];
 static uint8_t visionPickActive;
 static const VisionCalibration visionPickCalibration = {
@@ -1151,7 +1150,7 @@ static void printVisionMotionStatus(void)
     uint8_t id;
     serialSendString("VISION MOVE STATUS elapsed_ms="); serialSendUint32(clockMs - motionStart);
     serialSendString(" limit_ms="); serialSendUint32(motionDuration);
-    serialSendString(" pending_mask="); serialSendUint32(visionMotionPendingMask);
+    serialSendString(" motor_mask="); serialSendUint32(visionMotionMotorMask);
     serialSendString(" seen_mask="); serialSendUint32(visionMotionSeenMask);
     for (id = 1U; id <= 4U; ++id) {
         serialSendString(" m"); serialSendUint32(id);
@@ -1171,7 +1170,7 @@ static uint8_t startVisionMotion(float forwardMm, float rightMm,
     uint8_t moved = 0U;
     if (automatic && visionSession.mode == VISION_MODE_RING &&
         visionSession.iteration >= 2U) rpm = 10U;
-    visionMotionPendingMask = visionMotionQueryId = 0U;
+    visionMotionMotorMask = visionMotionQueryId = 0U;
     wheelMm[0] = forward - right;
     wheelMm[1] = forward + right;
     wheelMm[2] = forward - right;
@@ -1193,7 +1192,7 @@ static uint8_t startVisionMotion(float forwardMm, float rightMm,
         }
         if (pulses > maximumPulses) maximumPulses = pulses;
         moved = 1U;
-        visionMotionPendingMask |= (uint8_t)(1U << (id - 1U));
+        visionMotionMotorMask |= (uint8_t)(1U << (id - 1U));
         Emm_V5_Pos_Control(id, direction,
                            (uint16_t)((uint32_t)rpm * motorTrim[id] / 1000U),
                            MOTOR_TEST_ACCEL, pulses, false, true);
@@ -1212,10 +1211,8 @@ static uint8_t startVisionMotion(float forwardMm, float rightMm,
         can.rxFrameFlag = false;
         __enable_irq();
     }
-    /* Ring watchdog; material moves retain timed completion. */
+    /* Both visual modes use timed completion; ring status checks faults only. */
     motionDuration = maximumPulses * 60000U / (3200U * rpm) + 800U;
-    if (visionSession.mode == VISION_MODE_RING && motionDuration < VISION_MOVE_STATUS_MIN_MS)
-        motionDuration = VISION_MOVE_STATUS_MIN_MS;
     motionMode = 4U;
     visionMotionAutomatic = automatic;
     if (missionActive && routeWaiting) {
@@ -1225,65 +1222,7 @@ static uint8_t startVisionMotion(float forwardMm, float rightMm,
     return 1U;
 }
 
-static void serviceMotion(void)
-{
-    uint32_t elapsed;uint8_t status;
-    if(motionMode!=4U || emergencyStop) return;
-    elapsed=clockMs-motionStart;
-
-        uint8_t id, bit;
-        if (motionInterrupted()) {
-            failVision("MOTION_FAULT");
-            return;
-        }
-        if (visionSession.mode != VISION_MODE_RING) {
-            if (elapsed < motionDuration) return;
-        } else {
-            for (id = 1U; id <= 4U; ++id) {
-                bit = (uint8_t)(1U << (id - 1U));
-                if (!(visionMotionPendingMask & bit) || !jogCanTakeDriveStatus(id, &status)) continue;
-                visionMotionSeenMask |= bit;
-                visionMotionStatus[id - 1U] = status;
-                if (!(status & 0x01U) || (status & 0x0CU)) {
-                    printVisionMotionStatus();
-                    failVision("MOTOR_STATUS_FAULT");
-                    return;
-                }
-                if (status & 0x02U)
-                    visionMotionPendingMask &= (uint8_t)~bit;
-            }
-            if (visionMotionPendingMask && elapsed >= motionDuration) {
-                printVisionMotionStatus();
-                failVision("MOTION_STATUS_TIMEOUT");
-                return;
-            }
-        }
-        if (visionSession.mode != VISION_MODE_RING || visionMotionPendingMask == 0U) {
-            stopDriveMotors();
-            motionMode = 0U;
-            serialSendString("VISION MOVE DONE elapsed_ms=");
-            serialSendUint32(elapsed);
-            serialSendString("\r\n");
-            if (visionMotionAutomatic) {
-                vision_session_move_complete(&visionSession, clockMs);
-                printVisionState();
-            } else {
-                vision_session_pause(&visionSession);
-                serialSendString("VISION PAUSED\r\n");
-            }
-            return;
-        }
-        if (clockMs - lastControl >= VISION_MOVE_STATUS_POLL_MS) {
-            lastControl = clockMs;
-            do {
-                visionMotionQueryId = (uint8_t)(visionMotionQueryId % 4U + 1U);
-            } while (!(visionMotionPendingMask & (1U << (visionMotionQueryId - 1U))));
-            jogCanExpectDriveStatus(visionMotionQueryId);
-            Emm_V5_Read_Sys_Params(visionMotionQueryId, S_FLAG);
-        }
-        return;
-    
-}
+#include "vision_motion_runtime.h"
 
 static uint8_t parsePair(const char *cursor, uint16_t *a, uint16_t *b)
 {
