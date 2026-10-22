@@ -84,7 +84,6 @@ static volatile uint32_t targetAngleMdeg[3];
 static volatile uint32_t turretStartAngleMdeg;
 static volatile uint32_t turretElapsedMs;
 static volatile uint32_t turretDurationMs;
-static volatile uint8_t turretLinearMotion;
 /* A close command may hold material; opening releases it. No load sensor. */
 static uint8_t gripperMayHoldMaterial = 1U;
 static uint8_t ringPosesSaved;
@@ -843,10 +842,7 @@ static uint8_t servoSetTargetMdeg(uint8_t channel, uint32_t target,
         uint32_t delta = target > current ? target - current : current - target;
         turretStartAngleMdeg = current;
         turretElapsedMs = 0U;
-        turretLinearMotion = !gripperMayHoldMaterial;
-        turretDurationMs = turretLinearMotion ?
-            ((delta + step - 1U) / step) * 20U :
-            turretMotionDurationMs(delta, speedDps10);
+        turretDurationMs = turretMotionDurationMs(delta, speedDps10);
     }
     targetAngleMdeg[index] = target;
     servoStepMdeg[index] = step;
@@ -940,8 +936,8 @@ void TIM2_IRQHandler(void)
         }
         current = currentAngleMdeg[index];
         target = targetAngleMdeg[index];
-        if (index == 2U) turretElapsedMs += 20U;
-        if (index == 2U && !turretLinearMotion) {
+        if (index == 2U) {
+            turretElapsedMs += 20U;
             current = turretMotionAngleMdeg(turretStartAngleMdeg, target,
                                             turretElapsedMs, turretDurationMs);
         } else if (current < target) {
@@ -1256,8 +1252,7 @@ static void startMechanismPose(const MechanismPose *target)
         MechanismPose axisTarget = *target;
         uint32_t delta = mechanismAbsoluteDelta((int16_t)(target->turretDdeg -
             mechanismState.start.turretDdeg)) * 100U;
-        uint32_t step = SERVO_EMPTY_TURRET_SPEED_DPS10 * 100U / SERVO_UPDATE_HZ;
-        uint32_t turretMs = ((delta + step - 1U) / step) * 20U;
+        uint32_t turretMs = turretMotionDurationMs(delta, SERVO_EMPTY_TURRET_SPEED_DPS10);
         axisTarget.turretDdeg = mechanismState.start.turretDdeg;
         mechanismState.durationMs = mechanismMoveDurationMs(&mechanismState.start, &axisTarget);
         if (turretMs > mechanismState.durationMs) mechanismState.durationMs = turretMs;
