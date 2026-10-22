@@ -1,11 +1,11 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { armMount, trayCenter, armRotation, toolPoint } from './kinematics.js';
 
 const deg = value => value * Math.PI / 180;
 export function toolPosition(state) {
-  const radius = 220 + state.h;
-  const angle = deg(state.turret - 260);
-  return new THREE.Vector3(Math.sin(angle) * radius, 200 - state.lift, -Math.cos(angle) * radius);
+  const point = toolPoint(state);
+  return new THREE.Vector3(point.x, point.y, point.z);
 }
 
 export class MechanismScene {
@@ -117,11 +117,12 @@ export class MechanismScene {
     this.box(this.robot, 28, 4, 37, m.mint, 0, 52, -68);
     const arrow = new THREE.Mesh(new THREE.ConeGeometry(7, 16, 3), m.rail);
     arrow.rotation.x = -Math.PI / 2;arrow.position.set(0, 58, -68);this.robot.add(arrow);
-    this.cylinder(this.robot, 37, 19, m.metal, 0, 65, 0);
-    this.cylinder(this.robot, 29, 22, m.mint, 0, 83, 0);
-    this.box(this.robot, 35, 114, 35, m.metal, 0, 146, 0);
-    this.cylinder(this.robot, 25, 12, m.edge, 0, 205, 0);
+    this.cylinder(this.robot, 37, 19, m.metal, armMount.x, 65, armMount.z);
+    this.cylinder(this.robot, 29, 22, m.mint, armMount.x, 83, armMount.z);
+    this.box(this.robot, 35, 114, 35, m.metal, armMount.x, 146, armMount.z);
+    this.cylinder(this.robot, 25, 12, m.edge, armMount.x, 205, armMount.z);
     this.arm = new THREE.Group();
+    this.arm.position.set(armMount.x, 0, armMount.z);
     this.robot.add(this.arm);
     this.box(this.arm, 24, 13, 330, m.metal, 0, 209, -143);
     this.box(this.arm, 7, 3, 323, m.mint, -8, 217, -143);
@@ -134,7 +135,7 @@ export class MechanismScene {
     this.box(this.claw, 40, 13, 30, m.dark);
     this.fingers = [-1, 1].map(sign => this.box(this.claw, 6, 24, 29, m.metal, sign * 12, -15, 0));
     this.held = this.box(this.claw, 44, 68, 44, m.accents[0], 0, -39, 0);
-    this.tray = new THREE.Group();this.tray.position.set(-109, 0, 170);this.robot.add(this.tray);
+    this.tray = new THREE.Group();this.tray.position.set(trayCenter.x, 0, trayCenter.z);this.robot.add(this.tray);
     this.cylinder(this.tray, 60, 10, m.metal, 0, 104, 0);
     this.cylinder(this.tray, 58, 6, m.tray, 0, 112, 0);
     this.cylinder(this.tray, 13, 8, m.mint, 0, 119, 0);
@@ -160,7 +161,7 @@ export class MechanismScene {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(31, 1.3, 8, 64), this.material('#c8bb9f'));
       ring.rotation.x = Math.PI / 2;ring.position.set(point.x, 3, point.z);this.ringsRoot.add(ring);
       const label = this.label(`${index + 1} 号圆环`, '#9e947f', 80);
-      label.position.set(point.x, 5, point.z - 50);this.ringsRoot.add(label);
+      label.position.set(point.x + 70, 5, point.z);this.ringsRoot.add(label);
       const cube = this.box(this.ringsRoot, 44, 68, 44, this.materials.accents[index], point.x, 36, point.z);
       this.ringCubes.push(cube);
       disc.receiveShadow = true;
@@ -179,9 +180,11 @@ export class MechanismScene {
       new THREE.LineDashedMaterial({ color: '#82a9bf', transparent: true, opacity: 0.7, dashSize: 5, gapSize: 5 }));
     this.path.computeLineDistances();this.scene.add(this.path);
     this.sourceRoot.clear();
+    this.sourceCube = null;
     if (timeline.group.family === 'raw') {
-      const target = timeline.group.actions.find(a => a.type === 'pose' && !a.approach && a.pose.lift > 0).pose;
-      const position = toolPosition(target);
+      const target = timeline.group.actions.find(a => a.type === 'pose' && !a.approach && a.pose.lift > 0);
+      if (!target) return;
+      const position = toolPosition(target.pose);
       this.sourceCube = this.box(this.sourceRoot, 44, 68, 44,
         this.materials.accents[timeline.group.slot - 1], position.x, position.y - 39, position.z);
       const base = this.box(this.sourceRoot, 58, 4, 58, this.materials.tray, position.x, position.y - 75, position.z);
@@ -219,7 +222,7 @@ export class MechanismScene {
 
   update(state, time, pathVisible = true) {
     const inventory = this.inventory(time);
-    this.arm.rotation.y = -deg(state.turret - 260);
+    this.arm.rotation.y = armRotation(state.turret);
     this.carriage.position.z = -(220 + state.h);
     this.claw.position.y = 200 - state.lift;
     const rodHeight = Math.max(1, 210 - this.claw.position.y);
@@ -245,19 +248,20 @@ export class MechanismScene {
     this.renderer.render(this.scene, this.camera);
     const projected = position.clone().project(this.camera);
     const label = document.getElementById('tool-label');
-    label.style.left = `${(projected.x + 1) / 2 * this.container.clientWidth + 14}px`;
+    label.style.left = `${Math.max(10, Math.min(this.container.clientWidth - label.offsetWidth - 10,
+      (projected.x + 1) / 2 * this.container.clientWidth + 14))}px`;
     label.style.top = `${(1 - projected.y) / 2 * this.container.clientHeight - 13}px`;
     label.style.opacity = Math.abs(projected.x) < 0.92 && Math.abs(projected.y) < 0.85 ? 1 : 0;
   }
 
   view(type) {
-    this.controls.target.set(0, 70, -25);
+    this.controls.target.set(100, 70, 25);
     if (type === 'top') {
-      this.camera.position.set(0, 1100, -25);
+      this.camera.position.set(100, 1100, 25);
       this.camera.up.set(0, 0, -1);
       this.controls.enableRotate = false;
     } else {
-      this.camera.position.set(530, 650, 570);
+      this.camera.position.set(630, 650, 595);
       this.camera.up.set(0, 1, 0);
       this.controls.enableRotate = true;
     }
@@ -267,7 +271,7 @@ export class MechanismScene {
 
   resize() {
     const width = this.container.clientWidth, height = this.container.clientHeight;
-    const halfHeight = 390, aspect = width / Math.max(1, height);
+    const aspect = width / Math.max(1, height), halfHeight = Math.max(390, 350 / aspect);
     this.camera.left = -halfHeight * aspect;this.camera.right = halfHeight * aspect;
     this.camera.top = halfHeight;this.camera.bottom = -halfHeight;
     this.camera.updateProjectionMatrix();

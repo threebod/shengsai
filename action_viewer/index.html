@@ -30,7 +30,7 @@
       <div class="variant-fields" id="raw-fields" hidden><label for="position">原料位置</label><select id="position"><option value="1">下方物料</option><option value="2">左上物料</option><option value="3">右上物料</option></select><label for="slot">放入转盘槽位</label><select id="slot"><option value="1">1 号槽</option><option value="2">2 号槽</option><option value="3">3 号槽</option></select></div>
       <div class="variant-fields" id="return-fields" hidden><label for="round">回收轮次</label><select id="round"><option value="1">第一轮 · 水平 −45 mm</option><option value="2">第二轮 · 水平 −47 mm</option></select></div>
       <div class="source-note"><span class="note-icon">i</span><p>直接读取工程中的动作生成函数。修改固件后，点击“重读固件”更新。</p></div>
-      <div class="library-bottom"><span>只读预览</span><span>不连接硬件</span></div>
+      <div class="library-bottom"><span>源码只读</span><span>不连接硬件</span></div>
     </aside>
 
     <section class="stage-column">
@@ -38,7 +38,7 @@
         <div class="scene-top"><div><span class="eyebrow">MECHANISM PREVIEW</span><h2 id="scene-title">粗加工放置</h2></div><div class="view-switch" aria-label="视角"><button id="top-view" class="selected">俯视</button><button id="angle-view">斜视</button></div></div>
         <div id="viewport" aria-label="Three.js机构动作三维视图"><div id="scene-error" class="scene-error" hidden></div><div id="tool-label" class="tool-label">夹爪</div></div>
         <div class="scene-bottom"><div class="scene-legend"><span><i class="dot mint"></i>当前工具端</span><span><i class="dot blue"></i>动作轨迹</span></div><label class="path-toggle"><input id="show-path" type="checkbox" checked>显示轨迹</label></div>
-        <div class="model-note">示意模型 · 尺寸与云台零角方向未标定 · 滚轮缩放 / 拖动平移</div>
+        <div class="model-note">右侧机械臂 / 后方转盘 · 260°朝正右，角度增大逆时针 · 尺寸为示意</div>
       </div>
 
       <section class="transport panel" aria-label="播放控制">
@@ -47,6 +47,17 @@
         <div class="scrubber-row"><output id="current-time">00:00.0</output><input id="scrubber" type="range" min="0" max="1" step="1" value="0" aria-label="动作播放进度"><span id="total-time">00:00.0</span></div>
         <div class="playback-row"><span class="keyboard-hint"><kbd>Space</kbd> 播放 / 暂停</span><div class="play-buttons"><button id="restart" class="icon-button" title="回到起点" aria-label="回到起点"><svg viewBox="0 0 24 24"><path d="M5 5v14M19 6l-9 6 9 6z"/></svg></button><button id="previous" class="icon-button" title="上一步" aria-label="上一步"><svg viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg></button><button id="play" class="play-button" disabled><svg id="play-icon" viewBox="0 0 24 24"><path d="m8 5 11 7-11 7z"/></svg><span>播放动作</span></button><button id="next" class="icon-button" title="下一步" aria-label="下一步"><svg viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></svg></button></div><div class="speed-controls"><label for="speed">速度</label><select id="speed"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select><label class="loop-label"><input id="loop" type="checkbox">循环</label></div></div>
       </section>
+      <details class="panel json-panel" id="json-panel">
+        <summary><span>JSON 编辑与导出</span><span id="json-state" class="tiny-badge">源码动作</span></summary>
+        <div class="json-body">
+          <label for="json-editor">当前动作组 <strong id="json-group">—</strong></label>
+          <p class="muted">修改 initial、servo 或 actions 后应用预览。位置为 mm，角度为 °，等待为 ms；motionMs 会自动重算。</p>
+          <textarea id="json-editor" spellcheck="false" autocapitalize="off" aria-describedby="json-error" aria-label="当前动作组 JSON"></textarea>
+          <p id="json-error" class="json-error" role="alert" hidden></p>
+          <div class="json-actions"><button id="json-apply" class="button primary" disabled>应用并预览</button><button id="json-export" class="button" disabled>导出 JSON</button><button id="json-reset" class="button subtle" disabled>恢复源码</button></div>
+          <p class="micro">仅修改网页回放；切换动作组保留本页修改，刷新网页会丢失。请导出留存，不会写入固件或主控。</p>
+        </div>
+      </details>
     </section>
 
     <aside class="inspector">

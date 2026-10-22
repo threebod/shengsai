@@ -1,5 +1,6 @@
 import { buildTimeline, clamp } from './timeline.js';
 import { MechanismScene } from './scene.js';
+import { parseGroupJson } from './action_json.js';
 
 const $ = id => document.getElementById(id);
 const familyNames = { raw: '原料夹取', coarse: '粗加工放置', return: '粗加工回收', return2: '粗加工回收 · 第二轮', storage1: '暂存 · 第一层', storage2: '暂存 · 第二层' };
@@ -8,6 +9,7 @@ let data, timeline, view;
 let family = 'coarse', time = 0, playing = false, lastFrame = 0, activeStep = -1;
 let pausedStep = 0;
 let notifyTimer;
+const edits = new Map(), drafts = new Map();
 
 function notify(message) {
   $('notification').textContent = message;$('notification').hidden = false;
@@ -33,10 +35,16 @@ function selectedId() {
 function selectGroup() {
   if (!data) return;
   setPlaying(false);time = 0;activeStep = -1;pausedStep = 0;
-  const group = data.groups.find(group => group.id === selectedId());
+  const source = data.groups.find(group => group.id === selectedId());
+  const group = edits.get(selectedId()) || source;
   if (!group) { notify('当前源码未导出此动作组');return; }
   timeline = buildTimeline(group);
-  $('scene-title').textContent = familyNames[group.family];
+  $('scene-title').textContent = familyNames[group.family] + (edits.has(group.id) ? ' · 本地编辑' : '');
+  $('json-group').textContent = group.id;
+  $('json-editor').value = drafts.get(group.id) ?? JSON.stringify(group, null, 2);
+  $('json-error').hidden = true;
+  for (const id of ['json-apply', 'json-export', 'json-reset']) $(id).disabled = false;
+  updateJsonStatus();
   $('step-count').textContent = `${group.actions.length} 步`;
   $('scrubber').max = timeline.duration;
   $('scrubber').value = 0;
@@ -59,6 +67,21 @@ function selectGroup() {
   $('play').disabled = false;
   $('play-state').textContent = '准备就绪';
   update();
+}
+function updateJsonStatus() {
+  const id = selectedId();
+  $('json-state').textContent = drafts.has(id) ? '草稿未应用' : edits.has(id) ? '本地已修改' : '源码动作';
+}
+function readJson() {
+  try {
+    const source = data.groups.find(group => group.id === selectedId());
+    const group = parseGroupJson($('json-editor').value, source);
+    $('json-error').hidden = true;
+    return group;
+  } catch (error) {
+    $('json-error').textContent = error.message;$('json-error').hidden = false;
+    return null;
+  }
 }
 function seek(target, stepIndex = null) {
   if (!timeline) return;
@@ -108,6 +131,7 @@ async function load() {
     $('heights-layers').textContent = `${data.heights[0]} / ${data.heights[1]} mm`;
     $('heights-tray').textContent = `${data.heights[2]} / ${data.heights[3]} mm`;
     view?.setData(data);selectGroup();
+    if (edits.size || drafts.size) notify('已重读固件；本页 JSON 修改已保留，可点击“恢复源码”还原当前组');
   } catch (error) {
     $('source-status').textContent = '读取失败 · 请检查本地服务';notify(error.message);
   } finally { $('reload').disabled = false; }
@@ -122,6 +146,27 @@ catch (error) {
 $('families').querySelectorAll('button').forEach(button => button.onclick = () => { family = button.dataset.family;selectGroup(); });
 for (const id of ['order', 'position', 'slot', 'round']) $(id).onchange = selectGroup;
 $('reload').onclick = load;
+$('json-editor').oninput = () => {
+  drafts.set(selectedId(), $('json-editor').value);updateJsonStatus();$('json-error').hidden = true;
+};
+$('json-apply').onclick = () => {
+  const group = readJson();
+  if (!group) return;
+  edits.set(group.id, group);drafts.delete(group.id);selectGroup();
+  notify('已应用到本地回放，运动耗时已重算');
+};
+$('json-export').onclick = () => {
+  const group = readJson();
+  if (!group) return;
+  const blob = new Blob([JSON.stringify(group, null, 2) + '\n'], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob), link = document.createElement('a');
+  link.href = url;link.download = `${group.id}.json`;link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  notify('已导出编辑框中的动作组 JSON');
+};
+$('json-reset').onclick = () => {
+  edits.delete(selectedId());drafts.delete(selectedId());selectGroup();notify('当前动作组已恢复为源码数据');
+};
 $('play').onclick = () => { if (timeline) setPlaying(!playing); };
 $('restart').onclick = () => seek(0, 0);
 $('previous').onclick = () => jump(-1);
@@ -130,7 +175,7 @@ $('scrubber').oninput = event => seek(Number(event.target.value));
 $('top-view').onclick = () => { view?.view('top');$('top-view').classList.add('selected');$('angle-view').classList.remove('selected'); };
 $('angle-view').onclick = () => { view?.view('angle');$('angle-view').classList.add('selected');$('top-view').classList.remove('selected'); };
 document.addEventListener('keydown', event => {
-  if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(event.target.tagName)) return;
+  if (event.target.closest('#json-panel') || ['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(event.target.tagName)) return;
   if (event.code === 'Space' && timeline) { event.preventDefault();setPlaying(!playing); }
   if (event.code === 'ArrowLeft') { event.preventDefault();jump(-1); }
   if (event.code === 'ArrowRight') { event.preventDefault();jump(1); }
