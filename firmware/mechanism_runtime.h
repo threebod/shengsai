@@ -5,7 +5,18 @@ static void serviceMechanism(void)
     if(motionInterrupted()) { stopServoMotion();stopAllMotors();return; }
     if((int32_t)(clockMs-mechanismFeedbackTimeout)>=0) {
         serialSendString("ERR MECH: feedback timeout; coordinates invalid\r\n");
-        stopServoMotion();stopAllMotors();return;
+        stopServoMotion();stopAllMotors();
+        for(i=0;i<2;++i) if(mechanismAxes&(1U<<i)) {
+            serialSendString("AXIS TIMEOUT motor=");serialSendUint((uint16_t)(5+i));
+            serialSendString(" preparing=");serialSendUint(mechanismPreparing);
+            serialSendString(" baseline_ok=");serialSendUint((mechanismBaselineMask>>i)&1U);
+            serialSendString(" target_ok=");serialSendUint(mechanismFeedback[i].targetVerified);
+            serialSendString(" reached=");serialSendUint(mechanismFeedback[i].reached);
+            serialSendString(" actual_after_arrival=");serialSendUint(mechanismFeedback[i].actualAfterArrival);
+            serialSendString(" elapsed_ms=");serialSendUint32(clockMs-mechanismState.startMs);
+            serialSendString("\r\n");
+        }
+        return;
     }
     for(i=0;i<2;++i) {
         uint8_t id=(uint8_t)(i+5),bit=(uint8_t)(1U<<i);
@@ -52,7 +63,10 @@ static void serviceMechanism(void)
         }
         id=(uint8_t)(5+mechanismPollAxis);
         if(mechanismPreparing || !mechanismFeedback[mechanismPollAxis].targetVerified) param=S_TPOS;
-        else { mechanismPollKind^=1;param=mechanismPollKind?S_FLAG:S_CPOS; }
+        else {
+            mechanismPollKind[mechanismPollAxis]^=1;
+            param=mechanismPollKind[mechanismPollAxis]?S_FLAG:S_CPOS;
+        }
         if(mechanismAxes) Emm_V5_Read_Sys_Params(id,param);
     }
 }

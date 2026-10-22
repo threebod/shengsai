@@ -191,7 +191,7 @@ static void printHeadingPidTrace(float targetYaw, float actualYaw, int16_t turn)
 static void serialSendString(const char *text);
 static MechanismState mechanismState;
 static AxisFeedback mechanismFeedback[2];
-static uint8_t mechanismAxes, mechanismPreparing, mechanismPollAxis, mechanismPollKind;
+static uint8_t mechanismAxes, mechanismPreparing, mechanismPollAxis, mechanismPollKind[2];
 static uint32_t mechanismPollAt, mechanismFeedbackTimeout;
 static int32_t mechanismBaseline[2];
 static uint8_t mechanismBaselineMask;
@@ -1348,7 +1348,8 @@ static void startMechanismPose(const MechanismPose *target)
     mechanismSignedPulses[1]=horizontalDelta>0?(int32_t)horizontalPulses:-(int32_t)horizontalPulses;
     if(liftPulses) mechanismAxes|=1;
     if(horizontalPulses) mechanismAxes|=2;
-    mechanismPreparing=1;mechanismPollAxis=mechanismPollKind=0;
+    mechanismPreparing=1;mechanismPollAxis=0;
+    mechanismPollKind[0]=mechanismPollKind[1]=0;
     mechanismPollAt=clockMs-50;mechanismFeedbackTimeout=clockMs+3000;
     setAuxMotorsEnabled(true);
     jogCanClearReply(5,0x33);jogCanClearReply(6,0x33);
@@ -1364,7 +1365,8 @@ static void dispatchMechanismPose(void)
         jogCanClearReply((uint8_t)(5+i),0x33);jogCanClearReply((uint8_t)(5+i),0x3a);
         jogCanClearReply((uint8_t)(5+i),0x36);
     }
-    mechanismPreparing=0;mechanismPollKind=mechanismPollAxis=0;
+    mechanismPreparing=0;mechanismPollAxis=0;
+    mechanismPollKind[0]=mechanismPollKind[1]=0;
     mechanismState.startMs=clockMs;
     mechanismFeedbackTimeout=clockMs+mechanismState.durationMs*2+3000;
 
