@@ -1054,6 +1054,7 @@ static const char *visionStateName(VisionState state)
     case VISION_STATE_PICK: return "PICK";
     case VISION_STATE_PICK_DONE: return "PICK_DONE";
     case VISION_STATE_WAIT_ACTIONS: return "WAIT_ACTIONS";
+    case VISION_STATE_CORRECTION_LIMIT: return "CORRECTION_LIMIT";
     default: return "IDLE";
     }
 }
@@ -2589,6 +2590,14 @@ static void serviceVision(void)
         failVision(visionSession.fault);
         return;
     }
+    if (event == VISION_EVENT_CORRECTION_LIMIT) {
+        stopDriveMotors();
+        serialSendString("VISION CORRECTION LIMIT iterations=");
+        serialSendUint(visionSession.iteration);
+        serialSendString("\r\n");
+        printVisionState();
+        return;
+    }
     if (visionSession.state == VISION_STATE_REQUEST) {
         vision_session_make_request(&visionSession, calibration, &packet, clockMs);
         visionUartSend(&packet);
@@ -2832,12 +2841,14 @@ static void serviceMission(void)
                 return;
             }
             visionSession.waitForTarget = 1U;
+            visionSession.maxCorrections = 2U;
             if (materialAlign)
                 visionSession.materialMask = (uint8_t)(1U << (visionSession.selector - 1U));
             missionActionStarted = 2U;
             printVisionState();
         } else if (missionActionStarted == 2U &&
-                   visionSession.state == VISION_STATE_ALIGNED) {
+                   (visionSession.state == VISION_STATE_ALIGNED ||
+                    visionSession.state == VISION_STATE_CORRECTION_LIMIT)) {
             /* Continue the next distance leg from the locally aligned station. */
             missionOffsetForward = missionOffsetRight = 0.0f;
             missionPhase = missionPhase == MISSION_TEMP_ALIGN ?
@@ -3063,6 +3074,7 @@ static uint8_t processVisionCommand(const char *command)
         serialSendString("VISION ERROR reason=START_REJECTED\r\n");
         return 1U;
     }
+    visionSession.maxCorrections = 2U;
     armed = 0U;
     invalidateNavigation("vision_motion");
     printVisionState();

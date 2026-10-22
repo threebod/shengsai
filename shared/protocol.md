@@ -54,6 +54,8 @@ flags：请求01、响应02、事件04、错误响应0A。响应的 command/sequ
 
 2026-10-22 云台重新安装后，观察角度直接改为260°，固件动作与圆环默认值已直接写入调整后的数值，不使用运行时安装偏移公式。圆环读取和写入载荷始终原样使用绝对角度。扇区9已有两种记录格式（magic `0x524E4701`、`0x524E4702`）均原样加载，保存仍使用`0x524E4702`；若保存的是旧安装角度，需要上位机重新录入并固化。此变更不改变线上的帧格式或版本，读取记录不触发运动或自动写Flash。
 
+比赛圆环对齐及二层物料对齐最多执行两次底盘修正，提前满足原对齐条件则立即进入放置；第二次修正完成并稳定300ms后，记录`VISION CORRECTION LIMIT iterations=2`并进入放置，不再发起第三次采样或修正，也不报告精确对齐。独立`42`对准同样最多两次，到上限时结束对准操作，不触发放置。通信超时、IMU/CAN故障、停止和急停仍中止；比例标定采样与原料识别不使用此两次上限。
+
 ## 周期状态与完成
 
 状态81和状态02响应：`status,busy,estop,mechanismValid,missionPhase,routeIndex,buttonReady,fullRouteRunning,safetyConfirmed,horizontal:i16,lift:u16,servo2:u16,servo3:u16,servo4:u16,mechanismRunning,actionRunning`，共21字节。

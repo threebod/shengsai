@@ -641,6 +641,73 @@ int main(void)
     }
 
     {
+        VisionSession limited;
+        uint8_t mode, correction;
+        for (mode = VISION_MODE_MATERIAL; mode <= VISION_MODE_RING; ++mode) {
+            vision_session_init(&limited);
+            vision_session_start(&limited, mode, 0U, 2U, &calibration, 0U);
+            limited.maxCorrections = 2U;
+            for (correction = 0U; correction < 2U; ++correction) {
+                uint32_t now = correction * 1000U;
+                vision_session_make_request(&limited, &calibration, &request, now);
+                decoded = request;
+                decoded.type = VISION_MESSAGE_RESULT;
+                decoded.flags = VISION_FLAG_VALID | VISION_FLAG_STABLE;
+                decoded.value[0] = calibration.anchorU + 10;
+                decoded.value[1] = calibration.anchorV + 10;
+                decoded.value[2] = 90;
+                decoded.value[5] = 1;
+                if (!require(vision_session_observe(&limited, &calibration, &decoded, now) == VISION_EVENT_MOVE &&
+                             limited.iteration == correction + 1U,
+                             "ring/stack correction must move before completing")) return 1;
+                if (!require(vision_session_tick(&limited, now + 100U) == VISION_EVENT_NONE,
+                             "correction limit must not finish an active move")) return 1;
+                vision_session_move_complete(&limited, now + 200U);
+                if (!require(vision_session_tick(&limited, now + 499U) == VISION_EVENT_NONE,
+                             "correction limit must retain settling time")) return 1;
+                if (!require(vision_session_tick(&limited, now + 500U) ==
+                             (correction == 0U ? VISION_EVENT_REQUEST : VISION_EVENT_CORRECTION_LIMIT),
+                             "second correction must finish without a third sample or move")) return 1;
+            }
+            if (!require(limited.state == VISION_STATE_CORRECTION_LIMIT &&
+                         vision_session_tick(&limited, 3000U) == VISION_EVENT_NONE &&
+                         vision_session_observe(&limited, &calibration, &decoded, 3000U) == VISION_EVENT_NONE,
+                         "limit must be terminal and distinct from alignment")) return 1;
+            limited.state = VISION_STATE_FAILED;
+            if (!require(vision_session_tick(&limited, 4000U) == VISION_EVENT_NONE &&
+                         limited.state == VISION_STATE_FAILED,
+                         "failed correction must not become a successful limit exit")) return 1;
+            vision_session_pause(&limited);
+            if (!require(vision_session_tick(&limited, 4000U) == VISION_EVENT_NONE &&
+                         limited.state == VISION_STATE_PAUSED,
+                         "paused correction must not continue placement")) return 1;
+            vision_session_start(&limited, mode, 0U, 2U, &calibration, 0U);
+            if (!require(limited.maxCorrections == 0U,
+                         "new session must reset its previous correction limit")) return 1;
+            limited.maxCorrections = 2U;
+            for (correction = 0U; correction < 2U; ++correction) {
+                vision_session_make_request(&limited, &calibration, &request, 0U);
+                decoded = request;decoded.type = VISION_MESSAGE_RESULT;
+                decoded.flags = VISION_FLAG_VALID | VISION_FLAG_STABLE;
+                decoded.value[0] = calibration.anchorU;decoded.value[1] = calibration.anchorV;
+                decoded.value[2] = 90;decoded.value[5] = 1;
+                if (!require(vision_session_observe(&limited, &calibration, &decoded, 0U) ==
+                             (correction == 0U ? VISION_EVENT_REQUEST : VISION_EVENT_ALIGNED) &&
+                             limited.iteration == 0U,
+                             "already aligned targets must not require two corrections")) return 1;
+            }
+            vision_session_start(&limited, mode, 0U, 2U, &calibration, 0U);
+            limited.maxCorrections = 2U;
+            vision_session_make_request(&limited, &calibration, &request, 0U);
+            vision_session_tick(&limited, 1800U);
+            vision_session_make_request(&limited, &calibration, &request, 1800U);
+            vision_session_tick(&limited, 3600U);
+            vision_session_make_request(&limited, &calibration, &request, 3600U);
+            if (!require(vision_session_tick(&limited, 5400U) == VISION_EVENT_FAILED,
+                         "correction limit must not bypass camera timeout")) return 1;
+        }
+    }
+    {
         VisionSession iterations;
         uint8_t correction;
         vision_session_init(&iterations);

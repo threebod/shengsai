@@ -62,7 +62,8 @@ typedef enum {
     VISION_STATE_PREP,
     VISION_STATE_PICK,
     VISION_STATE_PICK_DONE,
-    VISION_STATE_WAIT_ACTIONS
+    VISION_STATE_WAIT_ACTIONS,
+    VISION_STATE_CORRECTION_LIMIT
 } VisionState;
 
 typedef enum {
@@ -71,7 +72,8 @@ typedef enum {
     VISION_EVENT_MOVE,
     VISION_EVENT_ALIGNED,
     VISION_EVENT_FAILED,
-    VISION_EVENT_SAMPLED
+    VISION_EVENT_SAMPLED,
+    VISION_EVENT_CORRECTION_LIMIT
 } VisionEvent;
 
 typedef struct {
@@ -82,6 +84,7 @@ typedef struct {
     uint8_t misses;
     uint8_t confirmations;
     uint8_t iteration;
+    uint8_t maxCorrections; /* Zero retains the normal convergence limit. */
     uint8_t waitForTarget;
     uint8_t materialMask;
     uint8_t pickupMode; /* 0 normal alignment, 1 any-color pickup alignment, 2 specified-color pickup. */
@@ -558,6 +561,10 @@ static VisionEvent vision_session_tick(VisionSession *session, uint32_t now)
     }
     if (session->state == VISION_STATE_SETTLE &&
         (int32_t)(now - session->settleUntil) >= 0) {
+        if (session->maxCorrections && session->iteration >= session->maxCorrections) {
+            session->state = VISION_STATE_CORRECTION_LIMIT;
+            return VISION_EVENT_CORRECTION_LIMIT;
+        }
         session->state = VISION_STATE_REQUEST;
         return VISION_EVENT_REQUEST;
     }
