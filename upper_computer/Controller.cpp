@@ -149,6 +149,7 @@ void Controller::handle(const SsFrame &f){
     switch(f.command){
     case SS_HELLO:
         if(f.length!=4 || f.data[1]!=1 || f.data[3]!=1){disconnectDevice();setStatus(QStringLiteral("固件版本或协议不匹配"));return;}
+        if(f.data[2]!=SS_ROUTE_REVISION){disconnectDevice();setStatus(QStringLiteral("请更新支持15区障碍选择的主控固件"));return;}
         connected_=true;heartbeat_.start();setStatus(QStringLiteral("已连接，请确认机构零点和安全条件"));readScale();break;
     case SS_CLEAR:confirmed_=mechanismValid_=true;setStatus(QStringLiteral("安全条件已确认，机构坐标设为物理零点"));break;
     case SS_ACTION:
@@ -220,8 +221,17 @@ void Controller::drive(int direction){
     if(!connected_ || !confirmed_ || calibrating() || (direction!=1 && direction!=-1))return;
     driveDirection_=direction;request(SS_DRIVE,QByteArray(1,char(direction)));driveTimer_.start();
 }
-void Controller::run(int type,int zone,int obstacle,int rpm){
-    if(!connected_ || !confirmed_ || busy_)return;QByteArray data(4,0);data[0]=char(zone);data[1]=char(obstacle);ss_put16(reinterpret_cast<uint8_t *>(data.data()+2),quint16(rpm));
+QVariantList Controller::obstacleRegions()const{
+    QVariantList values;
+    for(const auto &r:ssObstacleRegions)values.append(QVariantMap{{"x0",r.x0},{"y0",r.y0},{"x1",r.x1},{"y1",r.y1}});
+    return values;
+}
+void Controller::run(int type,int zone,int regions,int rpm){
+    if(!connected_ || !confirmed_ || busy() || calibrating())return;
+    if(type<0 || type>2 || zone<1 || zone>2 || regions<0 || regions>0x7fff ||
+       !ss_obstacle_regions_valid(quint16(regions)) || rpm<10 || rpm>250)return;
+    for(const auto &p:pending_)if(p.command>=SS_PREPARE && p.command<=SS_ROUTE)return;
+    QByteArray data(5,0);data[0]=char(zone);ss_put16(reinterpret_cast<uint8_t *>(data.data()+1),quint16(regions));ss_put16(reinterpret_cast<uint8_t *>(data.data()+3),quint16(rpm));
     request(type==0?SS_PREPARE:type==1?SS_MISSION:SS_ROUTE,data);
 }
 void Controller::runAction(int action){if(connected_ && confirmed_ && !busy_ && action>=0 && action<3)request(SS_ACTION,QByteArray(1,char(action)));}

@@ -2,6 +2,7 @@
 #define TJC_OBSTACLES_H
 
 #include <stdint.h>
+#include "../shared/obstacle_regions.h"
 
 /* Screen -> USART6: A5 5A 4F region1 region2 (4F + region1 + region2).
  * Regions are 1..15; a returned mask always contains exactly two bits. */

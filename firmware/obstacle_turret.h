@@ -5,7 +5,7 @@
  * Axis validity must never be established here. */
 static uint8_t prepareObstacleTurret(void)
 {
-    if (emergencyStop || hostEStop || jogCanFault || obstacleTurretPending ||
+    if (emergencyStop || hostEStop || jogCanFault || hostStartPending || obstacleTurretPending ||
         motionMode || routeActive || mechanismState.running || mechanismActionActive ||
         visionSessionActive() || servoChannelMoving[0] || servoChannelMoving[1] ||
         servoChannelMoving[2]) return 0U;

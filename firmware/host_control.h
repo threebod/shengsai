@@ -71,7 +71,7 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
             }
             memset(hostCache,0,sizeof(hostCache));hostConfirmed=0;hostSession=ss_get32(q->data);
         }
-        r->length=4;r->data[1]=1;r->data[2]=0;r->data[3]=1;return;
+        r->length=4;r->data[1]=1;r->data[2]=SS_ROUTE_REVISION;r->data[3]=1;return;
     }
     if(q->command==SS_STATUS && !q->length) {hostSnapshot(r);return;}
     if(q->command==SS_HEARTBEAT && !q->length) {hostHeartbeatActive=1;hostHeartbeatStamp=clockMs;return;}
@@ -127,11 +127,11 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
         hostDriveActive=1;hostDriveAt=clockMs;motionMode=8;
         sendRouteSpeeds(q->data[0]==1?30:-30,0,0);return;
     case SS_PREPARE: case SS_MISSION: case SS_ROUTE:
-        if(q->length!=4 || q->data[0]<1 || q->data[0]>2 || q->data[1]>3) break;
-        a=ss_get16(q->data+2);if(a<10 || a>250) break;
+        if(!ss_route_request_valid(q->data,q->length)) break;
+        a=ss_get16(q->data+3);
         if(q->command!=SS_ROUTE && !mechanismState.valid) {r->data[0]=6;return;}
         if(!prepareObstacleTurret()) {r->data[0]=4;return;}
-        routeObstaclePosition=q->data[1];
+        routeObstacleRegions=ss_get16(q->data+1);
         if(q->command==SS_PREPARE) {
             missionButtonRpm=a;missionButtonReady=1;
             return;

@@ -34,6 +34,7 @@ class Controller : public QObject {
     Q_PROPERTY(QString connectionName READ connectionName NOTIFY changed)
     Q_PROPERTY(QVariantList devices READ devices NOTIFY changed)
     Q_PROPERTY(QVariantList rings READ rings NOTIFY changed)
+    Q_PROPERTY(QVariantList obstacleRegions READ obstacleRegions CONSTANT)
     Q_PROPERTY(QVariantList servoAngles READ servoAngles NOTIFY changed)
     Q_PROPERTY(double forwardScale READ forwardScale NOTIFY changed)
     Q_PROPERTY(double rightScale READ rightScale NOTIFY changed)
@@ -50,6 +51,7 @@ public:
     QString scaleState()const{return scaleState_;} QString ringState()const{return ringState_;}
     QString connectionName()const{return connectionName_;}
     QVariantList devices()const{return devices_;} QVariantList rings()const{return rings_;}
+    QVariantList obstacleRegions()const;
     QVariantList servoAngles()const{return angles_;}
     double forwardScale()const{return forward_/1000.0;} double rightScale()const{return right_/1000.0;}
     Q_INVOKABLE void scan();
@@ -66,7 +68,7 @@ public:
     Q_INVOKABLE void jogAxis(int motor,double mm);
     Q_INVOKABLE void testAxis6();
     Q_INVOKABLE void drive(int direction);
-    Q_INVOKABLE void run(int type,int zone,int obstacle,int rpm=240);
+    Q_INVOKABLE void run(int type,int zone,int regions,int rpm=240);
     Q_INVOKABLE void runAction(int action);
     Q_INVOKABLE void calibrate();
     Q_INVOKABLE void alignRing();

@@ -10,6 +10,17 @@ ApplicationWindow {
     property string logText: ""
     property bool ringsDirty: false
     property bool scaleDirty: false
+    property int obstacleMask: 0
+    readonly property int obstacleCount: {
+        let count = 0
+        for (let bits = obstacleMask; bits; bits >>= 1) count += bits & 1
+        return count
+    }
+    function toggleObstacle(region) {
+        const bit = 1 << (region - 1)
+        if (obstacleMask & bit) obstacleMask &= ~bit
+        else if (obstacleCount < 2) obstacleMask |= bit
+    }
     readonly property bool mobile: width - SafeArea.margins.left - SafeArea.margins.right < 760 || (Qt.platform.os === "android" && height < 500)
     readonly property int pageSpacing: mobile ? 14 : 20
     readonly property color blue: "#007AFF"
@@ -181,22 +192,74 @@ ApplicationWindow {
                             Label { text: "启停区"; color: "#656570" }
                             Choice { id: zone; model: ["1号启停区", "2号启停区"] }
                             Label { text: "障碍位置"; color: "#656570" }
-                            Choice { id: obstacle; model: ["上", "下", "左", "右"] }
+                            Hint { objectName: "obstacleSelectionHint"; text: "请选择两个不同区域 · 已选 " + app.obstacleCount + "/2；再次点击可取消" }
+                            Item {
+                                id: obstacleMap; objectName: "obstacleMap"
+                                Layout.fillWidth: true; implicitHeight: Math.max(width, 320)
+                                readonly property real sx: width / 2400
+                                readonly property real sy: height / 2400
+                                Rectangle { anchors.fill: parent; color: "#E5E5EA"; radius: 4 }
+                                Repeater {
+                                    model: [[550, 550], [1400, 550], [550, 1400], [1400, 1400]]
+                                    delegate: Rectangle {
+                                        required property var modelData
+                                        x: modelData[0] * obstacleMap.sx; y: (2400-modelData[1]-450) * obstacleMap.sy
+                                        width: 450 * obstacleMap.sx; height: 450 * obstacleMap.sy; color: "#FAFAE9"
+                                    }
+                                }
+                                Repeater {
+                                    model: controller.obstacleRegions
+                                    delegate: Button {
+                                        id: regionButton
+                                        required property int index; required property var modelData
+                                        objectName: "obstacleRegion" + (index + 1)
+                                        readonly property bool selected: (app.obstacleMask & (1 << index)) !== 0
+                                        x: modelData.x0 * obstacleMap.sx + 1; y: (2400-modelData.y1) * obstacleMap.sy + 1
+                                        width: (modelData.x1-modelData.x0) * obstacleMap.sx - 2
+                                        height: (modelData.y1-modelData.y0) * obstacleMap.sy - 2
+                                        enabled: !controller.busy
+                                        text: String(index + 1)
+                                        Accessible.name: "障碍区域" + text + (selected ? "，已选" : "，未选")
+                                        onClicked: app.toggleObstacle(index + 1)
+                                        contentItem: Text { text: regionButton.text; color: regionButton.selected ? "white" : "#1D1D1F"; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; font.pixelSize: 16 }
+                                        background: Rectangle { color: regionButton.selected ? "#009B83" : "white"; border.color: "#EF6060"; radius: 3 }
+                                    }
+                                }
+                                Repeater {
+                                    model: [
+                                        {x: 1000, y: 2080, w: 400, h: 320, label: "原料"},
+                                        {x: 1000, y: 0, w: 400, h: 300, label: "粗加工"},
+                                        {x: 0, y: 1000, w: 300, h: 400, label: "暂\n存"},
+                                        {x: 1950, y: 2100, w: 450, h: 300, label: "启停1"},
+                                        {x: 1950, y: 0, w: 450, h: 300, label: "启停2"}
+                                    ]
+                                    delegate: Label {
+                                        required property var modelData
+                                        x: modelData.x * obstacleMap.sx; y: (2400-modelData.y-modelData.h) * obstacleMap.sy
+                                        width: modelData.w * obstacleMap.sx; height: modelData.h * obstacleMap.sy
+                                        text: modelData.label; font.pixelSize: 10
+                                        horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter
+                                        color: modelData.label.indexOf("启停") === 0 ? "white" : "#656570"
+                                        background: Rectangle { color: modelData.label.indexOf("启停") === 0 ? "#29A7D3" : "transparent" }
+                                    }
+                                }
+                            }
+                            Hint { text: "选中的红框整体禁行。只修改选区不会驱动机构，启动时下发主控。" }
                             Hint { text: "比赛沿用主控保存的圆环落点、视觉比例和既有动作组。" }
                         }
                         Card {
                             heading: "当前任务"; Layout.alignment: Qt.AlignTop
                             Label { text: controller.task; color: app.blue; font.pixelSize: 20; wrapMode: Text.Wrap; Layout.fillWidth: true }
                             Hint { text: "扫码 → 取料 → 粗加工 → 暂存 · 共两轮" }
-                            ActionButton { text: "开始比赛"; primary: true; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy; onClicked: controller.run(1, zone.currentIndex + 1, obstacle.currentIndex) }
-                            ActionButton { text: "离线按钮启动准备"; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy; onClicked: controller.run(0, zone.currentIndex + 1, obstacle.currentIndex) }
+                            ActionButton { objectName: "missionStartButton"; text: "开始比赛"; primary: true; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy && app.obstacleCount === 2; onClicked: controller.run(1, zone.currentIndex + 1, app.obstacleMask) }
+                            ActionButton { objectName: "missionPrepareButton"; text: "离线按钮启动准备"; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy && app.obstacleCount === 2; onClicked: controller.run(0, zone.currentIndex + 1, app.obstacleMask) }
                             Hint { text: "离线准备后，PC9 短按选择启停区1，长按选择启停区2。" }
                         }
                         Card {
                             heading: "单项执行"; Layout.columnSpan: app.mobile ? 1 : 2
                             Flow {
                                 Layout.fillWidth: true; spacing: 10
-                                ActionButton { text: "仅跑图"; enabled: app.motionReady && !controller.busy; onClicked: controller.run(2, zone.currentIndex+1, obstacle.currentIndex) }
+                                ActionButton { objectName: "routeStartButton"; text: "仅跑图"; enabled: app.motionReady && !controller.busy && app.obstacleCount === 2; onClicked: controller.run(2, zone.currentIndex+1, app.obstacleMask) }
                                 ActionButton { text: "取料动作组"; enabled: app.motionReady && !controller.busy; onClicked: controller.runAction(0) }
                                 ActionButton { text: "粗加工动作组"; enabled: app.motionReady && !controller.busy; onClicked: controller.runAction(1) }
                                 ActionButton { text: "暂存动作组"; enabled: app.motionReady && !controller.busy; onClicked: controller.runAction(2) }

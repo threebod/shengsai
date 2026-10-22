@@ -13,7 +13,7 @@ class ControllerTest:public QObject {
 private slots:
     void handshakeAndConfirmation(){
         Wire wire;Controller c;c.device_=&wire;c.opened();auto q=wire.last();QCOMPARE(int(q.command),int(SS_HELLO));QVERIFY(!c.connected());
-        SsFrame reply{};reply.flags=SS_RESPONSE;reply.sequence=q.sequence;reply.command=SS_HELLO;reply.length=4;reply.data[1]=1;reply.data[3]=1;c.handle(reply);
+        SsFrame reply{};reply.flags=SS_RESPONSE;reply.sequence=q.sequence;reply.command=SS_HELLO;reply.length=4;reply.data[1]=1;reply.data[2]=SS_ROUTE_REVISION;reply.data[3]=1;c.handle(reply);
         QVERIFY(c.connected());QVERIFY(!c.confirmed());
         c.confirmZero();q=wire.last();QCOMPARE(int(q.command),int(SS_CLEAR));
         reply.sequence=q.sequence;reply.command=SS_CLEAR;reply.length=1;c.handle(reply);QVERIFY(c.confirmed());
@@ -28,6 +28,28 @@ private slots:
         c.handle(r);QVERIFY(c.ringsRead());QCOMPARE(c.rings()[0].toMap()["horizontal"].toDouble(),-32.0);
         c.saveRings(values);q=wire.last();QCOMPARE(int(q.command),int(SS_SET_RINGS));QCOMPARE(qint16(ss_get16(q.data)),qint16(-320));QVERIFY(c.ringState().contains("等待"));
         c.disconnectDevice();QVERIFY(!c.ringsRead());c.device_=nullptr;
+    }
+    void oldFirmwareCannotStartRegionRoutes(){
+        Wire wire;Controller c;c.device_=&wire;c.opened();auto q=wire.last();
+        SsFrame r{};r.flags=SS_RESPONSE;r.sequence=q.sequence;r.command=SS_HELLO;r.length=4;r.data[1]=1;r.data[3]=1;
+        c.handle(r);QVERIFY(!c.connected());QVERIFY(c.status().contains("15区"));
+        c.run(1,1,0x0810);QVERIFY(wire.written.isEmpty());c.device_=nullptr;
+    }
+    void regionRunValidatesAndSendsFiveBytes(){
+        Wire wire;Controller c;c.device_=&wire;c.connected_=c.confirmed_=true;
+        for(int type=0;type<3;++type){
+            c.run(type,2,0x0810,240);auto q=wire.last();
+            QCOMPARE(int(q.command),int(SS_PREPARE)+type);QCOMPARE(int(q.length),5);
+            QCOMPARE(int(q.data[0]),2);QCOMPARE(ss_get16(q.data+1),quint16(0x0810));QCOMPARE(ss_get16(q.data+3),quint16(240));
+            c.run(type,2,0x0810);QVERIFY(wire.written.isEmpty());
+            SsFrame r{};r.flags=SS_RESPONSE;r.sequence=q.sequence;r.command=q.command;r.length=1;c.handle(r);
+        }
+        for(int invalid:{-1,0,1,7,0x8001,0x10003}){c.run(1,1,invalid);QVERIFY(wire.written.isEmpty());}
+        c.run(-1,1,0x0810);c.run(3,1,0x0810);c.run(1,0,0x0810);c.run(1,3,0x0810);
+        c.run(1,1,0x0810,9);c.run(1,1,0x0810,251);QVERIFY(wire.written.isEmpty());
+        c.busy_=true;c.run(1,1,0x0810);QVERIFY(wire.written.isEmpty());
+        QCOMPARE(c.obstacleRegions().size(),15);QCOMPARE(c.obstacleRegions()[7].toMap()["x0"].toInt(),1000);
+        c.disconnectDevice();c.device_=nullptr;
     }
     void invalidScaleAndJogAreNotSent(){
         Wire wire;Controller c;c.device_=&wire;c.connected_=c.confirmed_=true;

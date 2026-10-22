@@ -2,6 +2,8 @@
 #define SHENGSAI_PROTOCOL_H
 #include <stdint.h>
 #include <string.h>
+#include "obstacle_regions.h"
+#define SS_ROUTE_REVISION 1U
 #define SS_MAX_PAYLOAD 128
 #define SS_MAX_FRAME 138
 enum { SS_REQUEST=1, SS_RESPONSE=2, SS_EVENT=4, SS_ERROR=8 };
@@ -17,6 +19,10 @@ enum { SS_ACTION_AXIS6_TEST=3 };
 typedef struct { uint8_t flags, sequence, command; uint16_t length; uint8_t data[SS_MAX_PAYLOAD]; } SsFrame;
 typedef struct { uint8_t data[SS_MAX_FRAME]; uint16_t count; } SsParser;
 static uint16_t ss_get16(const uint8_t *p) { return (uint16_t)(p[0] | ((uint16_t)p[1]<<8)); }
+static uint8_t ss_route_request_valid(const uint8_t *data, unsigned length) {
+    return (uint8_t)(length==5U && data[0]>=1U && data[0]<=2U &&
+        ss_obstacle_regions_valid(ss_get16(data+1)) && ss_get16(data+3)>=10U && ss_get16(data+3)<=250U);
+}
 static void ss_put16(uint8_t *p, uint16_t v) { p[0]=(uint8_t)v; p[1]=(uint8_t)(v>>8); }
 static void ss_put32(uint8_t *p, uint32_t v) { ss_put16(p,(uint16_t)v); ss_put16(p+2,(uint16_t)(v>>16)); }
 static uint32_t ss_get32(const uint8_t *p) { return ss_get16(p) | ((uint32_t)ss_get16(p+2)<<16); }

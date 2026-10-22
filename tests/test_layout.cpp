@@ -1,5 +1,6 @@
 #include <QtTest>
 #include <QDir>
+#include <QFontDatabase>
 #include <QQmlApplicationEngine>
 #include <QQmlContext>
 #include <QQmlProperty>
@@ -61,6 +62,44 @@ private slots:
         for (int page = 0; page < 4; ++page) {
             window->setProperty("page", page);
             QTest::qWait(100);
+            if (page == 0) {
+                auto *map = window->findChild<QQuickItem *>("obstacleMap");
+                QVERIFY(map && map->isVisible());
+                auto findRegion = [&](int number) -> QQuickItem * {
+                    const QString name = QString("obstacleRegion%1").arg(number);
+                    for (auto *item : map->childItems()) if (item->objectName() == name) return item;
+                    return nullptr;
+                };
+                QCOMPARE(window->property("obstacleCount").toInt(),0);
+                for (int n : {5,12,15}) {
+                    auto *region = findRegion(n);
+                    QVERIFY(region && region->height() >= 44);
+                    QVERIFY(QMetaObject::invokeMethod(region,"clicked"));
+                }
+                QCOMPARE(window->property("obstacleMask").toInt(),0x0810);
+                QCOMPARE(window->property("obstacleCount").toInt(),2);
+                auto *region5 = findRegion(5);
+                auto *region15 = findRegion(15);
+                QVERIFY(QMetaObject::invokeMethod(region5,"clicked"));
+                QVERIFY(QMetaObject::invokeMethod(region15,"clicked"));
+                QCOMPARE(window->property("obstacleMask").toInt(),0x4800);
+                for (const char *name : {"missionStartButton","missionPrepareButton","routeStartButton"}) {
+                    auto *button = window->findChild<QQuickItem *>(name);
+                    QVERIFY(button && !button->isEnabled());
+                }
+                window->setProperty("obstacleMask",0x0810);
+                const auto captureDir = qEnvironmentVariable("SS_LAYOUT_CAPTURE_DIR");
+                if (!captureDir.isEmpty()) {
+                    QDir().mkpath(captureDir);
+                    auto *flickable = scroll->property("contentItem").value<QQuickItem *>();
+                    QVERIFY(flickable);
+                    const auto topY = sceneRect(map).top()-sceneRect(scroll).top();
+                    flickable->setProperty("contentY",qMax(0.0,topY));
+                    QTest::qWait(50);
+                    QVERIFY(window->grabWindow().save(captureDir + "/" + QTest::currentDataTag() + "-obstacles.png"));
+                    flickable->setProperty("contentY",0);
+                }
+            }
             if (page == 3) {
                 auto *testButton = window->findChild<QQuickItem *>("axis6TestButton");
                 QVERIFY(testButton && testButton->isVisible());
@@ -126,6 +165,10 @@ private slots:
 
 int main(int argc, char **argv) {
     QGuiApplication app(argc, argv);
+#ifdef Q_OS_WIN
+    // The offscreen platform does not discover Windows system fonts itself.
+    QFontDatabase::addApplicationFont(qEnvironmentVariable("WINDIR") + "/Fonts/msyh.ttc");
+#endif
     QQuickStyle::setStyle("Basic");
     LayoutTest test;
     return QTest::qExec(&test, argc, argv);

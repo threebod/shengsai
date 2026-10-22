@@ -1,6 +1,5 @@
 #include "stm32f4xx.h"
 #include "stm32f4xx_flash.h"
-#include "route_obstacle_store.h"
 #include "gripper_store.h"
 #include "ring_store.h"
 #include "delay.h"
@@ -11,6 +10,7 @@
 #include "straight_control.h"
 #include "route_plan.h"
 #include "arc_route_blend.h"
+#include "preset_route.h"
 #include "map_navigation.h"
 #include "mechanism_action.h"
 #include "raw_pick_action.h"
@@ -114,6 +114,9 @@ static float routeLegProgress;
 static int16_t routeRawLeftCorrection;
 static int16_t routeRawDownCorrection;
 static uint8_t routeObstaclePosition = ROUTE_OBSTACLE_UP;
+static uint16_t routeObstacleRegions;
+static PresetRoute presetRoute;
+static uint8_t presetRouteActive;
 static int16_t routeForward, routeRight;
 static uint32_t routeTick, routeLegStart, routeSettle;
 static uint8_t routeAuto, routeRotating, routeOnlyTurn, routeTurnInBand;
@@ -200,7 +203,6 @@ static QrScanParser qrParser;
 static ObstacleStopParser obstacleParser;
 static TjcObstacleParser tjcObstacleParser;
 static volatile uint16_t tjcObstaclePending;
-static uint16_t tjcObstacleRegions;
 static uint8_t obstacleTurretPending, obstacleTurretReady;
 static uint8_t prepareObstacleTurret(void);
 static volatile uint8_t obstacleStopPending;
@@ -515,17 +517,16 @@ static void serviceTjcObstacles(void)
         serialSendString("HMI OBSTACLES rejected: busy or stopped; resend selection\r\n");
         return;
     }
-    tjcObstacleRegions = regions;
+    routeObstacleRegions = regions;
     serialSendString("HMI OBSTACLES regions=");
     for (i = 0U; i < 15U; ++i) {
-        if ((tjcObstacleRegions & (1U << i)) != 0U) {
+        if ((routeObstacleRegions & (1U << i)) != 0U) {
             serialSendUint(i + 1U);
             serialSendChar(' ');
         }
     }
     serialSendString("\r\n");
-    /* Receipt acknowledgement: only a validated selection may change page.
-     * Keep the 15-region mask separate from the legacy four-way route setting. */
+    /* Receipt acknowledgement; both inputs share the same RAM-only selection. */
     tjcDisplaySend(showTask, (uint8_t)(sizeof(showTask) - 1U));
     tjcDisplayCounts();
 }
@@ -644,6 +645,8 @@ static void stopAllMotors(void)
     missionArcActive = missionArcExit = 0U;
     routeActive = 0U;
     fullRouteRunning = 0U;
+    presetRouteActive = 0U;
+    presetRoute.count = presetRoute.index = 0U;
     missionButtonReady = 0U;
     missionOffline = 0U;
     missionQrValid = 0U;
@@ -1656,6 +1659,7 @@ static void printArcBlendState(const char *event)
 static uint8_t missionArcCorner(uint8_t index)
 {
     RouteLeg before, after;
+    if (presetRouteActive) return presetRoute.legs[presetRoute.index].arc;
     if (!missionActive || navRunning || index + 1U >= ROUTE_COUNT ||
         ARC_BLEND_GEOMETRY_MM * routeForwardScale / ARC_BLEND_RADIUS_MM >= 0.98f)
         return 0U;
@@ -1676,10 +1680,11 @@ static uint8_t missionArcCorner(uint8_t index)
 
 static void beginArcBlend(void)
 {
-    RouteLeg leg = routeObstacleLeg(routeIndex, routeStartZone, routeObstaclePosition);
+    RouteLeg leg = presetRouteActive ? presetRoute.legs[presetRoute.index].drive :
+                   routeObstacleLeg(routeIndex, routeStartZone, routeObstaclePosition);
     int16_t forward, right;
     int8_t change;
-    arcBlend.exitHeading = missionActive ? leg.heading : 1;
+    arcBlend.exitHeading = (presetRouteActive || missionActive) ? leg.heading : 1;
     change = arcBlend.exitHeading - routeHeading;
     if (change > 2) change -= 4;
     if (change < -2) change += 4;
@@ -1696,9 +1701,9 @@ static void beginArcBlend(void)
     arcBlend.turned = arcBlend.rateDps = 0.0f;
     arcBlend.tick = arcBlend.start = arcBlend.report = clockMs;
     routeHeadingPidReset(&routeHeadingPid);
-    routeActive = missionActive ? 1U : 0U;
+    routeActive = (presetRouteActive || missionActive) ? 1U : 0U;
     motionMode = 7U;
-    if (missionActive) {
+    if (presetRouteActive || missionActive) {
         missionArcActive = 1U;
         missionArcExit = 0U;
         serialSendString("ROUTE ARC index="); serialSendUint((uint16_t)(routeIndex + 1U));
@@ -1713,6 +1718,7 @@ static void beginArcBlend(void)
 static RouteLeg activeDistanceLeg(void)
 {
     RouteLeg leg = routeObstacleLeg(routeIndex, routeStartZone, routeObstaclePosition);
+    if (presetRouteActive) return presetActiveLeg(&presetRoute);
     if (arcRoutePhase) {
         if (routeIndex == 2U) { leg.upMm -= 249; leg.heading = 4; }
         if (routeIndex == 3U) leg.rightMm += 249;
@@ -1762,8 +1768,9 @@ static void printFullRouteStage(const RoutePoint *point)
 
 static void finishFullRoute(void)
 {
+    uint8_t wasPreset = presetRouteActive;
     stopAllMotors();
-    serialSendString("ROUTE DONE mode=DISTANCE\r\n");
+    serialSendString(wasPreset ? "ROUTE DONE mode=PRESET_REGIONS\r\n" : "ROUTE DONE mode=DISTANCE\r\n");
     serialSendString("ROUTE END: verify actual home position\r\n");
 }
 
@@ -1969,6 +1976,17 @@ static void serviceRoute(void)
         serialSendString("\r\n");
         if (fullRouteRunning && p.event) printFullRouteStage(&p);
         missionArcExit = 0U;
+        if (presetRouteActive) {
+            uint8_t next = presetAdvance(&presetRoute, &routeIndex);
+            routeStationAlignment = 0U;
+            routeLegProgress = 0.0f;
+            routeSettle = routeLegStart = clockMs;
+            if (!next) { finishFullRoute(); return; }
+            routeWaiting = (uint8_t)(next == 2U && missionActive);
+            if (routeWaiting) missionBeginStation(routeIndex);
+            else routeIndex = presetRoute.legs[presetRoute.index].taskIndex;
+            return;
+        }
         if (arcRoutePhase && routeIndex == 3U) {
             stopDriveMotors();
             routeActive = routeWaiting = fullRouteRunning = arcRoutePhase = 0U;
@@ -2138,11 +2156,23 @@ static uint8_t processRouteCommand(const char *command)
             "ERR: fresh IMU and healthy CAN required\r\n");
         return 1U;
     }
+    if (!presetBuild(&presetRoute, (uint8_t)degrees, routeObstacleRegions)) {
+        serialSendString("ERR ROUTE: NO_PATH; select two regions with clear station approaches\r\n");
+        return 1U;
+    }
+    if (ARC_BLEND_GEOMETRY_MM * routeForwardScale / ARC_BLEND_RADIUS_MM >= 0.98f) {
+        unsigned i;
+        for (i = 0U; i < presetRoute.count; ++i) {
+            presetRoute.legs[i].arc = 0U;
+            presetRoute.legs[i].drive.heading = presetRoute.legs[i].to.heading;
+        }
+    }
     missionButtonReady = 0U;
     invalidateNavigation("manual_motion");
     start = (uint8_t)degrees;
     routeRpm = rpm;
     routeAuto = fullRouteRunning = 1U;
+    presetRouteActive = 1U;
     missionActive = missionRun;
     if (missionRun) {
         missionTaskValid = 0U;
@@ -2177,7 +2207,9 @@ static uint8_t processRouteCommand(const char *command)
     routeLastReport = clockMs - 200U;
     routeWaiting = 0U; routeActive = 1U;
     if (missionRun) vision_session_init(&visionSession);
-    serialSendString("ROUTE START: nose UP, clear floor, nominal distance only\r\n");
+    serialSendString("ROUTE START mode=PRESET_REGIONS; nose UP; nominal pose only\r\n");
+    serialSendString("ROUTE PLAN regions_mask="); serialSendUint(routeObstacleRegions);
+    serialSendString(" legs="); serialSendUint(presetRoute.count); serialSendString("\r\n");
     if (fullRouteRunning) printFullRoutePose("RUN");
     return 1U;
 }
@@ -2271,12 +2303,16 @@ static void serviceArcRoute(void)
             motionMode = 0U;
             routeHeading = routeNextHeading = arcBlend.exitHeading;
             routeYaw = routeBaseYaw + routeHeading * 90.0f * yawSign;
-            ++routeIndex;
+            if (presetRouteActive) {
+                ++presetRoute.index;
+                routeIndex = presetRoute.legs[presetRoute.index].taskIndex;
+            } else ++routeIndex;
             routeLegProgress = arcBlend.distance - ARC_BLEND_LENGTH_MM;
             routeDriveRpm = arcBlend.forward;
             routeCorrection = arcBlend.turn;
             routeTurnRpm = 0.0f;
-            exit = routeObstacleLeg(routeIndex, routeStartZone, routeObstaclePosition);
+            exit = presetRouteActive ? presetActiveLeg(&presetRoute) :
+                   routeObstacleLeg(routeIndex, routeStartZone, routeObstaclePosition);
             routeForward = exit.upMm ? (exit.upMm > 0 ? 1 : -1) * routeRound(arcBlend.forward) : 0;
             routeRight = exit.rightMm ? (exit.rightMm > 0 ? 1 : -1) * routeRound(arcBlend.forward) : 0;
             routeHeadingPidReset(&routeHeadingPid);
@@ -2730,6 +2766,7 @@ static void missionContinue(void)
     missionActionStarted = 0U;
     missionOffsetForward = missionOffsetRight = 0.0f;
     routeWaiting = 0U;
+    if (presetRouteActive) routeIndex = presetRoute.legs[presetRoute.index].taskIndex;
     routeTick = routeSettle = routeLegStart = clockMs;
     missionReport("CONTINUE");
 }
@@ -2943,7 +2980,7 @@ static void serviceMission(void)
         missionAbort("unsafe_recenter_pose");
         return;
     }
-    if (routeIndex == 4U || routeIndex == 11U) {
+    if (!presetRouteActive && (routeIndex == 4U || routeIndex == 11U)) {
         if (routeObstaclePosition == ROUTE_OBSTACLE_LEFT ||
             routeObstaclePosition == ROUTE_OBSTACLE_RIGHT) {
             /* Facing left: body forward is map left, body right is map up.
@@ -3110,6 +3147,10 @@ static void startButtonMission(uint8_t zone)
         serialSendString("BUTTON ERROR prepare task first\r\n");
         return;
     }
+    if (!ss_obstacle_regions_valid(routeObstacleRegions)) {
+        serialSendString("BUTTON ERROR select two obstacle regions first\r\n");
+        return;
+    }
     if (!servoChannelEnabled[0]) {
         servoSetTarget(2U, rawPickInitial.gripperCloseDeg, rawPickInitial.gripperDps10);
         gripperMayHoldMaterial = 0U;
@@ -3235,7 +3276,6 @@ void UART5_IRQHandler(void)
 
 int main(void)
 {
-    routeObstaclePosition = routeObstacleLoad();
     delay_init(168U);
     board_init();
     clockInit();

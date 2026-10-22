@@ -96,7 +96,7 @@ static void finishPreparation(void)
 int main(void)
 {
     unsigned i;
-    uint8_t *blocked[] = {&emergencyStop, &hostEStop, &jogCanFault, &motionMode,
+    uint8_t *blocked[] = {&emergencyStop, &hostEStop, &jogCanFault, &hostStartPending, &motionMode,
         &routeActive, &mechanismState.running, &mechanismActionActive, &visionActive,
         &servoChannelMoving[0], &servoChannelMoving[1], &servoChannelMoving[2]};
     for (i = 0U; i < sizeof(blocked) / sizeof(blocked[0]); ++i) {
