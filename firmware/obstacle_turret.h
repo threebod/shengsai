@@ -1,8 +1,8 @@
 #ifndef SHENGSAI_OBSTACLE_TURRET_H
 #define SHENGSAI_OBSTACLE_TURRET_H
 
-/* Both validated obstacle-selection inputs use this command preparation.
- * It changes only the turret; axis validity must never be established here. */
+/* Both validated obstacle-selection inputs prepare all three servos.
+ * Axis validity must never be established here. */
 static uint8_t prepareObstacleTurret(void)
 {
     if (emergencyStop || hostEStop || jogCanFault || obstacleTurretPending ||
@@ -11,6 +11,8 @@ static uint8_t prepareObstacleTurret(void)
         servoChannelMoving[2]) return 0U;
     obstacleTurretReady = 0U;
     obstacleTurretPending = 1U;
+    servoSetTarget(2U, rawPickInitial.gripperCloseDeg, rawPickInitial.gripperDps10);
+    servoSetTarget(3U, 26U, rawPickInitial.platformDps10);
     servoSetTarget(4U, 53U, 1200U);
     return 1U;
 }
@@ -19,12 +21,15 @@ static void serviceObstacleTurret(void)
 {
     if (!obstacleTurretPending) return;
     if (emergencyStop || hostEStop || jogCanFault) {
+        hostOperationFailed = 1U;
         stopServoMotion();
         invalidateMechanism("obstacle_turret_fault");
         return;
     }
-    if (servoChannelMoving[2]) return;
-    if (currentAngleMdeg[2] != 53000U) {
+    if (servoChannelMoving[0] || servoChannelMoving[1] || servoChannelMoving[2]) return;
+    if (currentAngleMdeg[0] != (uint32_t)rawPickInitial.gripperCloseDeg * 1000U ||
+        currentAngleMdeg[1] != 26000U || currentAngleMdeg[2] != 53000U) {
+        hostOperationFailed = 1U;
         stopServoMotion();
         invalidateMechanism("obstacle_turret_interrupted");
         return;
@@ -32,7 +37,9 @@ static void serviceObstacleTurret(void)
     mechanismState.current.turretDdeg = 530U;
     obstacleTurretPending = 0U;
     obstacleTurretReady = 1U;
-    serialSendString("OBSTACLE TURRET command_done angle=53\r\n");
+    serialSendString("TASK PREPARE command_done gripper=");
+    serialSendUint(rawPickInitial.gripperCloseDeg);
+    serialSendString(" platform=26 turret=53\r\n");
 }
 
 static void serviceObstacleHostStart(void)

@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "../shared/protocol.h"
-#include "../firmware/mechanism_action.h"
+#include "../firmware/raw_pick_action.h"
 
 static uint8_t emergencyStop, hostEStop, jogCanFault, obstacleTurretPending, obstacleTurretReady;
 static uint8_t motionMode, routeActive, mechanismActionActive, visionActive;
@@ -23,13 +23,16 @@ static uint8_t instantServo, rejectMission;
 
 static uint8_t visionSessionActive(void) { return visionActive; }
 static void serialSendString(const char *text) { (void)text; }
+static void serialSendUint(uint16_t value) { (void)value; }
 static void invalidateMechanism(const char *reason) { (void)reason; mechanismState.valid = 0U; }
 static void servoSetTarget(uint8_t channel, uint16_t angle, uint16_t speed)
 {
-    assert(channel == 4U && angle == 53U && speed == 1200U);
+    assert(channel >= 2U && channel <= 4U);
+    assert(angle == (channel == 2U ? rawPickInitial.gripperCloseDeg : channel == 3U ? 26U : 53U));
+    assert(speed == (channel == 2U ? rawPickInitial.gripperDps10 : channel == 3U ? rawPickInitial.platformDps10 : 1200U));
     ++servoCalls;
-    servoChannelMoving[2] = !instantServo;
-    if (instantServo) currentAngleMdeg[2] = 53000U;
+    servoChannelMoving[channel - 2U] = !instantServo;
+    if (instantServo) currentAngleMdeg[channel - 2U] = (uint32_t)angle * 1000U;
 }
 static void stopServoMotion(void)
 {
@@ -41,6 +44,8 @@ static void startButtonMission(uint8_t zone)
 {
     assert(zone == 2U && missionButtonReady && missionButtonRpm == 240U);
     assert(!obstacleTurretPending && mechanismState.current.turretDdeg == 530U);
+    assert(currentAngleMdeg[0] == (uint32_t)rawPickInitial.gripperCloseDeg * 1000U &&
+           currentAngleMdeg[1] == 26000U);
     ++missionStarts;
     missionActive = !rejectMission;
 }
@@ -64,6 +69,7 @@ static void reset(void)
     missionButtonReady = missionActive = missionOffline = armed = hostExecuting = hostError = 0U;
     servoCalls = stops = missionStarts = routeStarts = 0U;
     instantServo = rejectMission = 0U;
+    rawPickInitial.gripperCloseDeg = 155U;
     memset(servoChannelMoving, 0, sizeof(servoChannelMoving));
     memset(currentAngleMdeg, 0, sizeof(currentAngleMdeg));
     memset(&mechanismState, 0, sizeof(mechanismState));
@@ -75,10 +81,12 @@ static void reset(void)
     hostStartRpm = 240U;
 }
 
-static void finishTurret(void)
+static void finishPreparation(void)
 {
+    currentAngleMdeg[0] = (uint32_t)rawPickInitial.gripperCloseDeg * 1000U;
+    currentAngleMdeg[1] = 26000U;
     currentAngleMdeg[2] = 53000U;
-    servoChannelMoving[2] = 0U;
+    memset(servoChannelMoving, 0, sizeof(servoChannelMoving));
     serviceObstacleTurret();
     assert(obstacleTurretReady && !obstacleTurretPending);
     assert(mechanismState.current.turretDdeg == 530U);
@@ -98,11 +106,33 @@ int main(void)
     }
     reset();
     assert(prepareObstacleTurret());
-    assert(!prepareObstacleTurret() && servoCalls == 1U);
+    assert(!prepareObstacleTurret() && servoCalls == 3U);
     serviceObstacleTurret();
     assert(obstacleTurretPending && !obstacleTurretReady && mechanismState.current.turretDdeg == 2600U);
-    finishTurret();
+    finishPreparation();
     assert(mechanismState.valid);
+
+    for (i = 0U; i < 3U; ++i) {
+        reset();
+        instantServo = 1U;
+        assert(prepareObstacleTurret() && servoCalls == 3U);
+        servoChannelMoving[i] = 1U;
+        hostStartPending = SS_MISSION;
+        serviceObstacleTurret();
+        serviceObstacleHostStart();
+        assert(obstacleTurretPending && !obstacleTurretReady && !missionStarts);
+        servoChannelMoving[i] = 0U;
+        serviceObstacleTurret();
+        serviceObstacleHostStart();
+        assert(missionStarts == 1U && missionOffline);
+    }
+
+    reset();
+    rawPickInitial.gripperCloseDeg = 167U; /* Use the configured angle, not a fixed 155 degrees. */
+    instantServo = 1U;
+    assert(prepareObstacleTurret());
+    serviceObstacleTurret();
+    assert(obstacleTurretReady && currentAngleMdeg[0] == 167000U);
 
     reset();
     mechanismState.valid = hostConfirmed = 0U; /* Physical HMI works offline, without inventing an axis zero. */
@@ -115,20 +145,23 @@ int main(void)
     assert(prepareObstacleTurret());
     jogCanFault = 1U;
     serviceObstacleTurret();
-    assert(stops == 1U && !obstacleTurretReady && !mechanismState.valid);
+    assert(stops == 1U && !obstacleTurretReady && !mechanismState.valid && hostOperationFailed);
 
-    reset();
-    assert(prepareObstacleTurret());
-    servoChannelMoving[2] = 0U; /* Stopped short, with the wrong command angle. */
-    serviceObstacleTurret();
-    assert(stops == 1U && !obstacleTurretReady && !mechanismState.valid);
+    for (i = 0U; i < 3U; ++i) {
+        reset();
+        instantServo = 1U;
+        assert(prepareObstacleTurret());
+        currentAngleMdeg[i] = 0U; /* Stopped short, with the wrong command angle. */
+        serviceObstacleTurret();
+        assert(stops == 1U && !obstacleTurretReady && !mechanismState.valid && hostOperationFailed);
+    }
 
     reset();
     assert(prepareObstacleTurret());
     hostStartPending = SS_MISSION;
     serviceObstacleHostStart();
     assert(hostStartPending && !missionStarts);
-    finishTurret();
+    finishPreparation();
     serviceObstacleHostStart();
     assert(missionStarts == 1U && !hostStartPending && missionOffline);
     serviceObstacleHostStart();
@@ -137,7 +170,7 @@ int main(void)
     reset();
     assert(prepareObstacleTurret());
     hostStartPending = SS_ROUTE;
-    finishTurret();
+    finishPreparation();
     serviceObstacleHostStart();
     assert(routeStarts == 1U && !hostStartPending);
 
@@ -162,7 +195,7 @@ int main(void)
     reset();
     assert(prepareObstacleTurret());
     hostStartPending = SS_MISSION;
-    finishTurret();
+    finishPreparation();
     rejectMission = 1U;
     serviceObstacleHostStart();
     assert(hostOperationFailed && !missionOffline);
