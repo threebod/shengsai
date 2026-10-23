@@ -200,6 +200,9 @@ static VisionSession visionSession;
 static VisionParser visionParser;
 static volatile VisionPacket visionRxPacket;
 static volatile uint8_t visionRxReady;
+static volatile uint32_t visionRxStamp;
+static uint8_t visionTrackingActive(void);
+static void cancelVisionTracking(void);
 static QrScanParser qrParser;
 static ObstacleStopParser obstacleParser;
 static TjcObstacleParser tjcObstacleParser;
@@ -600,8 +603,9 @@ void UART4_IRQHandler(void)
     VisionPacket packet;
     if (USART_GetITStatus(UART4, USART_IT_RXNE) == RESET) return;
     byte = (uint8_t)USART_ReceiveData(UART4);
-    if (!visionRxReady && vision_parser_feed(&visionParser, &byte, 1U, &packet)) {
+    if (vision_parser_feed(&visionParser, &byte, 1U, &packet)) {
         visionRxPacket = packet;
+        visionRxStamp = clockMs;
         visionRxReady = 1U;
     }
     USART_ClearITPendingBit(UART4, USART_IT_RXNE);
@@ -629,6 +633,7 @@ static void stopAuxMotors(void)
 
 static void stopAllMotors(void)
 {
+    cancelVisionTracking();
     cancelMissionObservation();
     obstacleTurretPending = obstacleTurretReady = 0U;
     if (visionSession.state == VISION_STATE_REQUEST ||
@@ -1106,6 +1111,7 @@ static void failVision(const char *reason)
     uint8_t wasMission = missionActive;
     uint8_t slot = wasRawPick ? rawPickCurrentSlot : 0U;
     uint8_t color = wasRawPick ? rawPickCurrentColor : 0U;
+    cancelVisionTracking();
     if (visionPickActive || wasMission) {
         stopServoMotion();
         stopAllMotors();
@@ -1143,6 +1149,8 @@ static void printVisionMotionStatus(void)
     }
     serialSendString("\r\n");
 }
+
+#include "vision_tracking_runtime.h"
 
 static uint8_t startVisionMotion(float forwardMm, float rightMm,
                                  uint16_t rpm, uint8_t automatic)
@@ -2543,6 +2551,11 @@ static void serviceVision(void)
     VisionEvent event;
     int16_t du;
     int16_t dv;
+    flushVisionTrackingEnd();
+    if (visionTrackingActive()) {
+        receiveVisionTracking();
+        return;
+    }
     if (!visionSessionActive()) {
         if ((visionSession.requestFlags & VISION_FLAG_MATERIAL_LAYOUT) &&
             visionSession.layoutPhase != VISION_LAYOUT_END) {
@@ -2692,6 +2705,12 @@ static void serviceVision(void)
     serialSendString(" iteration="); serialSendUint(visionSession.iteration);
     serialSendString("\r\n");
     if (event == VISION_EVENT_MOVE) {
+        if (visionTrackingEligible()) {
+            if (!startVisionTracking(visionSession.forwardMm,visionSession.rightMm))
+                failVision("TRACKING_START_FAILED");
+            else printVisionState();
+            return;
+        }
         if (!imuValid || clockMs - imuStamp > 250U ||
             !startVisionMotion(visionSession.forwardMm, visionSession.rightMm,
                                30U, 1U)) {

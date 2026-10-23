@@ -14,6 +14,9 @@ FLAG_MATERIAL_LAYOUT = 8
 FLAG_COLOR_INFERRED = 16  # Result only; one slot color was inferred.
 FLAG_STACK_PREPARE = 32  # Request only; configure stacking without detecting or replying.
 FLAG_LAYOUT_REFERENCE = 64  # Result only; center belongs to a visible rotation reference.
+FLAG_TRACKING = 128  # Continuous raw results for chassis alignment.
+TRACKING_START = 1
+TRACKING_END = -1
 LAYOUT_TRACK = 0
 LAYOUT_CONFIRM = 1
 LAYOUT_END = 2
@@ -35,6 +38,16 @@ def encode(kind, token, mode, selector, target, flags, values):
     frame = struct.pack(FORMAT, b"\xA5\x5A", 1, kind, token, mode,
                         selector, target, flags, *values, 0)
     return frame[:28] + struct.pack("<H", crc16(frame[:28]))
+
+
+def tracking_values(found, sequence, age_ms):
+    values = [0] * 8
+    if found is not None:
+        values[:len(found)] = found
+    sequence &= 0xFFFF
+    values[6] = sequence if sequence < 0x8000 else sequence - 0x10000
+    values[7] = max(0, min(32767, int(age_ms)))
+    return values
 
 
 class Parser:
@@ -119,6 +132,12 @@ def validate_request(packet):
         return False
     if packet["mode"] == MODE_MATERIAL and not 0 <= packet["values"][6] <= 63:
         return False
+    tracking = bool(packet["flags"] & FLAG_TRACKING)
+    if tracking and (packet["flags"] & ~(FLAG_TRACKING | FLAG_RING_NO_DIGIT) or
+            packet["values"][7] not in (TRACKING_START, TRACKING_END) or
+            (packet["mode"] == MODE_MATERIAL and
+             (packet["target"] != 2 or packet["flags"] != FLAG_TRACKING))):
+        return False
     if packet["flags"] & FLAG_STACK_PREPARE and (
             packet["mode"] != MODE_MATERIAL or packet["target"] != 2 or
             packet["flags"] != FLAG_STACK_PREPARE):
@@ -139,6 +158,8 @@ def validate_request(packet):
     if packet["mode"] == MODE_RING and packet["flags"] & FLAG_RING_NO_DIGIT and (
             packet["target"] != 2 or not 1 <= packet["selector"] <= 6):
         return False
+    if tracking and packet["values"][7] == TRACKING_END:
+        return True
     x, y, width, height, u, v, _, _ = packet["values"]
     return (0 <= x < 320 and 0 <= y < 240 and width > 0 and height > 0 and
             x + width <= 320 and y + height <= 240 and

@@ -1,0 +1,208 @@
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
+#include <assert.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include "../firmware/vision_control.h"
+#include "../firmware/route_plan.h"
+
+#define VISION_MOVE_STATUS_POLL_MS 20U
+#define HOST_HEARTBEAT_TIMEOUT_MS 1000U
+#define __disable_irq() ((void)0)
+#define __enable_irq() ((void)0)
+enum { S_FLAG, MISSION_IDLE, MISSION_TEMP_ALIGN };
+static VisionSession visionSession;
+static VisionCalibration calibration = {1,{0,0,320,240},160,120,{-1.111f,0,0,-1.143f}};
+static VisionPacket visionRxPacket, lastRequest;
+static uint32_t clockMs, visionRxStamp, imuStamp, motionStart, motionDuration, lastControl;
+static uint32_t hostHeartbeatStamp;
+static uint8_t visionRxReady, imuValid, emergencyStop, hostEStop, fault, motionMode;
+static uint8_t missionActive, routeWaiting, missionOffline, fullRouteRunning, missionPhase;
+static uint8_t hostHeartbeatActive, visionPickActive, rawPickAtStation, routeSentValid;
+static uint8_t visionMotionMotorMask, visionMotionQueryId, visionMotionSeenMask, visionMotionStatus[4];
+static uint8_t visionMotionAutomatic, statusReady, statusValues[4];
+static uint16_t motorTrim[5] = {1000,1000,1000,1000,1000};
+static float imuYaw, missionOffsetForward, missionOffsetRight;
+static float routeForwardScale = ROUTE_FORWARD_SCALE, routeLateralScale = ROUTE_LATERAL_SCALE;
+static int8_t yawSign = 1;
+static RouteHeadingPidGains routeHeadingGains = {ROUTE_HEADING_KP,ROUTE_HEADING_KI,ROUTE_HEADING_KD};
+static unsigned enables, stops, sends, requests, failures, queries;
+static int16_t sentForward, sentRight, sentTurn;
+static unsigned expectedWheelLimit = 30;
+static const char *failureReason;
+static void cancelVisionTracking(void);
+static void failVision(const char *reason);
+static uint8_t motionInterrupted(void) { return fault || emergencyStop; }
+static const VisionCalibration *visionCalibration(void) { return &calibration; }
+static void stopDriveMotors(void) { ++stops; sentForward = sentRight = 0; }
+static void setAllMotorsEnabled(int enabled) { assert(enabled); ++enables; }
+static void sendRouteSpeeds(int16_t forward, int16_t right, int16_t turn)
+{
+    uint8_t id;
+    for (id = 1; id <= 4; ++id)
+        assert((unsigned)abs(routeWheel(id,forward,right,turn,motorTrim[id])) <= expectedWheelLimit);
+    ++sends; sentForward = forward; sentRight = right; sentTurn = turn;
+}
+static void visionUartSend(const VisionPacket *packet) { ++requests; lastRequest = *packet; }
+static void invalidateNavigation(const char *reason) { (void)reason; }
+static void printVisionState(void) {}
+static void printVisionMotionStatus(void) {}
+static void serialSendString(const char *value) { (void)value; }
+static void serialSendUint32(uint32_t value) { (void)value; }
+static float headingError(float target, float yaw) { return target-yaw; }
+static void jogCanResetDriveStatus(void) { statusReady = 0; }
+static uint8_t jogCanTakeDriveStatus(uint8_t id, uint8_t *status)
+{
+    uint8_t bit = (uint8_t)(1U<<(id-1U));
+    if (!(statusReady&bit)) return 0;
+    statusReady &= (uint8_t)~bit; *status = statusValues[id-1U]; return 1;
+}
+static void jogCanExpectDriveStatus(uint8_t id) { assert(id >= 1 && id <= 4); }
+static void Emm_V5_Read_Sys_Params(uint8_t id, int flag)
+{ assert(id >= 1 && id <= 4 && flag == S_FLAG); ++queries; }
+#include "../firmware/vision_tracking_runtime.h"
+#include "../firmware/vision_motion_runtime.h"
+
+static void failVision(const char *reason)
+{
+    failureReason = reason; ++failures;
+    cancelVisionTracking(); motionMode = 0; visionSession.state = VISION_STATE_FAILED;
+}
+static void reset(void)
+{
+    vision_tracking_cancel(&visionTracking);
+    visionTrackingOpen = visionTrackingStarted = visionTrackingEndPending = 0;
+    vision_session_init(&visionSession);
+    visionSession.state = VISION_STATE_MOVE; visionSession.mode = VISION_MODE_RING;
+    visionSession.target = 2; visionSession.maxCorrections = 2; visionSession.iteration = 1;
+    clockMs = imuStamp = hostHeartbeatStamp = 100;
+    imuValid = 1; imuYaw = 0;
+    visionRxReady = emergencyStop = hostEStop = fault = motionMode = 0;
+    missionActive = routeWaiting = missionOffline = fullRouteRunning = 0;
+    missionPhase = MISSION_IDLE; hostHeartbeatActive = 1;
+    visionPickActive = rawPickAtStation = statusReady = 0;
+    enables = stops = sends = requests = failures = queries = 0;
+    sentForward = sentRight = 0; failureReason = NULL;
+    expectedWheelLimit = 30;
+    for (unsigned id = 0; id <= 4; ++id) motorTrim[id] = 1000;
+    missionOffsetForward = missionOffsetRight = 0;
+    assert(startVisionTracking(44.44f,22.86f));
+    assert(lastRequest.flags&VISION_FLAG_TRACKING);
+    assert(lastRequest.value[7] == VISION_TRACK_START && lastRequest.token&0x80000000UL);
+}
+static void queueFrame(int du, int dv, unsigned sequence, uint8_t flags)
+{
+    visionRxPacket = visionTrackingRequest;
+    visionRxPacket.type = VISION_MESSAGE_RESULT; visionRxPacket.flags = flags;
+    visionRxPacket.value[0] = (int16_t)(160+du); visionRxPacket.value[1] = (int16_t)(120+dv);
+    visionRxPacket.value[2] = 80; visionRxPacket.value[5] = visionSession.selector;
+    visionRxPacket.value[6] = (int16_t)sequence; visionRxPacket.value[7] = 0;
+    visionRxStamp = clockMs; visionRxReady = 1;
+}
+static void step(unsigned dt)
+{ clockMs += dt; imuStamp = clockMs; hostHeartbeatStamp = clockMs; serviceMotion(); }
+static void run(void)
+{
+    queueFrame(-40,-20,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID);
+    step(20); step(20);
+    assert(enables == 1 && sends && visionTrackingStarted);
+}
+int main(void)
+{
+    unsigned i;
+    uint32_t token, completedAt;
+    float expected;
+    int16_t farForward;
+    reset(); step(20); assert(!enables && !sends && visionTracking.state == VISION_TRACK_WAIT);
+    run(); farForward = sentForward; assert(farForward > 0 && sentRight > 0);
+    for (i = 2; i <= 5; ++i) { queueFrame(-4,0,i,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20); }
+    assert(sentForward < farForward && sentRight == 0);
+    queueFrame(0,0,6,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
+    assert(!visionTrackingActive() && !motionMode && stops && visionSession.state == VISION_STATE_SETTLE);
+    assert(visionSession.state != VISION_STATE_ALIGNED);
+    completedAt = clockMs; token = visionTrackingRequest.token;
+    flushVisionTrackingEnd(); assert(lastRequest.value[7] == VISION_TRACK_END && lastRequest.token == token);
+    assert(vision_session_tick(&visionSession,completedAt+299) == VISION_EVENT_NONE);
+    assert(vision_session_tick(&visionSession,completedAt+300) == VISION_EVENT_REQUEST);
+    vision_session_make_request(&visionSession,&calibration,&lastRequest,completedAt+300);
+    assert(lastRequest.token != token && !(lastRequest.flags&VISION_FLAG_TRACKING));
+
+    reset(); queueFrame(-40,0,1,VISION_FLAG_VALID|VISION_FLAG_STABLE); step(20);
+    assert(failures == 1 && !enables && !sends && !strcmp(failureReason,"CAMERA_TRACKING_UNSUPPORTED"));
+    reset(); step(1800); assert(failures == 1 && !enables && !sends);
+    assert(!strcmp(failureReason,"TRACK_ACK_TIMEOUT"));
+    reset(); run(); step(240); assert(failures == 1 && !visionTrackingActive() && !motionMode);
+    queueFrame(-40,0,2,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
+    assert(failures == 1 && !visionTrackingActive());
+
+    reset(); run(); missionActive = routeWaiting = missionOffline = fullRouteRunning = 1;
+    expected = routeEstimateScaled(sentForward,20,routeForwardScale);
+    step(20); assert(fabsf(missionOffsetForward-expected) < 0.001f);
+    assert(missionOffsetForward < 2.0f && missionOffsetRight < 2.0f);
+    cancelVisionTracking(); motionMode = 0; vision_session_pause(&visionSession);
+    token = enables; queueFrame(-40,0,3,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
+    assert(enables == token && !visionTrackingActive() && !sentForward && !sentRight);
+    reset(); run(); missionActive = routeWaiting = 1;
+    expected = routeEstimateScaled(sentForward,5,routeForwardScale);
+    clockMs += 5; imuStamp = clockMs;
+    queueFrame(0,0,2,VISION_FLAG_TRACKING|VISION_FLAG_VALID); receiveVisionTracking();
+    assert(!visionTrackingActive() && fabsf(missionOffsetForward-expected) < 0.001f);
+    reset(); run(); assert(sentForward > 0);
+    clockMs += 1; imuStamp = clockMs;
+    queueFrame(40,-20,2,VISION_FLAG_TRACKING|VISION_FLAG_VALID); serviceMotion();
+    assert(sentForward == 0 && visionTracking.driveForwardRpm == 0);
+
+    for (i = 0; i < 5; ++i) {
+        reset(); run();
+        if (i == 0) emergencyStop = 1;
+        if (i == 1) fault = 1;
+        if (i == 2) imuValid = 0;
+        if (i == 3) imuYaw = 21.0f;
+        if (i == 4) { clockMs += 151; imuStamp = clockMs; }
+        serviceMotion(); assert(failures == 1 && !visionTrackingActive() && !motionMode && stops);
+    }
+    reset(); hostHeartbeatStamp = clockMs-1001U; serviceMotion();
+    assert(failures == 1 && !strcmp(failureReason,"HEARTBEAT_TIMEOUT") && !enables);
+    reset(); run(); statusReady = 1; statusValues[0] = 5; step(20);
+    assert(failures == 1 && !strcmp(failureReason,"MOTOR_STATUS_FAULT"));
+    reset(); run(); statusReady = 1; statusValues[0] = 5;
+    queueFrame(0,0,2,VISION_FLAG_TRACKING|VISION_FLAG_VALID); receiveVisionTracking();
+    assert(failures == 1 && visionSession.state == VISION_STATE_FAILED);
+    reset(); run(); statusReady = 1; statusValues[0] = 5;
+    visionTracking.deadlineMs = clockMs; serviceMotion();
+    assert(failures == 1 && visionSession.state == VISION_STATE_FAILED);
+
+    reset(); run(); imuYaw = -5.0f;
+    motorTrim[1] = 1600; motorTrim[2] = 900; motorTrim[3] = 1300;
+    queueFrame(-40,-20,2,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
+    assert(sentTurn > 0 && visionTracking.driveForwardRpm == sentForward && visionTracking.driveRightRpm == sentRight);
+    reset(); cancelVisionTracking(); visionSession.iteration = 2; expectedWheelLimit = 10;
+    assert(startVisionTracking(44.44f,22.86f));
+    imuYaw = -10.0f; motorTrim[1] = 1600; motorTrim[3] = 1300;
+    queueFrame(-40,-20,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20); step(20);
+    assert(!failures && abs(sentTurn) <= 10 && visionTracking.driveForwardRpm == sentForward);
+
+    reset(); cancelVisionTracking();
+    i = requests; assert(!startVisionTracking(NAN,20)); assert(requests == i && !enables);
+    routeForwardScale = NAN; assert(!startVisionTracking(20,20));
+    routeForwardScale = ROUTE_FORWARD_SCALE; assert(requests == i && !enables);
+
+    reset(); visionSession.iteration = 2; cancelVisionTracking();
+    expectedWheelLimit = 10;
+    assert(startVisionTracking(44.44f,22.86f) && visionTracking.limitRpm == 10);
+    queueFrame(0,0,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
+    assert(!enables && visionSession.state == VISION_STATE_SETTLE);
+    assert(vision_session_tick(&visionSession,clockMs+299) == VISION_EVENT_NONE);
+    assert(vision_session_tick(&visionSession,clockMs+300) == VISION_EVENT_CORRECTION_LIMIT);
+    assert(!visionTrackingEligible());
+
+    reset(); cancelVisionTracking(); visionSession.sampleOnly = 1; assert(!visionTrackingEligible());
+    visionSession.sampleOnly = 0; rawPickAtStation = 1; assert(!visionTrackingEligible());
+    rawPickAtStation = 0; visionSession.requestFlags = VISION_FLAG_MATERIAL_LAYOUT; assert(!visionTrackingEligible());
+    visionSession.requestFlags = 0; visionSession.mode = VISION_MODE_MATERIAL; visionSession.selector = 4;
+    assert(!visionTrackingEligible()); missionActive = 1; missionPhase = MISSION_TEMP_ALIGN;
+    assert(visionTrackingEligible());
+    puts("PASS production vision tracking runtime ACK gate, live speed, stop/fault/watchdog, offsets and correction limits");
+    return 0;
+}

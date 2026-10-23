@@ -2,6 +2,10 @@ static void serviceMotion(void)
 {
     uint32_t elapsed;
     uint8_t id,bit,status;
+    if (visionTrackingActive()) {
+        serviceVisionTrackingMotion();
+        return;
+    }
     if(motionMode!=4U || emergencyStop) return;
     elapsed=clockMs-motionStart;
 

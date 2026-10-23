@@ -18,6 +18,9 @@
 #define VISION_FLAG_COLOR_INFERRED 0x10U /* Result only. */
 #define VISION_FLAG_STACK_PREPARE 0x20U /* Request only; configure camera without detecting. */
 #define VISION_FLAG_LAYOUT_REFERENCE 0x40U /* Result only; actual center is a rotation reference. */
+#define VISION_FLAG_TRACKING 0x80U
+#define VISION_TRACK_START 1
+#define VISION_TRACK_END (-1)
 #define VISION_LAYOUT_TRACK 0U
 #define VISION_LAYOUT_CONFIRM 1U
 #define VISION_LAYOUT_END 2U

@@ -8,9 +8,10 @@ from vision_detectors import find_material, find_ring
 from material_layout import LayoutMemory, LayoutWindow, find_material_layout
 from vision_protocol import (FLAG_COLOR_INFERRED, FLAG_LAYOUT_REFERENCE, FLAG_MATERIAL_LAYOUT,
                              FLAG_RING_NO_DIGIT, FLAG_STACK_PREPARE, FLAG_STABLE, FLAG_VALID, KIND_RESULT,
+                             FLAG_TRACKING, TRACKING_END,
                              LAYOUT_CONFIRM, LAYOUT_END, LAYOUT_LOCATE,
                              MODE_MATERIAL, MODE_RING,
-                             Parser, StableWindow, encode, validate_request)
+                             Parser, StableWindow, encode, tracking_values, validate_request)
 import vision_settings as settings
 
 
@@ -29,6 +30,8 @@ def main():
     layout_window = LayoutWindow()
     layout_memory = LayoutMemory()
     layout_last_tx = None
+    tracking_last_tx = None
+    tracking_sequence = 0
     request = None
     light_mode = MODE_MATERIAL
     ring_no_digit = False
@@ -53,6 +56,12 @@ def main():
                 if validate_request(packet):
                     print("VISION REQUEST token={} mode={} target={}".format(
                         packet["token"], packet["mode"], packet["target"]))
+                    if packet["flags"] & FLAG_TRACKING and packet["values"][7] == TRACKING_END:
+                        if (request is not None and request["flags"] & FLAG_TRACKING and
+                                all(packet[key] == request[key]
+                                    for key in ("token", "mode", "selector", "target"))):
+                            request = None
+                        continue
                     continuing_layout = request is not None and bool(
                         request["flags"] & FLAG_MATERIAL_LAYOUT)
                     if not packet["flags"] & FLAG_MATERIAL_LAYOUT or (
@@ -93,26 +102,49 @@ def main():
                         material_metrics = ""
                         continue
                     request_started = now_ms
+                    tracking_last_tx = None
+                    tracking_sequence = 0
                     discard_frames = 0 if continuing_layout and packet["flags"] & FLAG_MATERIAL_LAYOUT else 2
                     detection_frames = 0
                     detection_started = None
                     ring_hits = 0
                     ring_detect_ms = 0
                     pickup = packet["mode"] == MODE_MATERIAL and packet["target"] == 0
-                    stable = StableWindow(count=10 if pickup else
-                                          3 if packet["mode"] == MODE_RING else 5,
-                                          tolerance=8 if pickup else 2,
-                                          minimum_ms=0 if pickup else
-                                          500 if packet["mode"] == MODE_MATERIAL else 180,
-                                          trend_tolerance=2 if pickup else None)
+                    if not packet["flags"] & FLAG_TRACKING:
+                        stable = StableWindow(count=10 if pickup else
+                                              3 if packet["mode"] == MODE_RING else 5,
+                                              tolerance=8 if pickup else 2,
+                                              minimum_ms=0 if pickup else
+                                              500 if packet["mode"] == MODE_MATERIAL else 180,
+                                              trend_tolerance=2 if pickup else None)
                     if packet["mode"] == MODE_MATERIAL:
                         material_status = "material waiting"
                         material_detail = ""
                         material_metrics = ""
+            capture_started = int(time.monotonic() * 1000)
             frame = cam.read()
             found = None
+            tracking_request = request is not None and bool(request["flags"] & FLAG_TRACKING)
             layout_request = request is not None and bool(request["flags"] & FLAG_MATERIAL_LAYOUT)
-            if layout_request:
+            if tracking_request:
+                if frame is not None:
+                    if discard_frames:
+                        discard_frames -= 1
+                    else:
+                        found = (find_ring(frame, request) if request["mode"] == MODE_RING else
+                                 find_material(frame, request, scale=scale))
+                        # Count every newly detected frame, including rate-limited ones.
+                        tracking_sequence = (tracking_sequence + 1) & 0xFFFF
+                        now_ms = int(time.monotonic() * 1000)
+                        if tracking_last_tx is None or now_ms - tracking_last_tx >= 100:
+                            values = tracking_values(found, tracking_sequence, now_ms - capture_started)
+                            flags = FLAG_TRACKING | (FLAG_VALID if found is not None else 0)
+                            response = encode(KIND_RESULT, request["token"], request["mode"],
+                                              request["selector"], request["target"], flags, values)
+                            if serial.write(response) != len(response):
+                                raise RuntimeError("UART short write")
+                            tracking_last_tx = now_ms
+            elif layout_request:
                 layout = None
                 if frame is not None:
                     if discard_frames:
@@ -173,7 +205,7 @@ def main():
                     if serial.write(response) != len(response):
                         raise RuntimeError("UART short write")
                     layout_last_tx = now_ms
-            if request is not None and not layout_request and (frame is not None or
+            if request is not None and not layout_request and not tracking_request and (frame is not None or
                     (request["mode"] == MODE_MATERIAL and request["target"] == 0)):
                 detected = False
                 if frame is None:
