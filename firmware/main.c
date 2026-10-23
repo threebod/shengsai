@@ -143,6 +143,7 @@ typedef enum {
     MISSION_TEMP_PLACE, MISSION_RECENTER, MISSION_RAW_EXIT
 } MissionPhase;
 static uint8_t missionActive, missionActionStarted;
+static uint8_t missionObservationTask;
 static MissionPhase missionPhase;
 static uint16_t missionGrabCount, missionPlaceCount;
 static uint32_t missionDeadline;
@@ -228,6 +229,8 @@ static void serviceVision(void);
 static void serviceRawPickRoute(void);
 static void serviceMission(void);
 static void missionBeginStation(uint8_t nextIndex);
+static void missionAbort(const char *reason);
+static void cancelMissionObservation(void);
 static uint8_t processVisionCommand(const char *command);
 static uint8_t visionSessionActive(void);
 static void failVision(const char *reason);
@@ -626,6 +629,7 @@ static void stopAuxMotors(void)
 
 static void stopAllMotors(void)
 {
+    cancelMissionObservation();
     obstacleTurretPending = obstacleTurretReady = 0U;
     if (visionSession.state == VISION_STATE_REQUEST ||
         visionSession.state == VISION_STATE_WAIT ||
@@ -1316,6 +1320,7 @@ static void dispatchMechanismPose(void)
 }
 
 #include "mechanism_runtime.h"
+#include "mission_observation.h"
 
 uint8_t mechanismActionStart(const MechanismInitialState *initial,
                              const MechanismAction *actions,
@@ -2046,6 +2051,8 @@ static void serviceRoute(void)
         if (cruiseRpm > ARC_BLEND_WHEEL_RPM * 1000U / trim - ROUTE_HEADING_MAX_RPM)
             cruiseRpm = (uint16_t)(ARC_BLEND_WHEEL_RPM * 1000U / trim - ROUTE_HEADING_MAX_RPM);
     }
+    if (!navRunning) serviceMissionObservation(&leg, remaining, cruiseRpm, bodyLateral);
+    if (!routeActive || motionInterrupted()) return;
     brakeRemaining = remaining;
     if (arcRoutePhase == 4U || missionArcExit ||
         (arcRoutePhase == 1U && routeIndex == 2U) || missionArcCorner(routeIndex)) {
@@ -2483,6 +2490,7 @@ static void serviceMaterialLayout(void)
 
 static void serviceRawPickRoute(void)
 {
+    int8_t prepared;
     if (!rawPickAtStation || !routeWaiting) return;
     if (!imuValid || clockMs - imuStamp > 250U || motionInterrupted()) {
         visionPickActive = 1U;
@@ -2493,8 +2501,10 @@ static void serviceRawPickRoute(void)
     if (visionPickActive || visionSessionActive()) return;
     if (visionSession.state != VISION_STATE_IDLE &&
         visionSession.state != VISION_STATE_PICK_DONE) return;
+    prepared = finishMissionObservation(routeIndex);
+    if (prepared < 0 || prepared == 1) return;
     if (!mechanismState.valid || mechanismState.running ||
-        mechanismState.current.horizontalDmm != 0 ||
+        (mechanismState.current.horizontalDmm != 0 && prepared != 2) ||
         mechanismState.current.liftDmm != 0U ||
         (mechanismState.current.turretDdeg != 2600U &&
          !(rawPickItemIndex == 0U &&
@@ -2520,8 +2530,10 @@ static void serviceRawPickRoute(void)
     visionSession.state = VISION_STATE_PREP;
     printRawPickState("PREP", rawPickCurrentColor, rawPickCurrentSlot);
     servoSetTarget(2U, rawPickInitial.gripperOpenDeg, rawPickInitial.gripperDps10);
-    startMechanismPose(&rawPickObservePose);
-    if (!mechanismState.running) failVision("PICK_PREP_FAILED");
+    if (prepared != 2) {
+        startMechanismPose(&rawPickObservePose);
+        if (!mechanismState.running) failVision("PICK_PREP_FAILED");
+    }
 }
 
 static void serviceVision(void)
@@ -2838,6 +2850,8 @@ static void serviceMission(void)
     if (missionPhase == MISSION_RING_ALIGN ||
         missionPhase == MISSION_TEMP_ALIGN) {
         if (!missionActionStarted) {
+            int8_t prepared = finishMissionObservation(routeIndex);
+            if (prepared < 0 || prepared == 1) return;
             if (missionPhase == MISSION_TEMP_ALIGN && mechanismState.running) return;
             if (!mechanismState.valid || mechanismState.running ||
                 mechanismState.current.liftDmm != 0U ||
@@ -2850,10 +2864,12 @@ static void serviceMission(void)
                 missionAbort("ring_prep_pose");
                 return;
             }
-            startMechanismPose(&missionRingObservePose);
-            if (!mechanismState.running) {
-                missionAbort("ring_prep_start");
-                return;
+            if (prepared != 2) {
+                startMechanismPose(&missionRingObservePose);
+                if (!mechanismState.running) {
+                    missionAbort("ring_prep_start");
+                    return;
+                }
             }
             missionActionStarted = 1U;
             missionReport(missionPhase == MISSION_TEMP_ALIGN && routeIndex == 16U ?

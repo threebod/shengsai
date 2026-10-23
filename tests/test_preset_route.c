@@ -11,6 +11,29 @@ static PresetRoute route;
 static uint16_t mask(unsigned first, unsigned second)
 { return (uint16_t)((1U << (first-1U)) | (1U << (second-1U))); }
 
+/* Original 1mm swept-body calculation, retained independently to verify the
+ * cached quarter-turn/reflection samples against every heading and map anchor. */
+static uint8_t referenceArcClear(const PresetLeg *before, const PresetLeg *after, uint16_t regions)
+{
+    float angle = before->from.heading*1.570796327f;
+    float x = before->to.x+sinf(angle)*PRESET_ARC_TRIM;
+    float y = before->to.y-cosf(angle)*PRESET_ARC_TRIM;
+    float distance = 0.0f, degrees, curvature, step;
+    int8_t change = presetHeadingChange(before->from.heading,after->from.heading);
+    if (change != 1 && change != -1) return 0U;
+    while (distance < ARC_BLEND_LENGTH_MM) {
+        if (!presetBodyClear(x,y,angle,regions)) return 0U;
+        step = ARC_BLEND_LENGTH_MM-distance < 1.0f ? ARC_BLEND_LENGTH_MM-distance : 1.0f;
+        arcBlendShape(distance+step*0.5f,&degrees,&curvature);
+        angle = before->from.heading*1.570796327f+change*degrees*0.01745329252f;
+        x -= sinf(angle)*step; y += cosf(angle)*step; distance += step;
+    }
+    angle = after->from.heading*1.570796327f;
+    for (distance = 0; distance <= 30.0f; distance += 1.0f)
+        if (!presetBodyClear(x-sinf(angle)*distance,y+cosf(angle)*distance,angle,regions)) return 0U;
+    return 1U;
+}
+
 static void selection(void)
 {
     unsigned value, valid = 0U, a, b;
@@ -53,14 +76,30 @@ static void geometry(void)
     assert(!presetArcClear(&before,&after,mask(3,12)));
     /* Centre clear, rotated body crossing a fixed obstacle: must reject. */
     assert(!presetBodyClear(473.0f,473.0f,0.785398163f,0U));
-    assert(presetCostLess((PresetCost){0,5000,9000},(PresetCost){1,0,1}));
-    assert(presetCostLess((PresetCost){0,0,9000},(PresetCost){0,1,1}));
+    assert(presetCostLess((PresetCost){100,0,1300},(PresetCost){0,0,5000}));
+    assert(presetCostLess((PresetCost){0,100,125},(PresetCost){0,0,2000}));
+    assert(presetCostLess((PresetCost){0,10,100},(PresetCost){1,0,100}));
+    {
+        static const uint16_t maps[] = {0U,320U,68U,2064U};
+        unsigned n, heading, turn, map;
+        for (map = 0U; map < sizeof(maps)/sizeof(maps[0]); ++map)
+            for (n = 0U; n < PRESET_NODE_COUNT; ++n) for (heading = 0U; heading < 4U; ++heading)
+                for (turn = 1U; turn < 4U; turn += 2U) {
+                    before.from = before.to = presetNode(n,heading);
+                    after.from = after.to = presetNode(n,(heading+turn)%4U);
+                    assert(presetArcClear(&before,&after,maps[map]) == referenceArcClear(&before,&after,maps[map]));
+                }
+    }
 }
 
 static void checkRoute(uint8_t zone)
 {
     static const uint8_t events[8] = {1,3,6,8,10,13,15,19};
     static const uint8_t waits[7] = {2,4,7,9,11,14,16};
+    static const PresetPose stations[8] = {
+        {2100,1200,0},{1200,2080,1},{1200,400,-1},{400,1200,2},
+        {1200,2080,1},{1200,400,-1},{400,1200,2},{2250,2250,-1}
+    };
     unsigned i, event = 0U, wait = 0U;
     uint8_t logical = 0U;
     PresetPose previous = {2250,2250,0};
@@ -76,15 +115,37 @@ static void checkRoute(uint8_t zone)
         assert((active.upMm == 0) != (active.rightMm == 0));
         if (leg->drive.event) {
             RouteLeg calibrated;
+            PresetPose station, endpoint;
+            int nominal, commanded, expected;
+            unsigned tuned, span;
             assert(event < 8U && leg->taskIndex == events[event]);
             calibrated = routeDistanceLeg(events[event],zone);
-            assert(leg->drive.upMm == calibrated.upMm && leg->drive.rightMm == calibrated.rightMm);
-            assert((calibrated.heading == 4 || leg->drive.heading == calibrated.heading) && !strcmp(leg->drive.event,calibrated.event));
+            station = stations[event];
+            if (event == 7U && zone == 2U) station.y = 150;
+            assert(leg->to.x == station.x && leg->to.y == station.y);
+            assert(leg->to.heading == station.heading);
+            assert(leg->drive.departureHeading == leg->from.heading && leg->drive.heading == station.heading);
+            if (leg->from.heading != station.heading) assert(presetTurnClear(station,route.regions));
+            assert(!strcmp(leg->drive.event,calibrated.event));
+            nominal = leg->drive.upMm ? leg->to.y-leg->from.y : leg->to.x-leg->from.x;
+            commanded = leg->drive.upMm ? leg->drive.upMm : leg->drive.rightMm;
+            if (!event) assert(commanded == calibrated.upMm); /* QR keeps its original ingress. */
+            else if ((leg->drive.upMm != 0) != (calibrated.upMm != 0)) assert(commanded == nominal);
+            else {
+                tuned = (unsigned)abs(calibrated.upMm ? calibrated.upMm : calibrated.rightMm);
+                span = event == 1U ? 900U : event == 7U ? 150U : 800U;
+                expected = (int)(((unsigned)abs(nominal)*tuned+span/2U)/span);
+                assert(commanded == (nominal < 0 ? -expected : expected));
+            }
+            assert(nominal*commanded > 0);
+            endpoint = leg->from; endpoint.x += leg->drive.rightMm; endpoint.y += leg->drive.upMm;
+            assert(presetSegmentClear(leg->from,endpoint,route.regions));
             ++event;
         }
         if (leg->arc) {
             assert(!leg->drive.event && i+1U < route.count);
             assert(presetArcClear(leg,&route.legs[i+1U],route.regions));
+            assert(referenceArcClear(leg,&route.legs[i+1U],route.regions));
             assert(presetDirection(leg->from,leg->to) == leg->from.heading);
             assert(presetDirection(route.legs[i+1U].from,route.legs[i+1U].to) == route.legs[i+1U].from.heading);
         }
@@ -99,6 +160,57 @@ static void checkRoute(uint8_t zone)
         else assert(logical == route.legs[route.index].taskIndex);
     }
     assert(wait == 7U);
+}
+
+static void focusedRoutes(void)
+{
+    unsigned pair;
+    for (pair = 0U; pair < 2U; ++pair) {
+        unsigned i, nominal = 0U, lateral = 0U, reverse = 0U, arcs = 0U;
+        uint16_t regions = pair ? mask(7,9) : mask(3,7);
+        float commanded = 0.0f;
+        assert(presetBuild(&route,1U,regions)); checkRoute(1U);
+        for (i = 0U; i < route.count; ++i) {
+            PresetLeg *leg = &route.legs[i];
+            unsigned distance = (unsigned)(abs(leg->to.x-leg->from.x)+abs(leg->to.y-leg->from.y));
+            int8_t direction = presetDirection(leg->from,leg->to);
+            RouteLeg active;
+            route.index = (uint16_t)i; active = presetActiveLeg(&route);
+            nominal += distance; commanded += (float)(abs(active.upMm)+abs(active.rightMm));
+            if (direction != leg->from.heading) {
+                if (abs(presetHeadingChange(leg->from.heading,direction)) == 2) reverse += distance;
+                else lateral += distance;
+            }
+            if (leg->arc) { ++arcs; commanded += ARC_BLEND_LENGTH_MM; }
+            if (pair) {
+                /* Both COARSE approaches use the free centre lane instead of
+                 * being forced around the bottom-left fixed entry. */
+                if (leg->taskIndex == 6U || leg->taskIndex == 13U) {
+                    assert(leg->from.x == 1200 && leg->to.x == 1200);
+                    assert(leg->drive.event && leg->to.y < leg->from.y);
+                }
+                /* After either TEMP stop, never retreat south merely to turn. */
+                if (leg->taskIndex == 10U || leg->taskIndex == 19U)
+                    assert(leg->to.y >= leg->from.y);
+            } else if (leg->taskIndex == 3U && leg->drive.event) {
+                assert(leg->to.x == 1200 && leg->to.y == 2080);
+                assert(leg->from.heading == 1 && leg->drive.heading == 1);
+            }
+        }
+        assert(arcs && route.count < 40U);
+        printf("FOCUS zone=1 regions=%s legs=%u nominal_mm=%u commanded_mm=%.1f lateral_mm=%u reverse_mm=%u arcs=%u\n",
+               pair ? "7/9" : "3/7",route.count,nominal,commanded,lateral,reverse,arcs);
+    }
+    {
+        /* Same-axis full approaches retain their existing calibration; a
+         * short approach from the opposite side cannot have its sign flipped. */
+        PresetPose from = {400,400,-1}, to = {1200,400,-1};
+        RouteLeg leg = presetStationLeg(routeDistanceLeg(6U,1U),from,to,800U);
+        assert(leg.rightMm == 910);
+        from.x = 1300;
+        leg = presetStationLeg(routeDistanceLeg(6U,1U),from,to,800U);
+        assert(leg.rightMm == -114);
+    }
 }
 
 int main(void)
@@ -119,6 +231,7 @@ int main(void)
     assert(feasible[0] && feasible[1] && rejected[0] && rejected[1] && arcs && detours);
     assert(presetBuild(&route,1U,mask(5,12)));
     assert(!presetBuild(&route,2U,mask(5,12)) && !route.count); /* blocked start-zone 2 approach */
+    focusedRoutes();
     printf("PASS 105 pairs x 2 zones: feasible=%u/%u rejected=%u/%u arcs=%u detours=%u; task order and calibrated approaches\n",
            feasible[0],feasible[1],rejected[0],rejected[1],arcs,detours);
     return 0;
