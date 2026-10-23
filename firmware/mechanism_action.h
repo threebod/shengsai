@@ -42,6 +42,14 @@ typedef struct {
     uint16_t platformDeg[3];
 } MechanismInitialState;
 
+static uint8_t mechanismGripperOpenCommandComplete(const MechanismInitialState *initial,
+                                                    uint8_t enabled, uint8_t moving,
+                                                    uint32_t current, uint32_t target)
+{
+    uint32_t open = (uint32_t)initial->gripperOpenDeg * 1000U;
+    return enabled && !moving && current == open && target == open;
+}
+
 typedef enum {
     MECHANISM_ACTION_POSE = 0,
     MECHANISM_ACTION_GRIPPER,

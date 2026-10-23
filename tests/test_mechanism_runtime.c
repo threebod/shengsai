@@ -62,6 +62,18 @@ static void reset(void){
 int main(void){
     uint8_t axes,phase;
     uint32_t latency,maximumLatency=0;
+    MechanismInitialState initial = {0};
+    /* A repeated open command can overlap tray rotation only when its PWM
+     * command is already complete; the angle is configured, not hard-coded. */
+    initial.gripperOpenDeg=200U;
+    assert(mechanismGripperOpenCommandComplete(&initial,1U,0U,200000U,200000U));
+    assert(!mechanismGripperOpenCommandComplete(&initial,0U,0U,200000U,200000U));
+    assert(!mechanismGripperOpenCommandComplete(&initial,1U,1U,200000U,200000U));
+    assert(!mechanismGripperOpenCommandComplete(&initial,1U,0U,155000U,200000U));
+    assert(!mechanismGripperOpenCommandComplete(&initial,1U,0U,200000U,155000U));
+    initial.gripperOpenDeg=185U;
+    assert(mechanismGripperOpenCommandComplete(&initial,1U,0U,185000U,185000U));
+    assert(!mechanismGripperOpenCommandComplete(&initial,1U,0U,200000U,200000U));
     reset();serviceMechanism();assert(mechanismState.running && !stops && !dones);
     reply(5,0x3a,3);reply(6,0x3a,3);serviceMechanism();assert(!dones);
     reply(5,0x33,0);reply(6,0x33,0);serviceMechanism();assert(!dones);

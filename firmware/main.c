@@ -1417,7 +1417,10 @@ void mechanismActionService(void)
             action->pose.liftDmm > mechanismState.current.liftDmm &&
             servoChannelMoving[1]) return;
         if (action->type == MECHANISM_ACTION_GRIPPER && action->value &&
-            mechanismState.current.turretDdeg == 1200U && servoChannelMoving[1]) return;
+            mechanismState.current.turretDdeg == 1200U && servoChannelMoving[1] &&
+            !mechanismGripperOpenCommandComplete(mechanismActionInitial,
+                servoChannelEnabled[0], servoChannelMoving[0],
+                currentAngleMdeg[0], targetAngleMdeg[0])) return;
         if ((action->type == MECHANISM_ACTION_PLATFORM ||
              (action->type == MECHANISM_ACTION_SERVO && action->channel == 3U)) &&
             servoChannelMoving[1]) return;
