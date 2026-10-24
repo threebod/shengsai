@@ -20,6 +20,7 @@ typedef struct {
     RouteLeg drive;
     PresetPose from, to;
     uint8_t taskIndex, arc;
+    uint16_t calibrationSpan; /* Original terminal span when a corner splits its approach. */
 } PresetLeg;
 typedef struct {
     PresetLeg legs[PRESET_LEG_CAPACITY];
@@ -52,17 +53,49 @@ static int presetNodeAt(PresetPose pose)
 }
 static uint8_t presetOverlap(float x0, float y0, float x1, float y1, const SsObstacleRegion *r)
 { return (uint8_t)(x0 < r->x1 && x1 > r->x0 && y0 < r->y1 && y1 > r->y0); }
-static uint8_t presetSegmentClear(PresetPose from, PresetPose to, uint16_t regions)
+static uint8_t presetRectangleClear(float x0, float y0, float x1, float y1, uint16_t regions)
 {
-    int x0 = from.x < to.x ? from.x : to.x, x1 = from.x > to.x ? from.x : to.x;
-    int y0 = from.y < to.y ? from.y : to.y, y1 = from.y > to.y ? from.y : to.y;
     unsigned i;
-    if ((from.x != to.x && from.y != to.y) || x0 < 150 || x1 > 2250 || y0 < 150 || y1 > 2250) return 0U;
+    if (x0 < 150 || x1 > 2250 || y0 < 150 || y1 > 2250) return 0U;
     for (i = 0; i < sizeof(presetFixed)/sizeof(presetFixed[0]); ++i)
         if (presetOverlap(x0-150,y0-150,x1+150,y1+150,&presetFixed[i])) return 0U;
     for (i = 0; i < SS_OBSTACLE_REGION_COUNT; ++i)
         if ((regions & (1U << i)) && presetOverlap(x0-150,y0-150,x1+150,y1+150,&ssObstacleRegions[i])) return 0U;
     return 1U;
+}
+static uint8_t presetSegmentClear(PresetPose from, PresetPose to, uint16_t regions)
+{
+    if (from.x != to.x && from.y != to.y) return 0U;
+    return presetRectangleClear(from.x < to.x ? from.x : to.x,
+                                from.y < to.y ? from.y : to.y,
+                                from.x > to.x ? from.x : to.x,
+                                from.y > to.y ? from.y : to.y, regions);
+}
+static uint8_t presetRecenterClear(const PresetRoute *route, float forward, float right)
+{
+    const PresetLeg *arrived;
+    float x0, y0, x1, y1, x, y, dx, dy;
+    if (!route->index || route->index > route->count ||
+        !(forward >= -2400.0f && forward <= 2400.0f &&
+          right >= -2400.0f && right <= 2400.0f)) return 0U;
+    arrived = &route->legs[route->index-1U];
+    if (!arrived->drive.event) return 0U;
+    x = arrived->from.x + arrived->drive.rightMm;
+    y = arrived->from.y + arrived->drive.upMm;
+    x0 = x < arrived->to.x ? x : arrived->to.x;
+    x1 = x > arrived->to.x ? x : arrived->to.x;
+    y0 = y < arrived->to.y ? y : arrived->to.y;
+    y1 = y > arrived->to.y ? y : arrived->to.y;
+    switch (arrived->drive.heading) {
+    case 1: dx = -forward; dy = right; break;
+    case 2: dx = -right; dy = -forward; break;
+    case -1: dx = forward; dy = -right; break;
+    default: dx = right; dy = forward; break;
+    }
+    /* Bound both map axes, including a position command whose wheel pairs
+     * finish at different times. This covers the entire return envelope. */
+    return presetRectangleClear(x0+(dx < 0 ? dx : 0), y0+(dy < 0 ? dy : 0),
+                                x1+(dx > 0 ? dx : 0), y1+(dy > 0 ? dy : 0), route->regions);
 }
 static uint8_t presetCircleHits(PresetPose p, const SsObstacleRegion *r)
 {
@@ -122,7 +155,16 @@ static uint8_t presetArcClear(const PresetLeg *before, const PresetLeg *after, u
     static ArcSample samples[402];
     static unsigned count;
     unsigned i;
-    int8_t change = presetHeadingChange(before->from.heading, after->from.heading);
+    int8_t heading = before->from.heading;
+    int8_t change = presetHeadingChange(heading, after->from.heading);
+    if (before->from.x != before->to.x || before->from.y != before->to.y) {
+        int8_t incoming = presetHeadingChange(heading,presetDirection(before->from,before->to));
+        int8_t outgoing = presetHeadingChange(after->from.heading,presetDirection(after->from,after->to));
+        if ((incoming != 0 && abs(incoming) != 2) ||
+            (outgoing != 0 && abs(outgoing) != 2) ||
+            (incoming == 0) != (outgoing == 0)) return 0U;
+        if (incoming) heading = presetDirection(before->from,before->to);
+    }
     if (change != 1 && change != -1) return 0U;
     if (!count) {
         float distance = 0.0f, degrees, curvature, step;
@@ -146,7 +188,7 @@ static uint8_t presetArcClear(const PresetLeg *before, const PresetLeg *after, u
             p.x -= (float)(i-count); p.s = 1.0f; p.c = 0.0f;
         }
         p.x *= change; p.s *= change;
-        switch (before->from.heading) {
+        switch (heading) {
         case 1: x = -p.y; y = p.x; s = p.c; c = -p.s; break;
         case 2: x = -p.x; y = -p.y; s = -p.s; c = -p.c; break;
         case -1: x = p.y; y = -p.x; s = -p.c; c = p.s; break;
@@ -372,6 +414,105 @@ static uint8_t presetConnect(PresetRoute *route, PresetPose start, PresetPose st
     }
     return presetAppend(route,selected,station,taskIndex,&calibrated);
 }
+static void presetCornerLeg(PresetLeg *leg, PresetPose from, PresetPose to, uint8_t task)
+{
+    memset(leg,0,sizeof(*leg)); leg->from = from; leg->to = to; leg->taskIndex = task;
+    leg->drive.upMm = to.y-from.y; leg->drive.rightMm = to.x-from.x;
+    leg->drive.departureHeading = from.heading; leg->drive.heading = to.heading;
+}
+/* Move a blocked left-side corner onto the adjacent outer lane. Start/end work
+ * poses and the original calibrated net displacement remain unchanged. */
+static uint8_t presetOuterCorner(PresetRoute *route, unsigned index)
+{
+    PresetLeg before = route->legs[index], after = route->legs[index+1U];
+    PresetLeg replacement[5];
+    PresetPose points[6], corner, entry, exit, join;
+    unsigned column, row, bestCount = 0U, bestCost = 0xFFFFU;
+    PresetLeg best[5];
+    int8_t incoming = presetDirection(before.from,before.to);
+    int8_t outgoing = presetDirection(after.from,after.to), bodyIn, bodyOut = after.to.heading;
+    int change = presetHeadingChange(outgoing,bodyOut);
+    if (!after.drive.event) {
+        change = presetHeadingChange(incoming,before.from.heading);
+        bodyOut = change ? presetHeading((presetHeadingIndex(outgoing)+2U)%4U) : outgoing;
+        if (bodyOut != after.to.heading && !presetTurnClear(after.to,route->regions)) return 0U;
+    }
+    if (before.arc || after.arc || before.calibrationSpan || after.calibrationSpan ||
+        before.drive.event || before.taskIndex != after.taskIndex ||
+        before.to.x != after.from.x || before.to.y != after.from.y ||
+        before.to.x > 550 || abs(presetHeadingChange(incoming,outgoing)) != 1 ||
+        before.drive.upMm != before.to.y-before.from.y ||
+        before.drive.rightMm != before.to.x-before.from.x ||
+        (change && abs(change) != 2) || (index && route->legs[index-1U].arc)) return 0U;
+    bodyIn = change ? presetHeading((presetHeadingIndex(incoming)+2U)%4U) : incoming;
+    if (bodyIn != (index ? route->legs[index-1U].to.heading : before.from.heading) &&
+        !presetTurnClear(before.from,route->regions)) return 0U;
+    for (row = 0U; row < PRESET_GRID_ROWS; ++row) for (column = 0U; column < PRESET_GRID_COLUMNS; ++column) {
+        unsigned count = 0U, arcIndex, i, cost = 0U;
+        int delta;
+        corner = presetNode(row*PRESET_GRID_COLUMNS+column,presetHeadingIndex(bodyIn));
+        if (abs(corner.x-before.to.x) > 100 || abs(corner.y-before.to.y) > 100) continue;
+        entry = before.from; entry.heading = bodyIn;
+        if (before.drive.upMm) entry.x = corner.x; else entry.y = corner.y;
+        exit = after.to; exit.heading = bodyOut;
+        join = exit;
+        if (after.drive.upMm && corner.x != after.to.x) {
+            exit.x = corner.x; exit.y -= after.to.y > after.from.y ? 100 : -100;
+            join.y = exit.y;
+        } else if (after.drive.rightMm && corner.y != after.to.y) {
+            exit.y = corner.y; exit.x -= after.to.x > after.from.x ? 100 : -100;
+            join.x = exit.x;
+        }
+        points[count] = before.from; points[count++].heading = bodyIn;
+        if (entry.x != points[count-1U].x || entry.y != points[count-1U].y) points[count++] = entry;
+        arcIndex = count-1U;
+        points[count++] = corner;
+        points[count++] = exit;
+        if (join.x != exit.x || join.y != exit.y) points[count++] = join;
+        if (points[count-1U].x != after.to.x || points[count-1U].y != after.to.y) points[count++] = after.to;
+        for (i = 0U; i+1U < count; ++i) {
+            PresetPose from = points[i], to = points[i+1U];
+            from.heading = to.heading = i <= arcIndex ? bodyIn : bodyOut;
+            presetCornerLeg(&replacement[i],from,to,before.taskIndex);
+        }
+        --count;
+        if (count > 5U || !count || arcIndex+1U >= count ||
+            presetDirection(replacement[arcIndex].from,replacement[arcIndex].to) != incoming ||
+            presetDirection(replacement[arcIndex+1U].from,replacement[arcIndex+1U].to) != outgoing ||
+            abs(replacement[arcIndex].drive.upMm)+abs(replacement[arcIndex].drive.rightMm) <= PRESET_ARC_TRIM+2 ||
+            abs(replacement[arcIndex+1U].drive.upMm)+abs(replacement[arcIndex+1U].drive.rightMm) <= PRESET_ARC_TRIM+32 ||
+            !presetArcClear(&replacement[arcIndex],&replacement[arcIndex+1U],route->regions)) continue;
+        delta = after.drive.upMm ? after.drive.upMm-(after.to.y-after.from.y) :
+                                  after.drive.rightMm-(after.to.x-after.from.x);
+        replacement[count-1U].drive.event = after.drive.event;
+        if (after.drive.upMm) replacement[count-1U].drive.upMm += delta;
+        else replacement[count-1U].drive.rightMm += delta;
+        if (abs(replacement[arcIndex+1U].drive.upMm)+abs(replacement[arcIndex+1U].drive.rightMm) <=
+            PRESET_ARC_TRIM+32) continue;
+        if (after.drive.event) replacement[count-1U].calibrationSpan =
+            (uint16_t)(abs(after.to.x-after.from.x)+abs(after.to.y-after.from.y));
+        for (i = 0U; i < count; ++i) {
+            PresetLeg *leg = &replacement[i];
+            PresetPose endpoint = leg->from;
+            endpoint.x += leg->drive.rightMm; endpoint.y += leg->drive.upMm;
+            if (!presetSegmentClear(leg->from,leg->to,route->regions) ||
+                !presetSegmentClear(leg->from,endpoint,route->regions) ||
+                (leg->to.x != leg->from.x && (leg->to.x-leg->from.x)*leg->drive.rightMm <= 0) ||
+                (leg->to.y != leg->from.y && (leg->to.y-leg->from.y)*leg->drive.upMm <= 0)) break;
+            cost += (unsigned)(abs(leg->drive.upMm)+abs(leg->drive.rightMm));
+        }
+        if (i != count || cost > bestCost || (cost == bestCost && count >= bestCount)) continue;
+        replacement[arcIndex].arc = 1U;
+        replacement[arcIndex].drive.heading = bodyOut;
+        memcpy(best,replacement,count*sizeof(*best)); bestCount = count; bestCost = cost;
+    }
+    if (!bestCount || route->count+bestCount-2U > PRESET_LEG_CAPACITY) return 0U;
+    memmove(&route->legs[index+bestCount],&route->legs[index+2U],
+            (route->count-index-2U)*sizeof(route->legs[0]));
+    memcpy(&route->legs[index],best,bestCount*sizeof(*best));
+    route->count = (uint16_t)(route->count+bestCount-2U);
+    return 1U;
+}
 static void presetSelectArcs(PresetRoute *route)
 {
     unsigned i;
@@ -380,10 +521,10 @@ static void presetSelectArcs(PresetRoute *route)
         int available = abs(before->drive.upMm)+abs(before->drive.rightMm);
         int following = abs(after->drive.upMm)+abs(after->drive.rightMm);
         int nominal = abs(before->to.x-before->from.x)+abs(before->to.y-before->from.y);
+        if (before->arc) continue;
+        if (presetOuterCorner(route,i)) { --i; continue; }
         if (i && route->legs[i-1U].arc) { available -= PRESET_ARC_TRIM; nominal -= PRESET_ARC_TRIM; }
         if (before->drive.event || before->to.x != after->from.x || before->to.y != after->from.y ||
-            presetDirection(before->from,before->to) != before->from.heading ||
-            presetDirection(after->from,after->to) != after->from.heading ||
             available <= PRESET_ARC_TRIM+2 || nominal <= PRESET_ARC_TRIM+2 ||
             following <= PRESET_ARC_TRIM+32 ||
             abs(after->to.x-after->from.x)+abs(after->to.y-after->from.y) <= PRESET_ARC_TRIM+32) continue;

@@ -15,7 +15,12 @@ static uint16_t mask(unsigned first, unsigned second)
  * cached quarter-turn/reflection samples against every heading and map anchor. */
 static uint8_t referenceArcClear(const PresetLeg *before, const PresetLeg *after, uint16_t regions)
 {
-    float angle = before->from.heading*1.570796327f;
+    int8_t heading = before->from.heading;
+    float angle;
+    if ((before->from.x != before->to.x || before->from.y != before->to.y) &&
+        abs(presetHeadingChange(heading,presetDirection(before->from,before->to))) == 2)
+        heading = presetDirection(before->from,before->to);
+    angle = heading*1.570796327f;
     float x = before->to.x+sinf(angle)*PRESET_ARC_TRIM;
     float y = before->to.y-cosf(angle)*PRESET_ARC_TRIM;
     float distance = 0.0f, degrees, curvature, step;
@@ -25,10 +30,10 @@ static uint8_t referenceArcClear(const PresetLeg *before, const PresetLeg *after
         if (!presetBodyClear(x,y,angle,regions)) return 0U;
         step = ARC_BLEND_LENGTH_MM-distance < 1.0f ? ARC_BLEND_LENGTH_MM-distance : 1.0f;
         arcBlendShape(distance+step*0.5f,&degrees,&curvature);
-        angle = before->from.heading*1.570796327f+change*degrees*0.01745329252f;
+        angle = heading*1.570796327f+change*degrees*0.01745329252f;
         x -= sinf(angle)*step; y += cosf(angle)*step; distance += step;
     }
-    angle = after->from.heading*1.570796327f;
+    angle = (heading+change)*1.570796327f;
     for (distance = 0; distance <= 30.0f; distance += 1.0f)
         if (!presetBodyClear(x-sinf(angle)*distance,y+cosf(angle)*distance,angle,regions)) return 0U;
     return 1U;
@@ -74,6 +79,12 @@ static void geometry(void)
     corner.x = 2250; assert(!presetTurnClear(corner,0U));
     assert(presetArcClear(&before,&after,mask(5,12)));
     assert(!presetArcClear(&before,&after,mask(3,12)));
+    before.from = (PresetPose){1200,300,-1}; before.to = (PresetPose){300,300,-1};
+    after.from = (PresetPose){300,300,2}; after.to = (PresetPose){300,1100,2};
+    assert(presetArcClear(&before,&after,mask(7,9)));
+    assert(referenceArcClear(&before,&after,mask(7,9)));
+    after.from.heading = after.to.heading = 0;
+    assert(!presetArcClear(&before,&after,mask(7,9))); /* Never blend a reverse/forward cusp. */
     /* Centre clear, rotated body crossing a fixed obstacle: must reject. */
     assert(!presetBodyClear(473.0f,473.0f,0.785398163f,0U));
     assert(presetCostLess((PresetCost){100,0,1300},(PresetCost){0,0,5000}));
@@ -90,6 +101,28 @@ static void geometry(void)
                     assert(presetArcClear(&before,&after,maps[map]) == referenceArcClear(&before,&after,maps[map]));
                 }
     }
+}
+
+static void recenterEnvelope(void)
+{
+    PresetLeg *arrived;
+    unsigned i;
+    assert(presetBuild(&route,1U,mask(7,9)));
+    assert(!presetRecenterClear(&route,80.0f,70.0f));
+    for (i = 0U; i < route.count; ++i) if (route.legs[i].taskIndex == 3U && route.legs[i].drive.event) break;
+    assert(i < route.count); route.index = (uint16_t)(i+1U);
+    assert(presetRecenterClear(&route,80.0f,70.0f));
+    assert(presetRecenterClear(&route,-80.0f,-70.0f));
+    assert(!presetRecenterClear(&route,0.0f,300.0f)); /* Full body beyond top boundary. */
+    assert(!presetRecenterClear(&route,NAN,0.0f));
+    route.count = route.index = 1U; arrived = &route.legs[0];
+    memset(arrived,0,sizeof(*arrived));
+    arrived->from = (PresetPose){400,1100,2}; arrived->to = (PresetPose){400,1200,2};
+    arrived->drive.upMm = 150; arrived->drive.heading = 2; arrived->drive.event = "TEMP";
+    assert(presetRecenterClear(&route,0.0f,10.0f));
+    assert(!presetRecenterClear(&route,0.0f,-1.0f)); /* Region 7 begins at x=550. */
+    arrived->drive.event = 0;
+    assert(!presetRecenterClear(&route,0.0f,10.0f));
 }
 
 static void checkRoute(uint8_t zone)
@@ -135,6 +168,10 @@ static void checkRoute(uint8_t zone)
                 tuned = (unsigned)abs(calibrated.upMm ? calibrated.upMm : calibrated.rightMm);
                 span = event == 1U ? 900U : event == 7U ? 150U : 800U;
                 expected = (int)(((unsigned)abs(nominal)*tuned+span/2U)/span);
+                if (leg->calibrationSpan) {
+                    int correction = (int)((leg->calibrationSpan*tuned+span/2U)/span) - leg->calibrationSpan;
+                    expected = abs(nominal)+correction;
+                }
                 assert(commanded == (nominal < 0 ? -expected : expected));
             }
             assert(nominal*commanded > 0);
@@ -146,8 +183,8 @@ static void checkRoute(uint8_t zone)
             assert(!leg->drive.event && i+1U < route.count);
             assert(presetArcClear(leg,&route.legs[i+1U],route.regions));
             assert(referenceArcClear(leg,&route.legs[i+1U],route.regions));
-            assert(presetDirection(leg->from,leg->to) == leg->from.heading);
-            assert(presetDirection(route.legs[i+1U].from,route.legs[i+1U].to) == route.legs[i+1U].from.heading);
+            assert(presetHeadingChange(leg->from.heading,presetDirection(leg->from,leg->to)) == 0 ||
+                   abs(presetHeadingChange(leg->from.heading,presetDirection(leg->from,leg->to))) == 2);
         }
         previous = leg->to;
     }
@@ -167,6 +204,8 @@ static void focusedRoutes(void)
     unsigned pair;
     for (pair = 0U; pair < 2U; ++pair) {
         unsigned i, nominal = 0U, lateral = 0U, reverse = 0U, arcs = 0U;
+        unsigned lowerLeft = 0U, upperLeft = 0U;
+        int tempUp[2] = {0,0}, tempRight[2] = {0,0}, secondRawUp = 0, secondRawRight = 0;
         uint16_t regions = pair ? mask(7,9) : mask(3,7);
         float commanded = 0.0f;
         assert(presetBuild(&route,1U,regions)); checkRoute(1U);
@@ -181,8 +220,19 @@ static void focusedRoutes(void)
                 if (abs(presetHeadingChange(leg->from.heading,direction)) == 2) reverse += distance;
                 else lateral += distance;
             }
-            if (leg->arc) { ++arcs; commanded += ARC_BLEND_LENGTH_MM; }
+            if (leg->arc) {
+                ++arcs; commanded += ARC_BLEND_LENGTH_MM;
+                if (leg->to.x < 550 && leg->to.y < 550) ++lowerLeft;
+                if (leg->to.x < 550 && leg->to.y > 1850) ++upperLeft;
+            }
             if (pair) {
+                if (leg->taskIndex == 8U || leg->taskIndex == 15U) {
+                    unsigned round = leg->taskIndex == 15U;
+                    tempUp[round] += leg->drive.upMm; tempRight[round] += leg->drive.rightMm;
+                }
+                if (leg->taskIndex == 10U) {
+                    secondRawUp += leg->drive.upMm; secondRawRight += leg->drive.rightMm;
+                }
                 /* Both COARSE approaches use the free centre lane instead of
                  * being forced around the bottom-left fixed entry. */
                 if (leg->taskIndex == 6U || leg->taskIndex == 13U) {
@@ -198,6 +248,11 @@ static void focusedRoutes(void)
             }
         }
         assert(arcs && route.count < 40U);
+        if (pair) assert(lowerLeft == 2U && upperLeft == 2U);
+        if (pair) {
+            assert(tempUp[0] == 850 && tempUp[1] == 850 && tempRight[0] == -800 && tempRight[1] == -800);
+            assert(secondRawUp == 880 && secondRawRight == 850);
+        }
         printf("FOCUS zone=1 regions=%s legs=%u nominal_mm=%u commanded_mm=%.1f lateral_mm=%u reverse_mm=%u arcs=%u\n",
                pair ? "7/9" : "3/7",route.count,nominal,commanded,lateral,reverse,arcs);
     }
@@ -216,7 +271,7 @@ static void focusedRoutes(void)
 int main(void)
 {
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
-    selection(); geometry();
+    selection(); geometry(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
     assert(!presetBuild(&route,1,0x8001U) && !route.count);

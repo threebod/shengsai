@@ -3018,6 +3018,23 @@ static void serviceMission(void)
         missionAbort("unsafe_recenter_pose");
         return;
     }
+    if (presetRouteActive && (routeIndex == 4U || routeIndex == 11U)) {
+        if (routeAbs(missionOffsetForward) <= 1.0f && routeAbs(missionOffsetRight) <= 1.0f) {
+            missionContinue();
+            return;
+        }
+        if (!presetRecenterClear(&presetRoute,missionOffsetForward,missionOffsetRight)) {
+            missionAbort("raw_return_blocked");
+            return;
+        }
+        if (!startVisionMotion(-missionOffsetForward,-missionOffsetRight,15U,0U)) {
+            missionAbort("raw_exit_failed");
+            return;
+        }
+        missionPhase = MISSION_RAW_EXIT;
+        missionReport("RAW_EXIT_RETURN");
+        return;
+    }
     if (!presetRouteActive && (routeIndex == 4U || routeIndex == 11U)) {
         if (routeObstaclePosition == ROUTE_OBSTACLE_LEFT ||
             routeObstaclePosition == ROUTE_OBSTACLE_RIGHT) {
