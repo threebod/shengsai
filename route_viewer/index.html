@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>工创 · 工作区路径回放</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="routes-data.js" defer></script>
+    <script src="app.js" defer></script>
+</head>
+<body>
+<header><a class="brand" href="./index.html"><span class="brand-mark">↗</span> 工创 <span class="brand-light">/ 路径实验室</span></a><span class="local"><i></i> 本地路线回放</span></header>
+<main>
+    <div class="intro"><div><p class="eyebrow">MECANUM / ROUTE EXPLORER</p><h1>每一段路线，清楚可见<span>。</span></h1><p class="subtitle">选择工作区，观察车辆如何行驶、绕障与转弯。</p></div><div class="source">当前固件规划快照<br><span id="source-hash">正在读取…</span></div></div>
+    <section class="workspace" aria-label="路径回放工作台">
+        <aside class="controls">
+            <div class="section-title"><span>01</span><h2>选择路线</h2></div>
+            <label for="zone">出发位置</label><select id="zone"><option value="1">启停区 1 · 右上</option><option value="2">启停区 2 · 右下</option></select>
+            <div class="station-inputs"><div><label for="from">从这里出发</label><select id="from"></select></div><span class="connector">↓</span><div><label for="to">到这里结束</label><select id="to"></select></div></div>
+            <button id="full" class="text-button">查看完整两轮路线 ↗</button>
+            <div class="divider"></div>
+            <div class="section-title"><span>02</span><h2>障碍位置</h2></div>
+            <p class="hint">选择两个不同区域，查看固件的绕行选择。</p>
+            <div class="obstacle-selects"><div><label for="obstacle-a">障碍 A</label><select id="obstacle-a"></select></div><div><label for="obstacle-b">障碍 B</label><select id="obstacle-b"></select></div></div>
+            <p id="route-status" class="status" role="status" aria-live="polite"></p>
+            <div class="notes"><strong>回放说明</strong><p>起止站点按比赛顺序选择；第一轮与第二轮分别显示。</p><p>地图展示名义路径，右侧列出调校后的直线指令。播放速度仅用于观察，不代表实车耗时。</p><p>不模拟视觉微调、机构取放或车辆打滑。</p></div>
+        </aside>
+        <section class="map-panel" aria-label="场地动画">
+            <div class="map-top"><div><span class="eyebrow">FIELD VIEW</span><h2 id="route-title">路线预览</h2></div><span class="map-scale">2400 × 2400 mm</span></div>
+            <div class="map-wrap"><svg id="map" viewBox="-155 -155 2710 2710" role="img" aria-label="比赛场地与车辆路线"><defs><pattern id="grid" width="100" height="100" patternUnits="userSpaceOnUse"><path d="M 100 0 L 0 0 0 100" fill="none" stroke="#e7ece8" stroke-width="2"/></pattern><filter id="car-shadow" x="-70%" y="-70%" width="240%" height="240%"><feDropShadow dx="0" dy="12" stdDeviation="16" flood-opacity=".16"/></filter></defs><g id="field" transform="translate(0 2400) scale(1 -1)"></g><g id="labels"></g></svg><div id="empty" hidden>请先导出路线数据</div></div>
+            <div class="legend"><span><i class="solid"></i>所选路径</span><span><i class="dashed"></i>其他航段</span><span><i class="obstacle"></i>所选障碍</span><span>↑ 车头方向</span></div>
+            <div class="playback"><button id="play" class="primary" aria-label="播放路线">▶ 播放</button><button id="reset" class="reset" aria-label="回到起点">↺</button><input id="progress" type="range" min="0" max="1000" value="0" aria-label="回放进度"><output id="percent">0%</output><select id="speed" aria-label="播放倍速"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option></select></div>
+            <p id="motion" class="motion" aria-live="off">准备就绪</p>
+        </section>
+        <aside class="details">
+            <div class="section-title"><span>03</span><h2>路径拆解</h2></div>
+            <div class="stats"><div><span id="distance">—</span><small>名义平移 / m</small></div><div><span id="arc-count">—</span><small>连续圆弧 / 段</small></div></div>
+            <div class="route-note">前进 <b class="green-dot">●</b>　倒车 <b class="amber-dot">●</b>　横移 <b class="blue-dot">●</b></div>
+            <ol id="steps"></ol>
+            <div class="detail-footer">300 mm 方形车体 · 箭头表示朝向<br>固定工作区与障碍区域取自固件定义</div>
+        </aside>
+    </section>
+    <footer><span>只读源码 · 不连接硬件</span><span id="generated"></span></footer>
+</main>
+</body>
+</html>
