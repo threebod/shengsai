@@ -8,7 +8,7 @@
 
 1. 在 MaixVision 中打开 `material_stop_predict_test.py`，可直接单文件运行，
    不需要上传 `material_layout.py`、`vision_protocol.py` 或 `vision_settings.py`。
-2. 把脚本顶部 `COLORS` 改为料盘实际的三种颜色，默认 `(1, 4, 6)`。
+2. 脚本顶部 `COLORS` 已设为当前料盘的黑、绿、黄 `(5, 4, 2)`，换料时修改此处。
    编号：1红、2黄、3蓝、4绿、5黑、6浅蓝。LAB阈值已从当前 `vision_settings.py`
    内置到脚本顶部 `COLOR_THRESHOLDS`；后续重新标定时需手动更新此处。
 3. 使用 MaixVision 直接运行测试脚本，预热两秒后观察控制台和屏幕。

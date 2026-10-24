@@ -2,7 +2,7 @@
 import math
 import time
 
-COLORS = (1, 4, 6)  # Set to the three actual colors on the material tray.
+COLORS = (5, 4, 2)  # Current tray: black, green, yellow.
 # Snapshot of vision_settings.py; kept local for MaixVision single-file runs.
 COLOR_THRESHOLDS = {
     1: [21, 50, 32, 68, 15, 50],

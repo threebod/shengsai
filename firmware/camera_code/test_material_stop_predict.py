@@ -142,7 +142,7 @@ class StopPredictorTest(unittest.TestCase):
         lines = [args[0] for args, _ in output.call_args_list]
         self.assertTrue(any("color=green region=bottom state=early_hint" in line for line in lines))
         self.assertTrue(any("color=green region=bottom state=still_10f" in line for line in lines))
-        self.assertTrue(any("color=red region=unknown state=lost" in line for line in lines))
+        self.assertTrue(any("color=black region=unknown state=lost" in line for line in lines))
         maix.uart.UART.assert_not_called()
         maix.camera.Camera.return_value.close.assert_called_once()
         self.assertTrue(all(call.args == (0,) for call in maix.gpio.GPIO.return_value.value.call_args_list))
