@@ -4,6 +4,7 @@
 #include <string.h>
 #include "../shared/obstacle_regions.h"
 #include "route_plan.h"
+#include "route_candidates.h"
 #include "arc_route_blend.h"
 
 #define PRESET_GRID_COLUMNS 7U
@@ -522,16 +523,16 @@ static uint8_t presetOuterCorner(PresetRoute *route, unsigned index, uint8_t zon
     route->count = (uint16_t)(route->count+bestCount-2U);
     return 1U;
 }
-static void presetSelectArcs(PresetRoute *route, uint8_t zone)
+static void presetSelectArcs(PresetRoute *route, uint8_t zone, unsigned first, uint8_t allowOuter)
 {
     unsigned i;
-    for (i = 0; i+1U < route->count; ++i) {
+    for (i = first; i+1U < route->count; ++i) {
         PresetLeg *before = &route->legs[i], *after = &route->legs[i+1U];
         int available = abs(before->drive.upMm)+abs(before->drive.rightMm);
         int following = abs(after->drive.upMm)+abs(after->drive.rightMm);
         int nominal = abs(before->to.x-before->from.x)+abs(before->to.y-before->from.y);
         if (before->arc) continue;
-        if (presetOuterCorner(route,i,zone)) { --i; continue; }
+        if (allowOuter && presetOuterCorner(route,i,zone)) { --i; continue; }
         if (i && route->legs[i-1U].arc) { available -= PRESET_ARC_TRIM; nominal -= PRESET_ARC_TRIM; }
         if (before->drive.event || before->to.x != after->from.x || before->to.y != after->from.y ||
             available <= PRESET_ARC_TRIM+2 || nominal <= PRESET_ARC_TRIM+2 ||
@@ -542,37 +543,94 @@ static void presetSelectArcs(PresetRoute *route, uint8_t zone)
         }
     }
 }
+/* Fixed candidates may blend a safe corner, but never move the corner or add
+ * another corridor. Validate parking turns after selecting the actual arcs. */
+static uint8_t presetTryCandidate(PresetRoute *route, PresetPose start,
+                                  const PresetCandidate *candidate, uint8_t taskIndex,
+                                  const char *event, int8_t stationHeading)
+{
+    unsigned i, first = route->count;
+    PresetPose current = start;
+    if (!candidate->count) return 0U;
+    for (i = 0U; i < candidate->count; ++i) {
+        const PresetStep *step = &candidate->steps[i];
+        PresetPose to;
+        RouteLeg drive;
+        uint8_t last = i+1U == candidate->count;
+        current.heading = step->heading;
+        to.x = step->x; to.y = step->y;
+        to.heading = last ? stationHeading : step->heading;
+        drive.upMm = step->upMm; drive.rightMm = step->rightMm;
+        drive.departureHeading = step->heading; drive.heading = to.heading;
+        drive.event = last ? event : 0;
+        if (!presetAppend(route,current,to,taskIndex == 1U && !i ? 0U : taskIndex,&drive)) goto fail;
+        current = to;
+    }
+    presetSelectArcs(route,1U,first,0U);
+    for (i = first; i < route->count; ++i) {
+        const PresetLeg *leg = &route->legs[i];
+        PresetPose endpoint = leg->from;
+        int8_t previousHeading = i == first ? start.heading : route->legs[i-1U].to.heading;
+        int dx = leg->to.x-leg->from.x, dy = leg->to.y-leg->from.y;
+        endpoint.x += leg->drive.rightMm; endpoint.y += leg->drive.upMm;
+        if ((!dx && !dy) || (dx && (!leg->drive.rightMm || leg->drive.upMm || dx*leg->drive.rightMm <= 0)) ||
+            (dy && (!leg->drive.upMm || leg->drive.rightMm || dy*leg->drive.upMm <= 0)) ||
+            !presetSegmentClear(leg->from,endpoint,route->regions)) goto fail;
+        if (previousHeading != leg->from.heading && !(i > first && route->legs[i-1U].arc) &&
+            !presetTurnClear(leg->from,route->regions)) goto fail;
+        if (!leg->arc && leg->from.heading != leg->to.heading &&
+            (!presetTurnClear(leg->to,route->regions) || !presetTurnClear(endpoint,route->regions))) goto fail;
+    }
+    return 1U;
+fail:
+    route->count = (uint16_t)first; return 0U;
+}
+static uint8_t presetFixedConnect(PresetRoute *route, PresetPose start,
+                                  const PresetCandidate candidates[3], uint8_t taskIndex,
+                                  const char *event, int8_t stationHeading)
+{
+    unsigned i;
+    for (i = 0U; i < 3U; ++i)
+        if (presetTryCandidate(route,start,&candidates[i],taskIndex,event,stationHeading)) return 1U;
+    return 0U;
+}
 static uint8_t presetBuild(PresetRoute *route, uint8_t zone, uint16_t regions)
 {
-    /* Workstations and working headings remain fixed. Enter directly when safe,
-     * or use a short approach without reserving an entire map-side corridor. */
+    /* Select each fixed group in priority order. Only the final return home
+     * retains the original search and local outer-corner construction. */
     static const uint8_t events[8] = {1,3,6,8,10,13,15,19};
     static const PresetPose stations[7] = {
         {1200,2080,1}, {1200,400,-1}, {400,1200,2}, {1200,2080,1},
         {1200,400,-1}, {400,1200,2}, {2250,2250,-1}
     };
-    PresetPose current = {2250,2250,0}, gate = {2100,2250,0}, qr = {2100,1200,0};
+    PresetPose current = {2250,2250,0}, qr = {2100,1200,0};
     RouteLeg calibrated;
     unsigned stage;
     memset(route,0,sizeof(*route));
     if ((zone != 1U && zone != 2U) || !ss_obstacle_regions_valid(regions)) return 0U;
     route->regions = regions;
-    if (zone == 2U) current.y = gate.y = 150;
-    calibrated = routeDistanceLeg(0U,zone);
-    if (!presetAppend(route,current,gate,0U,&calibrated)) goto fail;
-    calibrated = routeDistanceLeg(events[0],zone);
-    if (!presetAppend(route,gate,qr,events[0],&calibrated)) goto fail;
+    if (zone == 2U) current.y = 150;
+    if (!presetFixedConnect(route,current,zone == 2U ? presetStart2ToQr : presetStart1ToQr,
+                            1U,"QR",qr.heading)) goto fail;
     current = qr;
     for (stage = 0; stage < 7U; ++stage) {
         PresetPose station = stations[stage];
         if (stage == 6U && zone == 2U) station.y = 150;
-        calibrated = routeDistanceLeg(events[stage+1U],zone);
-        /* Search-only turns are executed by the event's departure heading or
-         * its station heading; both swept turns were checked by the search. */
-        if (!presetConnect(route,current,station,events[stage+1U],calibrated)) goto fail;
+        uint8_t task = events[stage+1U];
+        calibrated = routeDistanceLeg(task,zone);
+        if (stage == 6U) {
+            unsigned first = route->count;
+            if (!presetConnect(route,current,station,task,calibrated)) goto fail;
+            presetSelectArcs(route,zone,first,1U);
+        } else {
+            const PresetCandidate *candidates = stage == 0U ?
+                (zone == 2U ? presetQr2ToRaw : presetQr1ToRaw) :
+                stage == 3U ? presetTempToRaw :
+                (stage == 1U || stage == 4U) ? presetRawToCoarse : presetCoarseToTemp;
+            if (!presetFixedConnect(route,current,candidates,task,calibrated.event,station.heading)) goto fail;
+        }
         current = station;
     }
-    presetSelectArcs(route,zone);
     return 1U;
 fail:
     route->count = route->index = 0U; return 0U;

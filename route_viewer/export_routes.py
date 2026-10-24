@@ -10,6 +10,7 @@ from datetime import datetime, timezone, timedelta
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent
 SOURCES = [ROOT / "export_routes.c", REPO / "firmware/preset_route.h",
+           REPO / "firmware/route_candidates.h",
            REPO / "firmware/route_plan.h", REPO / "firmware/arc_route_blend.h",
            REPO / "shared/obstacle_regions.h"]
 

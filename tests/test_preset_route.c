@@ -91,6 +91,14 @@ static void geometry(void)
     assert(presetCostLess((PresetCost){0,100,125},(PresetCost){0,0,2000}));
     assert(presetCostLess((PresetCost){0,10,100},(PresetCost){1,0,100}));
     {
+        PresetPose from = {400,400,-1}, to = {1200,400,-1};
+        RouteLeg leg = presetStationLeg(routeDistanceLeg(6U,1U),from,to,800U);
+        assert(leg.rightMm == 910);
+        from.x = 1300;
+        leg = presetStationLeg(routeDistanceLeg(6U,1U),from,to,800U);
+        assert(leg.rightMm == -114); /* A short opposite approach cannot reverse its sign. */
+    }
+    {
         static const uint16_t maps[] = {0U,320U,68U,2064U};
         unsigned n, heading, turn, map;
         for (map = 0U; map < sizeof(maps)/sizeof(maps[0]); ++map)
@@ -149,8 +157,7 @@ static void checkRoute(uint8_t zone)
         if (leg->drive.event) {
             RouteLeg calibrated;
             PresetPose station, endpoint;
-            int nominal, commanded, expected;
-            unsigned tuned, span;
+            int nominal, commanded;
             assert(event < 8U && leg->taskIndex == events[event]);
             calibrated = routeDistanceLeg(events[event],zone);
             station = stations[event];
@@ -162,18 +169,6 @@ static void checkRoute(uint8_t zone)
             assert(!strcmp(leg->drive.event,calibrated.event));
             nominal = leg->drive.upMm ? leg->to.y-leg->from.y : leg->to.x-leg->from.x;
             commanded = leg->drive.upMm ? leg->drive.upMm : leg->drive.rightMm;
-            if (!event) assert(commanded == calibrated.upMm); /* QR keeps its original ingress. */
-            else if ((leg->drive.upMm != 0) != (calibrated.upMm != 0)) assert(commanded == nominal);
-            else {
-                tuned = (unsigned)abs(calibrated.upMm ? calibrated.upMm : calibrated.rightMm);
-                span = event == 1U ? 900U : event == 7U ? 150U : 800U;
-                expected = (int)(((unsigned)abs(nominal)*tuned+span/2U)/span);
-                if (leg->calibrationSpan) {
-                    int correction = (int)((leg->calibrationSpan*tuned+span/2U)/span) - leg->calibrationSpan;
-                    expected = abs(nominal)+correction;
-                }
-                assert(commanded == (nominal < 0 ? -expected : expected));
-            }
             assert(nominal*commanded > 0);
             endpoint = leg->from; endpoint.x += leg->drive.rightMm; endpoint.y += leg->drive.upMm;
             assert(presetSegmentClear(leg->from,endpoint,route.regions));
@@ -199,102 +194,121 @@ static void checkRoute(uint8_t zone)
     assert(wait == 7U);
 }
 
-static void focusedRoutes(void)
+static void candidateCase(const PresetCandidate candidates[3], PresetPose start,
+                          uint16_t regions, uint8_t task, int8_t heading,
+                          unsigned count, int firstX, int firstY)
 {
-    unsigned pair;
-    for (pair = 0U; pair < 2U; ++pair) {
-        unsigned i, nominal = 0U, lateral = 0U, reverse = 0U, arcs = 0U;
-        unsigned lowerLeft = 0U, upperLeft = 0U;
-        int tempUp[2] = {0,0}, tempRight[2] = {0,0}, secondRawUp = 0, secondRawRight = 0;
-        uint16_t regions = pair ? mask(7,9) : mask(3,7);
-        float commanded = 0.0f;
-        assert(presetBuild(&route,1U,regions)); checkRoute(1U);
-        for (i = 0U; i < route.count; ++i) {
-            PresetLeg *leg = &route.legs[i];
-            unsigned distance = (unsigned)(abs(leg->to.x-leg->from.x)+abs(leg->to.y-leg->from.y));
-            int8_t direction = presetDirection(leg->from,leg->to);
-            RouteLeg active;
-            route.index = (uint16_t)i; active = presetActiveLeg(&route);
-            nominal += distance; commanded += (float)(abs(active.upMm)+abs(active.rightMm));
-            if (direction != leg->from.heading) {
-                if (abs(presetHeadingChange(leg->from.heading,direction)) == 2) reverse += distance;
-                else lateral += distance;
-            }
-            if (leg->arc) {
-                ++arcs; commanded += ARC_BLEND_LENGTH_MM;
-                if (leg->to.x < 550 && leg->to.y < 550) ++lowerLeft;
-                if (leg->to.x < 550 && leg->to.y > 1850) ++upperLeft;
-            }
-            if (pair) {
-                if (leg->taskIndex == 8U || leg->taskIndex == 15U) {
-                    unsigned round = leg->taskIndex == 15U;
-                    tempUp[round] += leg->drive.upMm; tempRight[round] += leg->drive.rightMm;
-                }
-                if (leg->taskIndex == 10U) {
-                    secondRawUp += leg->drive.upMm; secondRawRight += leg->drive.rightMm;
-                }
-                /* Both COARSE approaches use the free centre lane instead of
-                 * being forced around the bottom-left fixed entry. */
-                if (leg->taskIndex == 6U || leg->taskIndex == 13U) {
-                    assert(leg->from.x == 1200 && leg->to.x == 1200);
-                    assert(leg->drive.event && leg->to.y < leg->from.y);
-                }
-                /* After either TEMP stop, never retreat south merely to turn. */
-                if (leg->taskIndex == 10U || leg->taskIndex == 19U)
-                    assert(leg->to.y >= leg->from.y);
-            } else if (leg->taskIndex == 3U && leg->drive.event) {
-                assert(leg->to.x == 1200 && leg->to.y == 2080);
-                assert(leg->from.heading == 1 && leg->drive.heading == 1);
-            }
-        }
-        assert(arcs && route.count < 40U);
-        if (pair) assert(lowerLeft == 2U && upperLeft == 2U);
-        if (pair) {
-            assert(tempUp[0] == 850 && tempUp[1] == 850 && tempRight[0] == -800 && tempRight[1] == -800);
-            assert(secondRawUp == 880 && secondRawRight == 850);
-        }
-        printf("FOCUS zone=1 regions=%s legs=%u nominal_mm=%u commanded_mm=%.1f lateral_mm=%u reverse_mm=%u arcs=%u\n",
-               pair ? "7/9" : "3/7",route.count,nominal,commanded,lateral,reverse,arcs);
-    }
-    {
-        /* Same-axis full approaches retain their existing calibration; a
-         * short approach from the opposite side cannot have its sign flipped. */
-        PresetPose from = {400,400,-1}, to = {1200,400,-1};
-        RouteLeg leg = presetStationLeg(routeDistanceLeg(6U,1U),from,to,800U);
-        assert(leg.rightMm == 910);
-        from.x = 1300;
-        leg = presetStationLeg(routeDistanceLeg(6U,1U),from,to,800U);
-        assert(leg.rightMm == -114);
+    unsigned i;
+    uint8_t built;
+    memset(&route,0,sizeof(route)); route.regions = regions;
+    built = presetFixedConnect(&route,start,candidates,task,"TEST",heading);
+    if (!built) fprintf(stderr,"candidate failed: task=%u regions=%u expected=%d/%d\n",task,regions,firstX,firstY);
+    assert(built);
+    assert(route.count == count);
+    assert(route.legs[0].to.x == firstX && route.legs[0].to.y == firstY);
+    assert(route.legs[count-1U].drive.event && route.legs[count-1U].to.heading == heading);
+    for (i = 0U; i < count; ++i) {
+        const PresetLeg *leg = &route.legs[i];
+        if (leg->arc) assert(referenceArcClear(leg,&route.legs[i+1U],regions));
+        if (i && route.legs[i-1U].to.heading != leg->from.heading && !route.legs[i-1U].arc)
+            assert(presetTurnClear(leg->from,regions));
     }
 }
 
-static void coarseLeftDistance(void)
+static void fixedCandidatePriorities(void)
 {
-    unsigned zone, i, departures;
+    const PresetPose raw = {1200,2080,1}, coarse = {1200,400,-1};
+    const PresetPose temp = {400,1200,2}, qr = {2100,1200,0};
+    unsigned zone, variant;
+    /* Region 8 blocks the centre; adding 4 also blocks the left detour. */
+    candidateCase(presetRawToCoarse,raw,mask(7,9),6U,-1,1,1200,400);
+    candidateCase(presetRawToCoarse,raw,mask(8,9),6U,-1,3,400,2080);
+    candidateCase(presetRawToCoarse,raw,mask(4,8),6U,-1,3,2100,2080);
+    candidateCase(presetCoarseToTemp,coarse,mask(7,9),8U,2,2,400,400);
+    candidateCase(presetCoarseToTemp,coarse,mask(10,9),8U,2,2,1200,1200);
+    candidateCase(presetCoarseToTemp,coarse,mask(13,7),8U,2,3,1200,2080);
+    candidateCase(presetTempToRaw,temp,mask(7,9),10U,1,2,400,2080);
+    candidateCase(presetTempToRaw,temp,mask(4,11),10U,1,2,1200,1200);
+    candidateCase(presetTempToRaw,temp,mask(4,5),10U,1,3,2100,1200);
+    /* A clear line cannot authorize a station turn swept into region 2. */
+    candidateCase(presetTempToRaw,temp,mask(2,11),10U,1,3,2100,1200);
     for (zone = 1U; zone <= 2U; ++zone) {
-        assert(presetBuild(&route,(uint8_t)zone,mask(7,9)));
-        departures = 0U;
-        for (i = 0U; i < route.count; ++i) {
-            const PresetLeg *leg = &route.legs[i];
-            if ((leg->taskIndex == 8U || leg->taskIndex == 15U) && leg->arc && leg->to.y < 550) {
-                RouteLeg active;
-                route.index = (uint16_t)i; active = presetActiveLeg(&route);
-                assert(leg->drive.rightMm == -860 && leg->drive.upMm == 0);
-                assert(active.rightMm == -(860-PRESET_ARC_TRIM));
-                assert(leg->to.x == 340 && leg->to.y == 300);
-                ++departures;
-            }
-            if ((leg->taskIndex == 6U || leg->taskIndex == 13U) && leg->drive.event)
-                assert(leg->drive.upMm == -1680 && leg->drive.rightMm == 0);
+        const PresetCandidate *startRoutes = zone == 1U ? presetStart1ToQr : presetStart2ToQr;
+        const PresetCandidate *qrRoutes = zone == 1U ? presetQr1ToRaw : presetQr2ToRaw;
+        PresetPose start = {2250,2250,0};
+        start.y = zone == 1U ? 2250 : 150;
+        for (variant = 0U; variant < 3U; ++variant) {
+            uint16_t regions = variant == 0U ? mask(7,9) : zone == 1U ?
+                (variant == 1U ? mask(6,11) : mask(6,5)) :
+                (variant == 1U ? mask(12,5) : mask(12,11));
+            candidateCase(startRoutes,start,regions,1U,0,variant ? 5U : 2U,2100,start.y);
+            assert(route.legs[0].taskIndex == 0U && route.legs[1].taskIndex == 1U);
+            if (variant) assert(route.legs[2].to.x == (variant == 1U ? 1200 : 300));
         }
-        assert(departures == 2U);
+        candidateCase(qrRoutes,qr,mask(7,11),3U,1,2,2100,2080);
+        assert(route.legs[0].drive.upMm == (zone == 1U ? 860 : 855));
+        assert(route.legs[1].drive.rightMm == -870);
+        candidateCase(qrRoutes,qr,mask(6,11),3U,1,2,1200,1200);
+        candidateCase(qrRoutes,qr,mask(6,5),3U,1,3,300,1200);
+        /* Both detours still cross 9: never silently add a fourth route. */
+        memset(&route,0,sizeof(route)); route.regions = mask(6,9);
+        assert(!presetFixedConnect(&route,qr,qrRoutes,3U,"RAW_1",1) && !route.count);
+        {
+            PresetLeg prefix;
+            PresetPose gate = {2100,start.y,0};
+            RouteLeg exit = routeDistanceLeg(0U,(uint8_t)zone);
+            assert(presetAppend(&route,start,gate,0U,&exit)); prefix = route.legs[0];
+            assert(!presetFixedConnect(&route,qr,qrRoutes,3U,"RAW_1",1));
+            assert(route.count == 1U && !memcmp(&prefix,&route.legs[0],sizeof(prefix)));
+        }
+        assert(!presetBuild(&route,(uint8_t)zone,zone == 1U ? mask(6,9) : mask(12,9)));
+        assert(!route.count && !route.index);
     }
+    candidateCase(presetCoarseToTemp,coarse,mask(7,9),8U,2,2,400,400);
+    assert(route.legs[0].drive.rightMm == -860 && route.legs[1].drive.upMm == 850);
+    candidateCase(presetTempToRaw,temp,mask(7,9),10U,1,2,400,2080);
+    assert(route.legs[0].drive.upMm == 880 && route.legs[1].drive.rightMm == 850);
+}
+
+static unsigned taskBegin(const PresetRoute *value, uint8_t task)
+{
+    unsigned i;
+    for (i = 0U; i < value->count && value->legs[i].taskIndex != task; ++i) { }
+    assert(i < value->count); return i;
+}
+static void sameTask(const PresetRoute *a, uint8_t taskA, const PresetRoute *b, uint8_t taskB)
+{
+    unsigned i = taskBegin(a,taskA), j = taskBegin(b,taskB);
+    while (i < a->count && a->legs[i].taskIndex == taskA) {
+        const PresetLeg *x = &a->legs[i], *y = &b->legs[j];
+        assert(j < b->count && y->taskIndex == taskB);
+        assert(x->from.x == y->from.x && x->from.y == y->from.y && x->from.heading == y->from.heading);
+        assert(x->to.x == y->to.x && x->to.y == y->to.y && x->to.heading == y->to.heading);
+        assert(x->drive.upMm == y->drive.upMm && x->drive.rightMm == y->drive.rightMm);
+        assert(x->drive.heading == y->drive.heading && x->drive.departureHeading == y->drive.departureHeading);
+        assert(x->arc == y->arc && !!x->drive.event == !!y->drive.event);
+        ++i; ++j;
+    }
+    assert(j == b->count || b->legs[j].taskIndex != taskB);
+}
+
+static void fixedStartDetours(void)
+{
+    unsigned i;
+    /* Region 6 blocks the direct zone-1 ingress. Region 11 leaves its
+     * second start and QR->RAW candidates available. */
+    assert(presetBuild(&route,1U,mask(6,11)));
+    for (i = 0U; i < route.count && !route.legs[i].drive.event; ++i) { }
+    assert(i < route.count && !strcmp(route.legs[i].drive.event,"QR"));
+    assert(route.legs[i].from.x == 1200 && route.legs[i].to.x == 2100);
 }
 
 int main(void)
 {
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
-    selection(); geometry(); recenterEnvelope();
+    static PresetRoute zone1;
+    unsigned shared = 0U;
+    selection(); geometry(); fixedCandidatePriorities(); fixedStartDetours(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
     assert(!presetBuild(&route,1,0x8001U) && !route.count);
@@ -302,14 +316,22 @@ int main(void)
         if (presetBuild(&route,(uint8_t)zone,mask(a,b))) {
             unsigned i;
             ++feasible[zone-1U]; checkRoute((uint8_t)zone);
+            sameTask(&route,6U,&route,13U); sameTask(&route,8U,&route,15U);
             for (i = 0U; i < route.count; ++i) arcs += route.legs[i].arc;
             if (route.count > 20U) ++detours;
         } else { ++rejected[zone-1U]; assert(!route.count && !route.index); }
     }
     assert(feasible[0] && feasible[1] && rejected[0] && rejected[1] && arcs && detours);
-    assert(presetBuild(&route,1U,mask(5,12)));
-    assert(!presetBuild(&route,2U,mask(5,12)) && !route.count); /* blocked start-zone 2 approach */
-    focusedRoutes(); coarseLeftDistance();
+    assert(presetBuild(&route,1U,mask(6,5))); /* Long start and QR->RAW detours. */
+    assert(presetBuild(&route,2U,mask(12,11))); /* Mirror long start detour. */
+    for (a = 1U; a <= 15U; ++a) for (b = a+1U; b <= 15U; ++b) {
+        if (!presetBuild(&zone1,1U,mask(a,b)) || !presetBuild(&route,2U,mask(a,b))) continue;
+        sameTask(&zone1,6U,&route,6U); sameTask(&zone1,8U,&route,8U);
+        sameTask(&zone1,10U,&route,10U); sameTask(&zone1,13U,&route,13U);
+        sameTask(&zone1,15U,&route,15U); ++shared;
+    }
+    assert(shared);
+    printf("PASS shared station routes: %u pairs across start zones\n",shared);
     printf("PASS 105 pairs x 2 zones: feasible=%u/%u rejected=%u/%u arcs=%u detours=%u; task order and calibrated approaches\n",
            feasible[0],feasible[1],rejected[0],rejected[1],arcs,detours);
     return 0;
