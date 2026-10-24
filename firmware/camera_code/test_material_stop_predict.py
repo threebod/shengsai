@@ -55,7 +55,7 @@ class StopPredictorTest(unittest.TestCase):
     def test_stationary_jitter_is_not_early_prediction(self):
         rows = self.feed(lambda t: point(80 + (int(round(t / 0.08)) % 3 - 1), 60))
         self.assertFalse(any(row["state"] == "early_hint" for _, row in rows))
-        self.assertEqual("still_10f", rows[-1][1]["state"])
+        self.assertTrue(rows[-1][1]["still_10f"])
 
     def test_deceleration_far_from_stop_has_no_early_hint(self):
         rows = self.feed(lambda t: point(20 + 50 * t - 12.5 * t ** 2), range(0, 801, 80))
@@ -98,17 +98,35 @@ class StopPredictorTest(unittest.TestCase):
                 results.append(row)
         self.assertTrue(any(row["state"] == "early_hint" for row in results))
 
+    def test_ten_frame_comparison_does_not_interrupt_an_active_forecast(self):
+        predictor = StopPredictor()
+        results = []
+        for ms in range(0, 841, 20):
+            t = ms / 1000
+            result = predictor.update(point(30 + 60 * t - 30 * t ** 2), ms)
+            if result is not None:
+                results.append(result)
+        self.assertTrue(any(row["state"] == "early_hint" and row.get("still_10f")
+                            for row in results))
+
+    def test_low_speed_reports_fit_even_when_ten_frame_comparison_passes(self):
+        rows = self.feed(lambda t: point(30 + 5 * t))
+        result = rows[-1][1]
+        self.assertTrue(result.get("still_10f"))
+        self.assertAlmostEqual(5, result["speed"])
+        self.assertEqual("below_speed", result["reason"])
+
     def test_still_comparison_counts_every_camera_frame(self):
         predictor = StopPredictor()
         for ms in range(0, 180, 20):
             result = predictor.update(point(50), ms)
-            self.assertTrue(result is None or result["state"] != "still_10f")
-        self.assertEqual("still_10f", predictor.update(point(50), 180)["state"])
+            self.assertTrue(result is None or not result["still_10f"])
+        self.assertTrue(predictor.update(point(50), 180)["still_10f"])
 
     def test_sudden_stop_is_confirmed_but_not_predicted(self):
         rows = self.feed(lambda t: point(20 + 40 * min(t, 0.8)), range(0, 2401, 80))
         self.assertFalse(any(ms < 800 and row["state"] == "early_hint" for ms, row in rows))
-        self.assertEqual("still_10f", rows[-1][1]["state"])
+        self.assertTrue(rows[-1][1]["still_10f"])
 
     def test_regions_match_existing_image_partition(self):
         for p, expected in ((point(20, 120), "bottom"), (point(20, 60), "upper_left"),
@@ -141,8 +159,12 @@ class StopPredictorTest(unittest.TestCase):
             entry.main()
         lines = [args[0] for args, _ in output.call_args_list]
         self.assertTrue(any("color=green region=bottom state=early_hint" in line for line in lines))
-        self.assertTrue(any("color=green region=bottom state=still_10f" in line for line in lines))
+        self.assertTrue(any("color=green region=bottom" in line and "still_10f=1" in line for line in lines))
         self.assertTrue(any("color=black region=unknown state=lost" in line for line in lines))
+        samples = [line for line in lines if line.startswith("SAMPLE ")]
+        self.assertEqual(len(range(2100, 4101, 80)), len(samples))
+        self.assertIn("t_ms=2100 age_ms=0 black=NA green=30.0,190 yellow=NA", samples[0])
+        self.assertTrue(any("reason=below_speed" in line for line in lines))
         maix.uart.UART.assert_not_called()
         maix.camera.Camera.return_value.close.assert_called_once()
         self.assertTrue(all(call.args == (0,) for call in maix.gpio.GPIO.return_value.value.call_args_list))
