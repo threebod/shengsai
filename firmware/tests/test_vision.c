@@ -580,14 +580,15 @@ int main(void)
     }
 
     {
-        const int16_t offsets[6][2] = {{2, 2}, {-2, -2}, {3, 0}, {-3, 0}, {0, 3}, {0, -3}};
+        const int16_t offsets[9][2] = {{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1},
+                                      {2, 2}, {-2, -2}, {3, 0}, {0, 3}};
         uint8_t index, confirmation, mode;
         for (mode = VISION_MODE_MATERIAL; mode <= VISION_MODE_RING; ++mode) {
-        for (index = 0U; index < 6U; ++index) {
+        for (index = 0U; index < 9U; ++index) {
             vision_session_init(&session);
             vision_session_start(&session, mode, mode == VISION_MODE_MATERIAL ? 5U : 0U,
                                  2U, &calibration, 0U);
-            for (confirmation = 0U; confirmation < (index < 2U ? 2U : 1U); ++confirmation) {
+            for (confirmation = 0U; confirmation < (index == 0U ? 2U : 1U); ++confirmation) {
                 vision_session_make_request(&session, &calibration, &request, confirmation);
                 decoded = request;
                 decoded.type = VISION_MESSAGE_RESULT;
@@ -597,9 +598,9 @@ int main(void)
                 decoded.value[2] = 90;
                 decoded.value[5] = 5;
                 if (!require(vision_session_observe(&session, &calibration, &decoded, confirmation) ==
-                             (index >= 2U ? VISION_EVENT_MOVE : confirmation == 0U ?
+                             (index != 0U ? VISION_EVENT_MOVE : confirmation == 0U ?
                               VISION_EVENT_REQUEST : VISION_EVENT_ALIGNED),
-                             "ring/storage alignment must accept +/-2 pixels twice and correct either axis beyond it")) return 1;
+                             "ring/storage alignment requires exact center twice; any nonzero axis must correct")) return 1;
             }
         }
         }

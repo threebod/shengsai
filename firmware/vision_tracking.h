@@ -118,7 +118,7 @@ static VisionTrackingState vision_tracking_observe(VisionTracking *tracking,
         return vision_tracking_stop(tracking, VISION_TRACK_FAILED, "TRACK_CALIBRATION_INVALID");
     tracking->sequence = sequence; tracking->sequenceValid = 1U;
     tracking->lastFrameAt = now - age;
-    if (du >= -2 && du <= 2 && dv >= -2 && dv <= 2)
+    if (du == 0 && dv == 0)
         return vision_tracking_stop(tracking, VISION_TRACK_DONE, "TRACK_IN_RANGE");
     if (tracking->state == VISION_TRACK_WAIT) {
         tracking->state = VISION_TRACK_RUN;

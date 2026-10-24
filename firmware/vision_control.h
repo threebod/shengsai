@@ -516,7 +516,7 @@ static VisionEvent vision_session_observe(VisionSession *session,
     absRight = right < 0.0f ? -right : right;
     aligned = (uint8_t)(absForward <= 3.0f && absRight <= 3.0f);
     if (session->mode == VISION_MODE_RING || session->target != 0U) {
-        aligned = (uint8_t)(du >= -2 && du <= 2 && dv >= -2 && dv <= 2);
+        aligned = (uint8_t)(du == 0 && dv == 0);
     }
     if (session->mode == VISION_MODE_MATERIAL && session->pickupMode != 0U) {
         aligned = (uint8_t)(du >= -17 && du <= 17);

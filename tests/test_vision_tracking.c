@@ -176,7 +176,7 @@ static void completionAndBudget(void)
 {
     uint32_t now;
     begin(30U,1200U,80.0f); receive(1U,100U); tick(120U);
-    packet.value[0]=158; packet.value[1]=122; receive(2U,140U);
+    packet.value[0]=160; packet.value[1]=120; receive(2U,140U);
     assert(tracking.state==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_IN_RANGE"));
     assert(tick(140U)==VISION_TRACK_DONE && forward==0 && right==0);
     receive(3U,160U); assert(tracking.state==VISION_TRACK_DONE);
@@ -204,10 +204,30 @@ static void completionAndBudget(void)
     assert(tracking.state==VISION_TRACK_DONE);
 }
 
+static void zeroPixelTolerance(void)
+{
+    static const int16_t offsets[7][2] = {{0,0},{1,0},{-1,0},{0,1},{0,-1},{2,2},{-2,-2}};
+    unsigned index, mode;
+    for(mode=VISION_MODE_MATERIAL;mode<=VISION_MODE_RING;++mode) {
+        for(index=0;index<7;++index) {
+            begin(30U,1200U,80.0f);
+            if(mode==VISION_MODE_MATERIAL) {
+                tracking.mode=packet.mode=VISION_MODE_MATERIAL;
+                tracking.selector=packet.selector=3U; packet.value[5]=3;
+            }
+            packet.value[0]=(int16_t)(160+offsets[index][0]);
+            packet.value[1]=(int16_t)(120+offsets[index][1]);
+            receive(1U,100U);
+            assert(tracking.state==(index==0U?VISION_TRACK_DONE:VISION_TRACK_RUN));
+            if(index==0U) assert(!strcmp(tracking.reason,"TRACK_IN_RANGE"));
+        }
+    }
+}
+
 int main(void)
 {
     handshakeAndIdentity(); frameValidation(); sequenceFreshness(); thirteenFpsCamera();
-    speedAndDirection(); completionAndBudget();
+    speedAndDirection(); completionAndBudget(); zeroPixelTolerance();
     puts("PASS vision tracking: explicit ACK, strict frames, bounded fresh velocity, reversal stop, deadline/budget and cancellation");
     return 0;
 }
