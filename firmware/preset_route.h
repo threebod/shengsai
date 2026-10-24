@@ -422,7 +422,7 @@ static void presetCornerLeg(PresetLeg *leg, PresetPose from, PresetPose to, uint
 }
 /* Move a blocked left-side corner onto the adjacent outer lane. Start/end work
  * poses and the original calibrated net displacement remain unchanged. */
-static uint8_t presetOuterCorner(PresetRoute *route, unsigned index)
+static uint8_t presetOuterCorner(PresetRoute *route, unsigned index, uint8_t zone)
 {
     PresetLeg before = route->legs[index], after = route->legs[index+1U];
     PresetLeg replacement[5];
@@ -432,6 +432,9 @@ static uint8_t presetOuterCorner(PresetRoute *route, unsigned index)
     int8_t incoming = presetDirection(before.from,before.to);
     int8_t outgoing = presetDirection(after.from,after.to), bodyIn, bodyOut = after.to.heading;
     int change = presetHeadingChange(outgoing,bodyOut);
+    int coarseLeft = ((before.taskIndex == 8U || before.taskIndex == 15U) &&
+                     incoming == 1 && outgoing == 0 && index && route->legs[index-1U].drive.event) ?
+                    abs(routeDistanceLeg((uint8_t)(before.taskIndex-1U),zone).rightMm) : 0;
     if (!after.drive.event) {
         change = presetHeadingChange(incoming,before.from.heading);
         bodyOut = change ? presetHeading((presetHeadingIndex(outgoing)+2U)%4U) : outgoing;
@@ -451,6 +454,12 @@ static uint8_t presetOuterCorner(PresetRoute *route, unsigned index)
         unsigned count = 0U, arcIndex, i, cost = 0U;
         int delta;
         corner = presetNode(row*PRESET_GRID_COLUMNS+column,presetHeadingIndex(bodyIn));
+        if (coarseLeft) {
+            if (column) continue;
+            /* Honour the calibrated COARSE left departure, then reconnect to
+             * the fixed station lane instead of compensating by overshooting. */
+            corner.x = (int16_t)(before.from.x-coarseLeft);
+        }
         if (abs(corner.x-before.to.x) > 100 || abs(corner.y-before.to.y) > 100) continue;
         entry = before.from; entry.heading = bodyIn;
         if (before.drive.upMm) entry.x = corner.x; else entry.y = corner.y;
@@ -513,7 +522,7 @@ static uint8_t presetOuterCorner(PresetRoute *route, unsigned index)
     route->count = (uint16_t)(route->count+bestCount-2U);
     return 1U;
 }
-static void presetSelectArcs(PresetRoute *route)
+static void presetSelectArcs(PresetRoute *route, uint8_t zone)
 {
     unsigned i;
     for (i = 0; i+1U < route->count; ++i) {
@@ -522,7 +531,7 @@ static void presetSelectArcs(PresetRoute *route)
         int following = abs(after->drive.upMm)+abs(after->drive.rightMm);
         int nominal = abs(before->to.x-before->from.x)+abs(before->to.y-before->from.y);
         if (before->arc) continue;
-        if (presetOuterCorner(route,i)) { --i; continue; }
+        if (presetOuterCorner(route,i,zone)) { --i; continue; }
         if (i && route->legs[i-1U].arc) { available -= PRESET_ARC_TRIM; nominal -= PRESET_ARC_TRIM; }
         if (before->drive.event || before->to.x != after->from.x || before->to.y != after->from.y ||
             available <= PRESET_ARC_TRIM+2 || nominal <= PRESET_ARC_TRIM+2 ||
@@ -563,7 +572,7 @@ static uint8_t presetBuild(PresetRoute *route, uint8_t zone, uint16_t regions)
         if (!presetConnect(route,current,station,events[stage+1U],calibrated)) goto fail;
         current = station;
     }
-    presetSelectArcs(route);
+    presetSelectArcs(route,zone);
     return 1U;
 fail:
     route->count = route->index = 0U; return 0U;

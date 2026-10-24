@@ -268,6 +268,29 @@ static void focusedRoutes(void)
     }
 }
 
+static void coarseLeftDistance(void)
+{
+    unsigned zone, i, departures;
+    for (zone = 1U; zone <= 2U; ++zone) {
+        assert(presetBuild(&route,(uint8_t)zone,mask(7,9)));
+        departures = 0U;
+        for (i = 0U; i < route.count; ++i) {
+            const PresetLeg *leg = &route.legs[i];
+            if ((leg->taskIndex == 8U || leg->taskIndex == 15U) && leg->arc && leg->to.y < 550) {
+                RouteLeg active;
+                route.index = (uint16_t)i; active = presetActiveLeg(&route);
+                assert(leg->drive.rightMm == -860 && leg->drive.upMm == 0);
+                assert(active.rightMm == -(860-PRESET_ARC_TRIM));
+                assert(leg->to.x == 340 && leg->to.y == 300);
+                ++departures;
+            }
+            if ((leg->taskIndex == 6U || leg->taskIndex == 13U) && leg->drive.event)
+                assert(leg->drive.upMm == -1680 && leg->drive.rightMm == 0);
+        }
+        assert(departures == 2U);
+    }
+}
+
 int main(void)
 {
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
@@ -286,7 +309,7 @@ int main(void)
     assert(feasible[0] && feasible[1] && rejected[0] && rejected[1] && arcs && detours);
     assert(presetBuild(&route,1U,mask(5,12)));
     assert(!presetBuild(&route,2U,mask(5,12)) && !route.count); /* blocked start-zone 2 approach */
-    focusedRoutes();
+    focusedRoutes(); coarseLeftDistance();
     printf("PASS 105 pairs x 2 zones: feasible=%u/%u rejected=%u/%u arcs=%u detours=%u; task order and calibrated approaches\n",
            feasible[0],feasible[1],rejected[0],rejected[1],arcs,detours);
     return 0;
