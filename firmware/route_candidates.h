@@ -27,10 +27,8 @@ static const PresetCandidate presetRawToCoarse[3] = {
 };
 /* Left then up (14/13/10); up then left (11/8/7); upper outside (2/1/4). */
 static const PresetCandidate presetCoarseToTemp[3] = {
-    /* Preserve the existing outer arc at (340,300), including its entry and
-     * station join. The 860mm left leg includes the arc's 249mm projection. */
-    {5, {{1200,300,-100,0,-1}, {340,300,0,-860,-1}, {340,1100,800,0,2},
-         {400,1100,0,60,2}, {400,1200,150,0,2}}},
+    /* Four-point version: left 611, original arc, up 601. No extra moves. */
+    {2, {{400,400,0,-860,-1}, {400,1200,850,0,2}}},
     {2, {{1200,1200,800,0,2}, {400,1200,0,-800,2}}},
     {5, {{1200,2080,1680,0,0}, {300,2080,0,-900,1}, {300,1300,-780,0,2},
          {400,1300,0,100,2}, {400,1200,-106,0,2}}}

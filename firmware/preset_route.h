@@ -16,6 +16,9 @@
 #define PRESET_STATE_COUNT (PRESET_NODE_COUNT * PRESET_NODE_STATES)
 #define PRESET_LEG_CAPACITY 128U
 #define PRESET_ARC_TRIM 249
+/* Only the user-verified four-point COARSE->TEMP primary keeps its original
+ * arc rule instead of the later fixed-block geometry model. */
+#define PRESET_ARC_FOUR_POINT 2U
 typedef struct { int16_t x, y; int8_t heading; } PresetPose;
 typedef struct {
     RouteLeg drive;
@@ -125,18 +128,21 @@ static uint8_t presetBodyHits(float x, float y, float s, float c, float half, co
         fabsf(dx*c+dy*s) >= half+hx*ac+hy*as) return 0U;
     return 1U;
 }
-static uint8_t presetBodyClearComponents(float x, float y, float s, float c, uint16_t regions)
+static uint8_t presetBodyClearScope(float x, float y, float s, float c, uint16_t regions,
+                                    uint8_t checkFixed)
 {
     float extent = 152.0f*(fabsf(s)+fabsf(c));
     unsigned i;
     /* 1mm arc samples, 2mm dilation bounds travel and corner rotation between samples. */
     if (x-extent < 0.0f || x+extent > 2400.0f || y-extent < 0.0f || y+extent > 2400.0f) return 0U;
-    for (i = 0; i < sizeof(presetFixed)/sizeof(presetFixed[0]); ++i)
+    if (checkFixed) for (i = 0; i < sizeof(presetFixed)/sizeof(presetFixed[0]); ++i)
         if (presetBodyHits(x,y,s,c,152.0f,&presetFixed[i])) return 0U;
     for (i = 0; i < SS_OBSTACLE_REGION_COUNT; ++i)
         if ((regions & (1U << i)) && presetBodyHits(x,y,s,c,152.0f,&ssObstacleRegions[i])) return 0U;
     return 1U;
 }
+static uint8_t presetBodyClearComponents(float x, float y, float s, float c, uint16_t regions)
+{ return presetBodyClearScope(x,y,s,c,regions,1U); }
 static uint8_t presetBodyClear(float x, float y, float angle, uint16_t regions)
 { return presetBodyClearComponents(x,y,sinf(angle),cosf(angle),regions); }
 static int8_t presetDirection(PresetPose from, PresetPose to)
@@ -195,7 +201,8 @@ static uint8_t presetArcClear(const PresetLeg *before, const PresetLeg *after, u
         case -1: x = p.y; y = -p.x; s = -p.c; c = p.s; break;
         default: x = p.x; y = p.y; s = p.s; c = p.c; break;
         }
-        if (!presetBodyClearComponents(before->to.x+x,before->to.y+y,s,c,regions)) return 0U;
+        if (!presetBodyClearScope(before->to.x+x,before->to.y+y,s,c,regions,
+                                  (uint8_t)(before->arc != PRESET_ARC_FOUR_POINT))) return 0U;
     }
     return 1U;
 }
@@ -566,7 +573,13 @@ static uint8_t presetTryCandidate(PresetRoute *route, PresetPose start,
         if (!presetAppend(route,current,to,taskIndex == 1U && !i ? 0U : taskIndex,&drive)) goto fail;
         current = to;
     }
-    presetSelectArcs(route,1U,first,0U);
+    if (candidate == &presetCoarseToTemp[0]) {
+        PresetLeg *before = &route->legs[first], *after = &route->legs[first+1U];
+        before->arc = PRESET_ARC_FOUR_POINT;
+        if (abs(before->drive.rightMm) <= 250 || abs(after->drive.upMm) <= 250 ||
+            !presetArcClear(before,after,route->regions)) goto fail;
+        before->drive.heading = after->from.heading;
+    } else presetSelectArcs(route,1U,first,0U);
     for (i = first; i < route->count; ++i) {
         const PresetLeg *leg = &route->legs[i];
         PresetPose endpoint = leg->from;
