@@ -221,6 +221,60 @@ static void coarseArcPreserved(void)
     }
 }
 
+static void remainingArcsPreserved(void)
+{
+    const PresetPose raw = {1200,2080,1}, coarse = {1200,400,-1};
+    const PresetPose temp = {400,1200,2}, qr = {2100,1200,0};
+    struct ArcCase {
+        const PresetCandidate *candidates;
+        PresetPose start;
+        uint16_t regions;
+        uint8_t task, arcs;
+        int8_t heading;
+    } cases[] = {
+        {presetRawToCoarse,raw,mask(8,9),6U,2U,-1},
+        {presetRawToCoarse,raw,mask(4,5),6U,2U,-1},
+        {presetCoarseToTemp,coarse,mask(13,7),8U,2U,2},
+        {presetTempToRaw,temp,mask(7,9),10U,1U,1},
+        {presetTempToRaw,temp,mask(4,5),10U,2U,1},
+        {presetQr1ToRaw,qr,mask(6,5),3U,1U,1},
+        {presetQr2ToRaw,qr,mask(6,5),3U,1U,1}
+    };
+    unsigned c, i;
+    for (c = 0U; c < sizeof(cases)/sizeof(cases[0]); ++c) {
+        unsigned arcs = 0U;
+        memset(&route,0,sizeof(route)); route.regions = cases[c].regions;
+        assert(presetFixedConnect(&route,cases[c].start,cases[c].candidates,cases[c].task,"TEST",cases[c].heading));
+        for (i = 0U; i < route.count; ++i) if (route.legs[i].arc) {
+            ++arcs;
+            assert(referenceArcClear(&route.legs[i],&route.legs[i+1U],route.regions));
+        }
+        if (arcs != cases[c].arcs) fprintf(stderr,"missing arcs: case=%u task=%u actual=%u expected=%u\n",c,cases[c].task,arcs,cases[c].arcs);
+        assert(arcs == cases[c].arcs);
+    }
+    {
+        /* Full missions: preserve the old arc count at each workstation,
+         * including both repeated rounds and both start-zone tables. */
+        static const unsigned focus[][5] = {
+            {7,9,0,1,1}, {8,9,2,1,1}, {4,5,2,1,2}, {7,13,0,2,1}
+        };
+        unsigned zone;
+        for (zone = 1U; zone <= 2U; ++zone) for (c = 0U; c < 4U; ++c) {
+            unsigned counts[ROUTE_COUNT] = {0};
+            assert(presetBuild(&route,(uint8_t)zone,mask(focus[c][0],focus[c][1])));
+            for (i = 0U; i < route.count; ++i)
+                if (route.legs[i].arc) ++counts[route.legs[i].taskIndex];
+            assert(counts[6] == focus[c][2] && counts[13] == focus[c][2]);
+            assert(counts[8] == focus[c][3] && counts[15] == focus[c][3]);
+            assert(counts[10] == focus[c][4] && counts[3] == 1U);
+        }
+        /* Region 3 blocks a rotation at RAW. The QR outside arrival must
+         * retain the working heading rather than requiring a final pivot. */
+        assert(presetBuild(&route,1U,mask(3,12)));
+        assert(presetBuild(&route,2U,mask(3,6)));
+    }
+}
+
 static void candidateCase(const PresetCandidate candidates[3], PresetPose start,
                           uint16_t regions, uint8_t task, int8_t heading,
                           unsigned count, int firstX, int firstY)
@@ -249,16 +303,16 @@ static void fixedCandidatePriorities(void)
     unsigned zone, variant;
     /* Region 8 blocks the centre; adding 4 also blocks the left detour. */
     candidateCase(presetRawToCoarse,raw,mask(7,9),6U,-1,1,1200,400);
-    candidateCase(presetRawToCoarse,raw,mask(8,9),6U,-1,3,400,2080);
-    candidateCase(presetRawToCoarse,raw,mask(4,8),6U,-1,3,2100,2080);
+    candidateCase(presetRawToCoarse,raw,mask(8,9),6U,-1,5,300,2080);
+    candidateCase(presetRawToCoarse,raw,mask(4,8),6U,-1,4,2100,2080);
     candidateCase(presetCoarseToTemp,coarse,mask(7,9),8U,2,5,1200,300);
     candidateCase(presetCoarseToTemp,coarse,mask(10,9),8U,2,2,1200,1200);
-    candidateCase(presetCoarseToTemp,coarse,mask(13,7),8U,2,3,1200,2080);
-    candidateCase(presetTempToRaw,temp,mask(7,9),10U,1,2,400,2080);
+    candidateCase(presetCoarseToTemp,coarse,mask(13,7),8U,2,5,1200,2080);
+    candidateCase(presetTempToRaw,temp,mask(7,9),10U,1,3,300,1200);
     candidateCase(presetTempToRaw,temp,mask(4,11),10U,1,2,1200,1200);
-    candidateCase(presetTempToRaw,temp,mask(4,5),10U,1,3,2100,1200);
+    candidateCase(presetTempToRaw,temp,mask(4,5),10U,1,6,400,1150);
     /* A clear line cannot authorize a station turn swept into region 2. */
-    candidateCase(presetTempToRaw,temp,mask(2,11),10U,1,3,2100,1200);
+    candidateCase(presetTempToRaw,temp,mask(2,11),10U,1,6,400,1150);
     for (zone = 1U; zone <= 2U; ++zone) {
         const PresetCandidate *startRoutes = zone == 1U ? presetStart1ToQr : presetStart2ToQr;
         const PresetCandidate *qrRoutes = zone == 1U ? presetQr1ToRaw : presetQr2ToRaw;
@@ -276,7 +330,7 @@ static void fixedCandidatePriorities(void)
         assert(route.legs[0].drive.upMm == (zone == 1U ? 860 : 855));
         assert(route.legs[1].drive.rightMm == -870);
         candidateCase(qrRoutes,qr,mask(6,11),3U,1,2,1200,1200);
-        candidateCase(qrRoutes,qr,mask(6,5),3U,1,3,300,1200);
+        candidateCase(qrRoutes,qr,mask(6,5),3U,1,6,2100,1150);
         /* Both detours still cross 9: never silently add a fourth route. */
         memset(&route,0,sizeof(route)); route.regions = mask(6,9);
         assert(!presetFixedConnect(&route,qr,qrRoutes,3U,"RAW_1",1) && !route.count);
@@ -295,8 +349,9 @@ static void fixedCandidatePriorities(void)
     assert(route.legs[0].drive.upMm == -100 && route.legs[1].drive.rightMm == -860);
     assert(route.legs[2].drive.upMm == 800 && route.legs[3].drive.rightMm == 60);
     assert(route.legs[4].drive.upMm == 150 && route.legs[1].arc);
-    candidateCase(presetTempToRaw,temp,mask(7,9),10U,1,2,400,2080);
-    assert(route.legs[0].drive.upMm == 880 && route.legs[1].drive.rightMm == 850);
+    candidateCase(presetTempToRaw,temp,mask(7,9),10U,1,3,300,1200);
+    assert(route.legs[1].drive.upMm == 880 && route.legs[1].arc);
+    assert(route.legs[0].drive.rightMm+route.legs[2].drive.rightMm == 850);
 }
 
 static unsigned taskBegin(const PresetRoute *value, uint8_t task)
@@ -337,7 +392,7 @@ int main(void)
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fixedCandidatePriorities(); fixedStartDetours(); recenterEnvelope();
+    selection(); geometry(); coarseArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
     assert(!presetBuild(&route,1,0x8001U) && !route.count);
