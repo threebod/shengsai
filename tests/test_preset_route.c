@@ -194,6 +194,33 @@ static void checkRoute(uint8_t zone)
     assert(wait == 7U);
 }
 
+static void coarseArcPreserved(void)
+{
+    unsigned zone, round;
+    for (zone = 1U; zone <= 2U; ++zone) {
+        assert(presetBuild(&route,(uint8_t)zone,mask(7,9)));
+        for (round = 0U; round < 2U; ++round) {
+            unsigned i, arcs = 0U;
+            uint8_t task = round ? 15U : 8U;
+            int up = 0, right = 0;
+            for (i = 0U; i < route.count; ++i) if (route.legs[i].taskIndex == task) {
+                const PresetLeg *leg = &route.legs[i];
+                up += leg->drive.upMm; right += leg->drive.rightMm;
+                if (leg->arc) {
+                    RouteLeg active;
+                    ++arcs;
+                    assert(leg->to.x == 340 && leg->to.y == 300);
+                    assert(leg->drive.rightMm == -860);
+                    route.index = (uint16_t)i; active = presetActiveLeg(&route);
+                    assert(active.rightMm == -(860-PRESET_ARC_TRIM));
+                    assert(referenceArcClear(leg,&route.legs[i+1U],route.regions));
+                }
+            }
+            assert(arcs == 1U && up == 850 && right == -800);
+        }
+    }
+}
+
 static void candidateCase(const PresetCandidate candidates[3], PresetPose start,
                           uint16_t regions, uint8_t task, int8_t heading,
                           unsigned count, int firstX, int firstY)
@@ -224,7 +251,7 @@ static void fixedCandidatePriorities(void)
     candidateCase(presetRawToCoarse,raw,mask(7,9),6U,-1,1,1200,400);
     candidateCase(presetRawToCoarse,raw,mask(8,9),6U,-1,3,400,2080);
     candidateCase(presetRawToCoarse,raw,mask(4,8),6U,-1,3,2100,2080);
-    candidateCase(presetCoarseToTemp,coarse,mask(7,9),8U,2,2,400,400);
+    candidateCase(presetCoarseToTemp,coarse,mask(7,9),8U,2,5,1200,300);
     candidateCase(presetCoarseToTemp,coarse,mask(10,9),8U,2,2,1200,1200);
     candidateCase(presetCoarseToTemp,coarse,mask(13,7),8U,2,3,1200,2080);
     candidateCase(presetTempToRaw,temp,mask(7,9),10U,1,2,400,2080);
@@ -264,8 +291,10 @@ static void fixedCandidatePriorities(void)
         assert(!presetBuild(&route,(uint8_t)zone,zone == 1U ? mask(6,9) : mask(12,9)));
         assert(!route.count && !route.index);
     }
-    candidateCase(presetCoarseToTemp,coarse,mask(7,9),8U,2,2,400,400);
-    assert(route.legs[0].drive.rightMm == -860 && route.legs[1].drive.upMm == 850);
+    candidateCase(presetCoarseToTemp,coarse,mask(7,9),8U,2,5,1200,300);
+    assert(route.legs[0].drive.upMm == -100 && route.legs[1].drive.rightMm == -860);
+    assert(route.legs[2].drive.upMm == 800 && route.legs[3].drive.rightMm == 60);
+    assert(route.legs[4].drive.upMm == 150 && route.legs[1].arc);
     candidateCase(presetTempToRaw,temp,mask(7,9),10U,1,2,400,2080);
     assert(route.legs[0].drive.upMm == 880 && route.legs[1].drive.rightMm == 850);
 }
@@ -308,7 +337,7 @@ int main(void)
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); fixedCandidatePriorities(); fixedStartDetours(); recenterEnvelope();
+    selection(); geometry(); coarseArcPreserved(); fixedCandidatePriorities(); fixedStartDetours(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
     assert(!presetBuild(&route,1,0x8001U) && !route.count);
