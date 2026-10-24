@@ -6,10 +6,11 @@
 
 ## 运行
 
-1. 将脚本与已有的 `material_layout.py`、`vision_protocol.py`、`vision_settings.py`
-   放在相机同一目录，保留现有正式程序。
+1. 在 MaixVision 中打开 `material_stop_predict_test.py`，可直接单文件运行，
+   不需要上传 `material_layout.py`、`vision_protocol.py` 或 `vision_settings.py`。
 2. 把脚本顶部 `COLORS` 改为料盘实际的三种颜色，默认 `(1, 4, 6)`。
-   编号：1红、2黄、3蓝、4绿、5黑、6浅蓝。LAB阈值复用 `vision_settings.py`。
+   编号：1红、2黄、3蓝、4绿、5黑、6浅蓝。LAB阈值已从当前 `vision_settings.py`
+   内置到脚本顶部 `COLOR_THRESHOLDS`；后续重新标定时需手动更新此处。
 3. 使用 MaixVision 直接运行测试脚本，预热两秒后观察控制台和屏幕。
    无需修改正式应用入口、版本号或安装包。
 4. 让料盘完整经历匀速、减速、停止和再次启动，记录日志；也可遮挡物料观察预测清除。

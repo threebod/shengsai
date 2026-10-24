@@ -1,5 +1,6 @@
 import math
 import pathlib
+import subprocess
 import sys
 import types
 import unittest
@@ -16,6 +17,14 @@ def point(x, y=190, color=4):
 
 
 class StopPredictorTest(unittest.TestCase):
+    def test_script_imports_without_other_project_files(self):
+        result = subprocess.run(
+            [sys.executable, "-I", "-c",
+             "import runpy, sys; runpy.run_path(sys.argv[1], run_name='standalone_test')",
+             str(pathlib.Path(entry.__file__).resolve())],
+            capture_output=True, text=True)
+        self.assertEqual(0, result.returncode, result.stderr)
+
     def feed(self, trajectory, times=range(0, 1401, 80)):
         predictor = StopPredictor()
         return [(ms, predictor.update(trajectory(ms / 1000), ms)) for ms in times]
@@ -120,14 +129,14 @@ class StopPredictorTest(unittest.TestCase):
             clock[0] = now
             return False
 
-        def detect(frame, request):
+        def detect(frame):
             t = min((clock[0] - 2100) / 1000, 1)
-            return {"visible_points": (point(30 + 60 * t - 30 * t ** 2),)}
+            return {4: point(30 + 60 * t - 30 * t ** 2)}
 
         maix.app.need_exit.side_effect = need_exit
         with patch.dict(sys.modules, {"maix": maix}), \
                 patch.object(entry.time, "monotonic", side_effect=lambda: clock[0] / 1000), \
-                patch.object(entry, "find_material_layout", side_effect=detect), \
+                patch.object(entry, "find_materials", side_effect=detect), \
                 patch("builtins.print") as output:
             entry.main()
         lines = [args[0] for args, _ in output.call_args_list]
@@ -137,6 +146,38 @@ class StopPredictorTest(unittest.TestCase):
         maix.uart.UART.assert_not_called()
         maix.camera.Camera.return_value.close.assert_called_once()
         self.assertTrue(all(call.args == (0,) for call in maix.gpio.GPIO.return_value.value.call_args_list))
+
+    def test_embedded_detection_matches_production_tray_candidates(self):
+        from material_layout import find_material_layout
+
+        def blob(x, y, width, height):
+            item = Mock()
+            for name, value in (("x", x), ("y", y), ("w", width), ("h", height),
+                                ("area", width * height), ("pixels", width * height),
+                                ("cx", x + width // 2), ("cy", y + height // 2)):
+                getattr(item, name).return_value = value
+            return item
+
+        for colors in ((1, 4, 6), (2, 3, 5)):
+            a, b, c = colors
+            scenarios = ({}, {a: [blob(100, 300, 60, 60)]},
+                         {a: [blob(100, 300, 60, 60)], b: [blob(300, 80, 80, 80)],
+                          c: [blob(500, 80, 60, 60)]},
+                         {a: [blob(100, 100, 60, 60)], b: [blob(110, 110, 80, 80)]},
+                         {a: [blob(100, 100, 40, 40), blob(80, 80, 200, 200)]},
+                         {c: [blob(100, 100, 50, 50)]})
+            for blobs in scenarios:
+                with self.subTest(colors=colors, blobs=blobs):
+                    frame = Mock()
+                    frame.find_blobs.side_effect = lambda thresholds, **kwargs: blobs.get(
+                        next(color for color, threshold in entry.COLOR_THRESHOLDS.items()
+                             if thresholds == [threshold]), [])
+                    request = {"selector": 0, "values": [0, 0, 320, 240, 160, 120,
+                               sum(1 << (color - 1) for color in colors), 3]}
+                    expected = find_material_layout(frame, request)
+                    with patch.object(entry, "COLORS", colors):
+                        found = entry.find_materials(frame)
+                    self.assertEqual({p[5]: p for p in expected["visible_points"]} if expected else {}, found)
 
 
 if __name__ == "__main__":

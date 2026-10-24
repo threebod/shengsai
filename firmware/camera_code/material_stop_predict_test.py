@@ -2,10 +2,16 @@
 import math
 import time
 
-from material_layout import find_material_layout
-from vision_protocol import LAYOUT_LOCATE
-
 COLORS = (1, 4, 6)  # Set to the three actual colors on the material tray.
+# Snapshot of vision_settings.py; kept local for MaixVision single-file runs.
+COLOR_THRESHOLDS = {
+    1: [21, 50, 32, 68, 15, 50],
+    2: [50, 105, -30, 25, 35, 100],
+    3: [9, 46, -6, 30, -60, -10],
+    4: [37, 70, -70, -38, 28, 65],
+    5: [8, 25, -14, 10, -8, 16],
+    6: [40, 75, -29, -5, -33, -8],
+}
 COLOR_NAMES = {1: "red", 2: "yellow", 3: "blue", 4: "green",
                5: "black", 6: "light_blue"}
 LEAD_MS = 350  # Experimental early-warning horizon, not an arm motion duration.
@@ -15,6 +21,33 @@ MAX_STEP_PX = 50
 MIN_SPEED = 8  # All motion units use 320x240 coordinates: px/s and px/s^2.
 MIN_DECEL = 15
 LOG_INTERVAL_MS = 200
+
+
+def find_materials(img):
+    # Match production tray detection at 640x480: largest blob per color,
+    # original area limits and suppression of overlapping color boxes.
+    candidates = []
+    for color in sorted(COLORS):
+        blobs = img.find_blobs([COLOR_THRESHOLDS[color]], roi=(0, 0, 640, 480),
+                               area_threshold=50, pixels_threshold=50)
+        if not blobs:
+            continue
+        blob = max(blobs, key=lambda blob: blob.area())
+        area = blob.area()
+        if (4000 if color == 5 else 1500) <= area <= 30000:
+            candidates.append((area, color, blob))
+    candidates.sort(key=lambda candidate: candidate[0], reverse=True)
+    kept, points = [], {}
+    for area, color, blob in candidates:
+        x, y, width, height = blob.x(), blob.y(), blob.w(), blob.h()
+        if any(min(x + width, bx + bw) > max(x, bx) and
+               min(y + height, by + bh) > max(y, by) for bx, by, bw, bh in kept):
+            continue
+        kept.append((x, y, width, height))
+        points[color] = (int(round(blob.cx() / 2)), int(round(blob.cy() / 2)),
+                         min(100, int(blob.pixels() * 100 / max(area, 1))),
+                         int(round(width / 2)), int(round(height / 2)), color)
+    return points
 
 
 def color_region(point):
@@ -105,9 +138,6 @@ def main():
 
     if len(COLORS) != 3 or len(set(COLORS)) != 3 or any(c not in COLOR_NAMES for c in COLORS):
         raise ValueError("COLORS must contain three distinct IDs from 1 to 6")
-    request = {"selector": 0, "target": 0,
-               "values": [0, 0, 320, 240, 160, 120,
-                          sum(1 << (c - 1) for c in COLORS), LAYOUT_LOCATE]}
     predictors = {c: StopPredictor() for c in COLORS}
     last_states, last_logs = {}, {}
     err.check_raise(pinmap.set_pin_function("B25", "GPIOB25"), "illumination GPIO mapping")
@@ -126,8 +156,7 @@ def main():
             frame = cam.read()
             if captured_ms < warmup_until:
                 continue
-            layout = find_material_layout(frame, request) if frame is not None else None
-            points = {p[5]: p for p in layout["visible_points"]} if layout else {}
+            points = find_materials(frame) if frame is not None else {}
             for line, color in enumerate(COLORS):
                 point = points.get(color)
                 result = predictors[color].update(point, captured_ms)
