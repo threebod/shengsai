@@ -91,7 +91,7 @@ class VisionMainTest(unittest.TestCase):
         with patch.object(entry.time, "monotonic", side_effect=lambda: current_time[0]), \
                 window_patch as constructor, \
                 patch.object(entry, "find_material", **material_args) as material_detector, \
-                patch.object(entry, "find_ring", **ring_args), \
+                patch.object(entry, "find_ring", **ring_args) as ring_detector, \
                 patch.object(entry, "find_material_layout", **layout_args) as layout_detector, \
                 patch("builtins.print") as output:
             if write_error:
@@ -103,6 +103,7 @@ class VisionMainTest(unittest.TestCase):
         self.stability_updates = stable.update.call_count
         self.layout_calls = layout_detector.call_count
         self.material_calls = material_detector.call_args_list
+        self.ring_calls = ring_detector.call_args_list
         self.logs = [call.args[0] for call in output.call_args_list]
         return maix
 
@@ -123,15 +124,77 @@ class VisionMainTest(unittest.TestCase):
         maix = self.run_camera([self.tracking_request()] + [b""] * 9,
                                [index * 0.04 for index in range(10)], confirmations=[], found=centers)
         packets = self.tracking_responses(maix)
-        self.assertEqual([1, 4, 7], [packet["values"][6] for packet in packets])
-        self.assertEqual([list(centers[index][:2]) for index in (0, 3, 6)],
+        self.assertEqual([1, 3, 5, 7], [packet["values"][6] for packet in packets])
+        self.assertEqual([list(centers[index][:2]) for index in (0, 2, 4, 6)],
                          [packet["values"][:2] for packet in packets])
         self.assertTrue(all(packet["flags"] == FLAG_TRACKING | FLAG_VALID for packet in packets))
         self.assertTrue(all(packet["token"] == 9 for packet in packets))
-        self.assertTrue(all(b - a >= 0.0999 for a, b in zip(self.tx_times, self.tx_times[1:])))
+        self.assertTrue(all(b - a >= 0.0499 for a, b in zip(self.tx_times, self.tx_times[1:])))
         self.assertEqual(1, len(self.window_calls))
         self.assertEqual(0, self.stability_updates)
         self.assertFalse(any(line.startswith("VISION RING") for line in self.logs))
+
+    def test_tracking_at_thirteen_fps_sends_every_frame_instead_of_halving_rate(self):
+        maix = self.run_camera([self.tracking_request()] + [b""] * 7,
+                               [index / 13 for index in range(8)], confirmations=[],
+                               found=(150, 100, 80, 70, 70), capture_delays_ms=[77] * 8)
+        packets = self.tracking_responses(maix)
+        self.assertEqual(list(range(1, 7)), [packet["values"][6] for packet in packets])
+        self.assertTrue(all(packet["values"][7] == 77 for packet in packets))
+        self.assertEqual(1, sum(line.startswith("VISION TRACK TX") for line in self.logs))
+        self.assertIn("VISION APP version=1.0.24 ring_tracking=contours", self.logs)
+        self.assertIn("version: 1.0.24", pathlib.Path(__file__).with_name("app.yaml").read_text(encoding="utf-8"))
+
+    def test_tracking_ring_reference_comes_from_matching_stable_sample_and_advances(self):
+        seed = (150, 100, 80, 70, 70)
+        moved = (155, 103, 80, 70, 70)
+        maix = self.run_camera(
+            [self.request(MODE_RING, 2, 2, 0), b"", b"", self.tracking_request(),
+             b"", b"", b"", b""],
+            [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+            confirmations=[False, False, True], found=[seed, moved, None, None])
+        self.assertEqual([seed, moved, None],
+                         [item.kwargs["reference"] for item in self.ring_calls[1:]])
+        packets = self.tracking_responses(maix)
+        self.assertEqual([FLAG_VALID | FLAG_STABLE, FLAG_TRACKING | FLAG_VALID,
+                          FLAG_TRACKING, FLAG_TRACKING], [item["flags"] for item in packets])
+
+    def test_tracking_ring_reference_rejects_expired_or_different_requests(self):
+        seed = (150, 100, 80, 70, 70)
+        variants = [self.tracking_request(),
+                    self.tracking_request(selector=1),
+                    encode(KIND_REQUEST, 9, MODE_RING, 1, 2,
+                           FLAG_TRACKING | FLAG_RING_NO_DIGIT,
+                           [0, 0, 320, 240, 160, 120, 0, 1]),
+                    encode(KIND_REQUEST, 9, MODE_RING, 0, 2, FLAG_TRACKING,
+                           [10, 0, 310, 240, 160, 120, 0, 1])]
+        for index, tracking in enumerate(variants):
+            with self.subTest(index=index):
+                start = 2.1 if index == 0 else 0.3
+                self.run_camera([self.request(MODE_RING, 2, 2, 1 if index == 2 else 0), b"", b"",
+                                 tracking, b"", b""],
+                                [0, 0.1, 0.2, start, start + 0.1, start + 0.2],
+                                confirmations=[False, False, True], found=[seed, None])
+                self.assertIsNone(self.ring_calls[-1].kwargs["reference"])
+
+    def test_tracking_ring_cannot_reuse_sample_for_second_stream(self):
+        seed = (150, 100, 80, 70, 70)
+        self.run_camera([self.request(MODE_RING, 2, 2, 0), b"", b"",
+                         self.tracking_request(9), b"", b"", self.tracking_request(10),
+                         self.tracking_request(9, action=-1), b""],
+                        [index * 0.1 for index in range(9)],
+                        confirmations=[False, False, True], found=[seed, seed, None])
+        self.assertEqual([seed, None], [item.kwargs["reference"] for item in self.ring_calls[1:]])
+
+    def test_tracking_ring_new_failed_sample_invalidates_previous_reference(self):
+        seed = (150, 100, 80, 70, 70)
+        self.run_camera([self.request(MODE_RING, 2, 2, 0), b"", b"",
+                         self.request(MODE_RING, 3, 2, 0), b"", b"",
+                         self.tracking_request(), b"", b""],
+                        [index * 0.1 for index in range(9)],
+                        confirmations=[False, False, True, False, False, True],
+                        found=[seed, None, None])
+        self.assertIsNone(self.ring_calls[-1].kwargs["reference"])
 
     def test_tracking_stacking_uses_320_resolution_and_preserves_material_color(self):
         maix = self.run_camera([self.tracking_request(mode=MODE_MATERIAL, selector=5)] + [b""] * 4,
@@ -143,6 +206,12 @@ class VisionMainTest(unittest.TestCase):
         self.assertEqual([1, 2, 3], [packet["values"][6] for packet in packets])
         self.assertTrue(all(packet["values"][:6] == [170, 124, 80, 30, 40, 5] for packet in packets))
         self.assertTrue(all(not packet["flags"] & FLAG_STABLE for packet in packets))
+
+    def test_tracking_stacking_preserves_original_hundred_ms_rate_limit(self):
+        maix = self.run_camera([self.tracking_request(mode=MODE_MATERIAL, selector=5)] + [b""] * 7,
+                               [index * 0.04 for index in range(8)], confirmations=[],
+                               found=(170, 124, 80, 30, 40, 5))
+        self.assertEqual([1, 4], [item["values"][6] for item in self.tracking_responses(maix)])
 
     def test_tracking_missing_captures_do_not_replay_positions_or_advance_sequence(self):
         maix = self.run_camera([self.tracking_request()] + [b""] * 5,

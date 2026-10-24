@@ -1,7 +1,7 @@
 import math
 
 import vision_settings as settings
-from vision_protocol import FLAG_RING_NO_DIGIT
+from vision_protocol import FLAG_RING_NO_DIGIT, FLAG_TRACKING
 
 
 def _unique_near(candidates, anchor, radius):
@@ -67,15 +67,18 @@ def _cluster_rings(circles):
     return targets
 
 
-def find_ring(img, request, diagnostics=None):
-    import cv2
-    from maix import image
-
+def find_ring(img, request, diagnostics=None, reference=None):
     if diagnostics is not None:
         diagnostics.clear()
         diagnostics.update(circles=[], targets=[], digits=[])
     if request["target"] != 2:
         return None
+    tracking = bool(request.get("flags", 0) & FLAG_TRACKING)
+    if tracking and reference is None:
+        return None
+    import cv2
+    from maix import image
+
     x, y, width, height, anchor_u, anchor_v, _, _ = request["values"]
     gray = image.image2cv(img.to_format(image.Format.FMT_GRAYSCALE), False, False)
     # Requests and results remain in the vehicle's 320x240 calibration coordinates.
@@ -115,6 +118,12 @@ def find_ring(img, request, diagnostics=None):
         circles.append((x + moments["m10"] / moments["m00"] / scale,
                         y + moments["m01"] / moments["m00"] / scale, radius))
     targets = _cluster_rings(circles)
+    if tracking:
+        # Identity comes from the preceding stable sample, never from list order.
+        # Only one contour group inside the previous outer radius may continue.
+        if diagnostics is not None:
+            diagnostics.update(circles=circles, targets=targets)
+        return _unique_near(targets, reference[:2], min(reference[3:5]) / 2)
     if request.get("flags", 0) & FLAG_RING_NO_DIGIT:
         if diagnostics is not None:
             diagnostics.update(circles=circles, targets=targets)

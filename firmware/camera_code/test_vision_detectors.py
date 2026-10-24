@@ -9,10 +9,62 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
 from vision_detectors import _cluster_rings, _unique_near, find_material, find_ring
 import vision_settings as settings
-from vision_protocol import FLAG_RING_NO_DIGIT
+from vision_protocol import FLAG_RING_NO_DIGIT, FLAG_TRACKING
 
 
 class VisionDetectorTest(unittest.TestCase):
+    def test_tracking_ring_uses_confirmed_center_without_digit_or_material_detection(self):
+        import numpy as np
+
+        maix = types.ModuleType("maix")
+        maix.image = Mock()
+        maix.image.image2cv.return_value = np.full((480, 640), 255, dtype=np.uint8)
+        reference = (150, 100, 80, 70, 70)
+        for extra_flags in (0, FLAG_RING_NO_DIGIT):
+            request = {"target": 2, "flags": FLAG_TRACKING | extra_flags,
+                       "values": [0, 0, 320, 240, 160, 120, 0, 1]}
+            for candidates, expected in [
+                    ([(50, 100, 80, 70, 70), (156, 103, 80, 70, 70),
+                      (260, 100, 80, 70, 70)], (156, 103, 80, 70, 70)),
+                    ([(50, 100, 80, 70, 70), (260, 100, 80, 70, 70)], None),
+                    ([(140, 100, 80, 70, 70), (160, 100, 80, 70, 70)], None),
+                    ([(186, 100, 80, 70, 70)], None)]:
+                with self.subTest(flags=extra_flags, candidates=candidates), \
+                        patch.dict(sys.modules, {"maix": maix}), \
+                        patch("vision_detectors._cluster_rings", return_value=candidates), \
+                        patch("vision_detectors.find_material") as material, \
+                        patch("ring_digits.read_ring_digit") as digit:
+                    self.assertEqual(expected, find_ring(Mock(), request, reference=reference))
+                    material.assert_not_called()
+                    digit.assert_not_called()
+
+    def test_tracking_ring_without_confirmed_reference_does_not_guess_target(self):
+        request = {"target": 2, "flags": FLAG_TRACKING,
+                   "values": [0, 0, 320, 240, 160, 120, 0, 1]}
+        self.assertIsNone(find_ring(Mock(), request))
+
+    def test_tracking_real_contours_preserve_protocol_coordinates_at_both_resolutions(self):
+        import cv2
+        import numpy as np
+
+        maix = types.ModuleType("maix")
+        maix.image = Mock()
+        request = {"target": 2, "flags": FLAG_TRACKING,
+                   "values": [0, 0, 320, 240, 160, 120, 0, 1]}
+        for scale in (1, 2):
+            gray = np.full((240 * scale, 320 * scale), 255, dtype=np.uint8)
+            for center in (50, 150, 260):
+                for radius in (24, 32):
+                    cv2.circle(gray, (center * scale, 100 * scale), radius * scale, 0, 3 * scale)
+            maix.image.image2cv.return_value = gray
+            with self.subTest(scale=scale), patch.dict(sys.modules, {"maix": maix}), \
+                    patch("ring_digits.read_ring_digit") as digit:
+                result = find_ring(Mock(), request, reference=(146, 102, 80, 70, 70))
+                self.assertIsNotNone(result)
+                self.assertLessEqual(abs(result[0] - 150), 1)
+                self.assertLessEqual(abs(result[1] - 100), 1)
+                digit.assert_not_called()
+
     def test_material_aspect_ratio_accepts_square_and_inclusive_boundary(self):
         for scale in (1, 2):
             for width, height, accepted in [(50, 50, True), (60, 50, True),

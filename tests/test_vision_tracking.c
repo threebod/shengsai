@@ -121,6 +121,23 @@ static void sequenceFreshness(void)
     receive(31U,180U); assert(tracking.sequence==31U && tracking.lastFrameAt==148U);
 }
 
+static void thirteenFpsCamera(void)
+{
+    uint32_t now, nextFrame = 209U;
+    uint16_t sequence = 0U;
+    begin(30U,3000U,1000.0f);
+    packet.value[7] = 77; /* Capture + detection; receiver adds the existing 32ms wire budget. */
+    for(now=100U;now<=2000U;++now) {
+        if(now==nextFrame) {
+            receive(++sequence,now);
+            nextFrame += 77U;
+        }
+        assert(tick(now)==(now<209U?VISION_TRACK_WAIT:VISION_TRACK_RUN));
+    }
+    assert(sequence>20U && tracking.sequence==sequence);
+    assert(fabsf(forward)+fabsf(right)>0 && fabsf(forward)+fabsf(right)<=30.0f);
+}
+
 static void speedAndDirection(void)
 {
     unsigned i;
@@ -189,7 +206,7 @@ static void completionAndBudget(void)
 
 int main(void)
 {
-    handshakeAndIdentity(); frameValidation(); sequenceFreshness();
+    handshakeAndIdentity(); frameValidation(); sequenceFreshness(); thirteenFpsCamera();
     speedAndDirection(); completionAndBudget();
     puts("PASS vision tracking: explicit ACK, strict frames, bounded fresh velocity, reversal stop, deadline/budget and cancellation");
     return 0;

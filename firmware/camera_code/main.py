@@ -16,6 +16,7 @@ import vision_settings as settings
 
 
 def main():
+    print("VISION APP version=1.0.24 ring_tracking=contours")
     err.check_raise(pinmap.set_pin_function("B25", "GPIOB25"), "illumination GPIO mapping")
     illuminator = gpio.GPIO("GPIOB25", gpio.Mode.OUT)
     illuminator.value(0)
@@ -32,6 +33,9 @@ def main():
     layout_last_tx = None
     tracking_last_tx = None
     tracking_sequence = 0
+    tracking_log_at = None
+    ring_seed = None
+    tracking_ring = None
     request = None
     light_mode = MODE_MATERIAL
     ring_no_digit = False
@@ -54,13 +58,15 @@ def main():
                 print("VISION UART RX bytes={}".format(len(incoming)))
             for packet in parser.feed(incoming):
                 if validate_request(packet):
-                    print("VISION REQUEST token={} mode={} target={}".format(
-                        packet["token"], packet["mode"], packet["target"]))
+                    print("VISION REQUEST token={} mode={} target={} flags={} action={}".format(
+                        packet["token"], packet["mode"], packet["target"],
+                        packet["flags"], packet["values"][7]))
                     if packet["flags"] & FLAG_TRACKING and packet["values"][7] == TRACKING_END:
                         if (request is not None and request["flags"] & FLAG_TRACKING and
                                 all(packet[key] == request[key]
                                     for key in ("token", "mode", "selector", "target"))):
                             request = None
+                            tracking_ring = None
                         continue
                     continuing_layout = request is not None and bool(
                         request["flags"] & FLAG_MATERIAL_LAYOUT)
@@ -68,6 +74,18 @@ def main():
                             not continuing_layout and not packet["selector"] and
                             packet["values"][7] != LAYOUT_END):
                         layout_memory.reset()
+                    tracking_ring = None
+                    if packet["flags"] & FLAG_TRACKING and packet["mode"] == MODE_RING and ring_seed:
+                        seed_request, seed_center, seed_at = ring_seed
+                        if (now_ms - seed_at <= 1800 and
+                                all(packet[key] == seed_request[key] for key in ("mode", "selector", "target")) and
+                                packet["flags"] & FLAG_RING_NO_DIGIT == seed_request["flags"] & FLAG_RING_NO_DIGIT and
+                                packet["values"][:6] == seed_request["values"][:6]):
+                            tracking_ring = seed_center
+                    ring_seed = None  # A confirmed sample authorizes just the following stream.
+                    if packet["flags"] & FLAG_TRACKING and packet["mode"] == MODE_RING:
+                        print("VISION TRACK RING token={} reference={}".format(
+                            packet["token"], "ready" if tracking_ring is not None else "missing"))
                     request = packet
                     layout_window.reset()
                     if packet["flags"] & FLAG_MATERIAL_LAYOUT and packet["values"][7] == LAYOUT_END:
@@ -104,6 +122,7 @@ def main():
                     request_started = now_ms
                     tracking_last_tx = None
                     tracking_sequence = 0
+                    tracking_log_at = None
                     discard_frames = 0 if continuing_layout and packet["flags"] & FLAG_MATERIAL_LAYOUT else 2
                     detection_frames = 0
                     detection_started = None
@@ -131,12 +150,16 @@ def main():
                     if discard_frames:
                         discard_frames -= 1
                     else:
-                        found = (find_ring(frame, request) if request["mode"] == MODE_RING else
-                                 find_material(frame, request, scale=scale))
+                        if request["mode"] == MODE_RING:
+                            found = find_ring(frame, request, reference=tracking_ring)
+                            tracking_ring = found
+                        else:
+                            found = find_material(frame, request, scale=scale)
                         # Count every newly detected frame, including rate-limited ones.
                         tracking_sequence = (tracking_sequence + 1) & 0xFFFF
                         now_ms = int(time.monotonic() * 1000)
-                        if tracking_last_tx is None or now_ms - tracking_last_tx >= 100:
+                        interval_ms = 50 if request["mode"] == MODE_RING else 100
+                        if tracking_last_tx is None or now_ms - tracking_last_tx >= interval_ms:
                             values = tracking_values(found, tracking_sequence, now_ms - capture_started)
                             flags = FLAG_TRACKING | (FLAG_VALID if found is not None else 0)
                             response = encode(KIND_RESULT, request["token"], request["mode"],
@@ -144,6 +167,11 @@ def main():
                             if serial.write(response) != len(response):
                                 raise RuntimeError("UART short write")
                             tracking_last_tx = now_ms
+                            if tracking_log_at is None or now_ms - tracking_log_at >= 1000:
+                                print("VISION TRACK TX token={} seq={} valid={} age_ms={}".format(
+                                    request["token"], tracking_sequence, found is not None,
+                                    values[7]))
+                                tracking_log_at = now_ms
             elif layout_request:
                 layout = None
                 if frame is not None:
@@ -258,6 +286,8 @@ def main():
                                       flags, values)
                     if serial.write(response) != len(response):
                         raise RuntimeError("UART short write")
+                    if accepted and request["mode"] == MODE_RING:
+                        ring_seed = (request, found, int(time.monotonic() * 1000))
                     print("VISION RESULT token={} valid={}".format(
                         request["token"], bool(flags)))
                     if request["mode"] == MODE_MATERIAL:
