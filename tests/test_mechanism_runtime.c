@@ -8,7 +8,7 @@
 typedef enum { S_FLAG,S_TPOS,S_CPOS } SysParams_t;
 static MechanismState mechanismState;
 static AxisFeedback mechanismFeedback[2];
-static uint8_t mechanismAxes,mechanismPreparing,mechanismPollAxis,mechanismPollKind[2],mechanismBaselineMask;
+static uint8_t mechanismAxes,mechanismPreparing,mechanismPollAxis,mechanismPollKind[2],mechanismBaselineMask,mechanismPositionPriority;
 static uint8_t servoChannelMoving[3],fault;
 static uint32_t clockMs,mechanismFeedbackTimeout,mechanismPollAt;
 static int32_t mechanismBaseline[2];
@@ -53,7 +53,7 @@ static void reset(void){
     stops=dones=queries=0;fault=servoChannelMoving[2]=0;
     simulateReplies=missingMotor=missingFn=0;mechanismPollAxis=0;prematurePositions=0;
     logText[0]='\0';
-    mechanismPollKind[0]=mechanismPollKind[1]=0;mechanismBaselineMask=0;
+    mechanismPollKind[0]=mechanismPollKind[1]=0;mechanismBaselineMask=mechanismPositionPriority=0;
     memset(queryKinds,0,sizeof(queryKinds));arrivalAt[0]=arrivalAt[1]=0;
     faultAt[0]=faultAt[1]=0;
     positionOffset[0]=positionOffset[1]=positionStep[0]=positionStep[1]=0;
@@ -97,6 +97,23 @@ int main(void){
     reset();fault=1;serviceMechanism();assert(stops==1 && !mechanismState.valid);
     reset();mechanismAxes=0;servoChannelMoving[2]=1;serviceMechanism();assert(!dones);
     servoChannelMoving[2]=0;serviceMechanism();assert(dones==1 && !stops);
+    /* Arrival on the just-polled axis gets the next slot, without increasing
+     * bus frequency or starving the other axis on a missing position reply. */
+    reset();mechanismPollAxis=1;
+    axisTarget(&mechanismFeedback[0],65536);axisTarget(&mechanismFeedback[1],32768);
+    reply(6,0x3a,3);clockMs=520;serviceMechanism();
+    assert(queryKinds[1][2]==1 && queries==1 && !dones);
+    clockMs=540;serviceMechanism();assert(queryKinds[0][1]==1 && queries==2);
+    clockMs=560;serviceMechanism();assert(queryKinds[1][1]==1 && queries==3);
+    reset();axisTarget(&mechanismFeedback[0],65536);axisTarget(&mechanismFeedback[1],32768);
+    reply(5,0x3a,3);reply(6,0x3a,3);clockMs=520;serviceMechanism();
+    clockMs=540;serviceMechanism();
+    assert(queryKinds[0][2]==1 && queryKinds[1][2]==1 && queries==2 && !dones);
+    /* A fresh arrival after a diagnostic position query must still query
+     * position first, rather than inheriting that axis's old query phase. */
+    reset();mechanismPollKind[1]=1;mechanismPollAxis=1;
+    axisTarget(&mechanismFeedback[1],32768);reply(6,0x3a,3);
+    clockMs=520;serviceMechanism();assert(queryKinds[1][2]==1);
     /* Reply only to queries actually sent by the production scheduler. */
     reset();simulateReplies=1;arrivalAt[0]=1400;arrivalAt[1]=800;
     while(mechanismState.running && clockMs<3000){clockMs+=50;serviceMechanism();}

@@ -182,7 +182,7 @@ static AxisFeedback mechanismFeedback[2];
 static uint8_t mechanismAxes, mechanismPreparing, mechanismPollAxis, mechanismPollKind[2];
 static uint32_t mechanismPollAt, mechanismFeedbackTimeout;
 static int32_t mechanismBaseline[2];
-static uint8_t mechanismBaselineMask;
+static uint8_t mechanismBaselineMask, mechanismEnabledAxes, mechanismPositionPriority;
 static int32_t mechanismSignedPulses[2];
 static const MechanismInitialState *mechanismActionInitial;
 static const MechanismAction *mechanismActions;
@@ -240,6 +240,7 @@ static void failVision(const char *reason);
 
 static void invalidateMechanism(const char *reason)
 {
+    mechanismEnabledAxes = 0U;
     if (!mechanismState.valid && !mechanismState.running) return;
     mechanismStateInvalidate(&mechanismState);
     serialSendString("MECH INVALID reason=");
@@ -625,6 +626,8 @@ static void stopAuxMotors(void)
 {
     uint8_t id;
 
+    mechanismEnabledAxes = 0U;
+
     for (id = AUX_MOTOR_MIN_ID; id <= AUX_MOTOR_MAX_ID; ++id) {
         Emm_V5_Stop_Now(id, false);
         delay_ms(2U);
@@ -685,16 +688,6 @@ static void setAllMotorsEnabled(bool enabled)
     uint8_t id;
 
     for (id = MOTOR_MIN_ID; id <= MOTOR_MAX_ID; ++id) {
-        Emm_V5_En_Control(id, enabled, false);
-        delay_ms(2U);
-    }
-}
-
-static void setAuxMotorsEnabled(bool enabled)
-{
-    uint8_t id;
-
-    for (id = AUX_MOTOR_MIN_ID; id <= AUX_MOTOR_MAX_ID; ++id) {
         Emm_V5_En_Control(id, enabled, false);
         delay_ms(2U);
     }
@@ -1251,81 +1244,7 @@ static void printMechanismPose(const char *prefix, const MechanismPose *pose)
     serialSendString("\r\n");
 }
 
-static void startMechanismPose(const MechanismPose *target)
-{
-    int16_t horizontalDelta = (int16_t)(target->horizontalDmm -
-                                        mechanismState.current.horizontalDmm);
-    int16_t liftDelta = (int16_t)((int32_t)target->liftDmm -
-                                  (int32_t)mechanismState.current.liftDmm);
-    uint32_t horizontalPulses = mechanismHorizontalPulses(horizontalDelta);
-    uint32_t liftPulses = mechanismLiftPulses(liftDelta);
-
-    if (!mechanismStateStart(&mechanismState, target, clockMs)) {
-        serialSendString("ERR MECH: invalid or busy pose\r\n");
-        return;
-    }
-    if (!gripperMayHoldMaterial) {
-        MechanismPose axisTarget = *target;
-        uint32_t delta = mechanismAbsoluteDelta((int16_t)(target->turretDdeg -
-            mechanismState.start.turretDdeg)) * 100U;
-        uint32_t turretMs = turretMotionDurationMs(delta, SERVO_EMPTY_TURRET_SPEED_DPS10);
-        axisTarget.turretDdeg = mechanismState.start.turretDdeg;
-        mechanismState.durationMs = mechanismMoveDurationMs(&mechanismState.start, &axisTarget);
-        if (turretMs > mechanismState.durationMs) mechanismState.durationMs = turretMs;
-        mechanismState.deadlineMs = clockMs + mechanismState.durationMs;
-    }
-    mechanismAxes=0;mechanismBaselineMask=0;
-    mechanismSignedPulses[0]=liftDelta>0?(int32_t)liftPulses:-(int32_t)liftPulses;
-    mechanismSignedPulses[1]=horizontalDelta>0?(int32_t)horizontalPulses:-(int32_t)horizontalPulses;
-    if(liftPulses) mechanismAxes|=1;
-    if(horizontalPulses) mechanismAxes|=2;
-    mechanismPreparing=1;mechanismPollAxis=0;
-    mechanismPollKind[0]=mechanismPollKind[1]=0;
-    mechanismPollAt=clockMs-MECHANISM_FEEDBACK_POLL_MS;mechanismFeedbackTimeout=clockMs+3000;
-    if (axis6TestActive()) {
-        Emm_V5_En_Control(6U, true, false);
-        delay_ms(2U);
-    } else setAuxMotorsEnabled(true);
-    jogCanClearReply(5,0x33);jogCanClearReply(6,0x33);
-}
-static void dispatchMechanismPose(void)
-{
-    const MechanismPose *target=&mechanismState.target;
-    int16_t horizontalDelta=(int16_t)(target->horizontalDmm-mechanismState.start.horizontalDmm);
-    int16_t liftDelta=(int16_t)((int32_t)target->liftDmm-mechanismState.start.liftDmm);
-    uint8_t i;
-    for(i=0;i<2;++i) {
-        axisBegin(&mechanismFeedback[i],mechanismBaseline[i],mechanismSignedPulses[i]);
-        jogCanClearReply((uint8_t)(5+i),0x33);jogCanClearReply((uint8_t)(5+i),0x3a);
-        jogCanClearReply((uint8_t)(5+i),0x36);
-    }
-    mechanismPreparing=0;mechanismPollAxis=0;
-    mechanismPollKind[0]=mechanismPollKind[1]=0;
-    mechanismState.startMs=clockMs;
-    mechanismFeedbackTimeout=clockMs+mechanismState.durationMs*2+3000;
-
-    if (motionInterrupted()) { stopServoMotion(); stopAllMotors(); return; }
-    if (mechanismHorizontalPulses(horizontalDelta) != 0U) {
-        Emm_V5_Pos_Control(6U, horizontalDelta > 0 ? 0U : 1U,
-                           target->horizontalRpm, target->horizontalAccel,
-                           mechanismHorizontalPulses(horizontalDelta), false, true);
-        delay_ms(2U); /* Allow the drive to cache the command before synchronous start. */
-    }
-    if (motionInterrupted()) { stopServoMotion(); stopAllMotors(); return; }
-    if (mechanismLiftPulses(liftDelta) != 0U) {
-        Emm_V5_Pos_Control(5U, liftDelta > 0 ? 0U : 1U,
-                           target->liftRpm, target->liftAccel,
-                           mechanismLiftPulses(liftDelta), false, true);
-        delay_ms(2U);
-    }
-    if (!axis6TestActive())
-        servoSetTargetMdeg(4U, (uint32_t)target->turretDdeg * 100U,
-                           target->turretDps10);
-    if (motionInterrupted()) { stopServoMotion(); stopAllMotors(); return; }
-    Emm_V5_Synchronous_motion(axis6TestActive() ? 6U : 0x00);
-    if (motionInterrupted()) { stopServoMotion(); stopAllMotors(); return; }
-    printMechanismPose("MECH RUN", target);
-}
+#include "mechanism_pose_runtime.h"
 
 #include "mechanism_runtime.h"
 #include "mission_observation.h"

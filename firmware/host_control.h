@@ -7,8 +7,7 @@ static SsParser hostParser;
 static volatile uint8_t hostRx[512];
 static volatile uint16_t hostHead,hostTail;
 static volatile uint8_t hostOverflow;
-static uint8_t hostConfirmed,hostError,hostLogLength,hostExecuting;
-static uint8_t hostLog[128];
+static uint8_t hostConfirmed,hostError,hostExecuting;
 static uint8_t hostDriveActive;
 static uint8_t hostCancelled;
 static uint8_t hostOperationFailed;
@@ -26,20 +25,7 @@ static void hostSend(const SsFrame *f) {
     uint8_t bytes[SS_MAX_FRAME];unsigned i,n=ss_encode(f,bytes);
     for(i=0;i<n;++i) { while(USART_GetFlagStatus(UART5,USART_FLAG_TXE)==RESET) {} USART_SendData(UART5,bytes[i]); }
 }
-static void hostLogChar(char c) {
-    SsFrame f;
-    if(c=='\r') return;
-    if(c=='\n' || hostLogLength==sizeof(hostLog)) {
-        if(hostLogLength) {
-            if((hostLogLength>=3 && memcmp(hostLog,"ERR",3)==0) ||
-               (hostLogLength>=12 && memcmp(hostLog,"VISION ERROR",12)==0) ||
-               (hostLogLength>=12 && memcmp(hostLog,"BUTTON ERROR",12)==0)) { hostError=1;hostOperationFailed=1; }
-            f.flags=SS_EVENT;f.command=SS_LOG;f.sequence=0;f.length=hostLogLength;
-            memcpy(f.data,hostLog,hostLogLength);hostSend(&f);hostLogLength=0;
-        }
-    }
-    if(c!='\n') hostLog[hostLogLength++]=(uint8_t)c;
-}
+#include "host_log.h"
 static uint8_t hostBusy(void) {
     return hostStartPending || obstacleTurretPending || motionMode || routeActive || mechanismState.running || mechanismActionActive ||
            visionSessionActive() || servoChannelMoving[0] || servoChannelMoving[1] || servoChannelMoving[2];

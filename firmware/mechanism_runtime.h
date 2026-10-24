@@ -74,10 +74,19 @@ static void serviceMechanism(void)
             }
             if(axis->reached) axis->actualAfterArrival=1;
         }
-        if(jogCanTakeReply(id,0x3a,&value) && axisStatus(&mechanismFeedback[i],(uint8_t)value)<0) {
-            serialSendString("ERR MECH: motor disabled/stalled; coordinates invalid\r\n");
-            stopServoMotion();stopAllMotors();return;
+        if(jogCanTakeReply(id,0x3a,&value)) {
+            uint8_t wasReached=mechanismFeedback[i].reached;
+            if(axisStatus(&mechanismFeedback[i],(uint8_t)value)<0) {
+                serialSendString("ERR MECH: motor disabled/stalled; coordinates invalid\r\n");
+                stopServoMotion();stopAllMotors();return;
+            }
+            if(!wasReached && mechanismFeedback[i].reached) {
+                mechanismPositionPriority|=bit;
+                mechanismPollKind[i]=0;
+            }
         }
+        if(!mechanismFeedback[i].reached || mechanismFeedback[i].actualAfterArrival)
+            mechanismPositionPriority&=(uint8_t)~bit;
         if(!mechanismFeedback[i].reached || !mechanismFeedback[i].actualAfterArrival) pending|=bit;
     }
     if(mechanismPreparing && (mechanismBaselineMask&mechanismAxes)==mechanismAxes) {
@@ -100,6 +109,16 @@ static void serviceMechanism(void)
         for(i=0;i<2;++i) {
             mechanismPollAxis^=1;
             if(mechanismAxes&(1U<<mechanismPollAxis)) break;
+        }
+        /* Each newly arrived axis gets one priority position slot. Lost replies
+         * return to round-robin status/position polling, so faults remain visible. */
+        for(i=0;i<2;++i) {
+            uint8_t axis=(uint8_t)((mechanismPollAxis+i)&1U);
+            if(mechanismPositionPriority&(1U<<axis)) {
+                mechanismPollAxis=axis;
+                mechanismPositionPriority&=(uint8_t)~(1U<<axis);
+                break;
+            }
         }
         id=(uint8_t)(5+mechanismPollAxis);
         if(mechanismPreparing || !mechanismFeedback[mechanismPollAxis].targetVerified) param=S_TPOS;
