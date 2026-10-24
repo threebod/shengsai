@@ -33,10 +33,10 @@ static const PresetCandidate presetCoarseToTemp[3] = {
     {5, {{1200,2080,1680,0,0}, {300,2080,0,-900,1}, {300,1300,-780,0,2},
          {400,1300,0,100,2}, {400,1200,-106,0,2}}}
 };
-/* Up then right; right then up; right outside via 6/3. Store the outer arc
- * entry explicitly: the direct corner at x=400 cannot fit the same blend. */
+/* Up then right; right then up; right outside via 6/3. */
 static const PresetCandidate presetTempToRaw[3] = {
-    {3, {{300,1200,0,-100,2}, {300,2080,880,0,2}, {1200,2080,0,950,1}}},
+    /* Four-point version: up 631, original arc, right 601. */
+    {2, {{400,2080,880,0,2}, {1200,2080,0,850,1}}},
     {2, {{1200,1200,0,800,2}, {1200,2080,880,0,2}}},
     {6, {{400,1150,-50,0,2}, {1300,1150,0,900,-1}, {1300,1200,50,0,-1},
          {2100,1200,0,800,-1}, {2100,2080,880,0,0}, {1200,2080,0,-900,1}}}

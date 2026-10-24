@@ -16,8 +16,8 @@
 #define PRESET_STATE_COUNT (PRESET_NODE_COUNT * PRESET_NODE_STATES)
 #define PRESET_LEG_CAPACITY 128U
 #define PRESET_ARC_TRIM 249
-/* Only the user-verified four-point COARSE->TEMP primary keeps its original
- * arc rule instead of the later fixed-block geometry model. */
+/* The user-verified four-point COARSE->TEMP and TEMP->RAW primaries keep
+ * their original arc rule instead of the later fixed-block geometry model. */
 #define PRESET_ARC_FOUR_POINT 2U
 typedef struct { int16_t x, y; int8_t heading; } PresetPose;
 typedef struct {
@@ -573,10 +573,11 @@ static uint8_t presetTryCandidate(PresetRoute *route, PresetPose start,
         if (!presetAppend(route,current,to,taskIndex == 1U && !i ? 0U : taskIndex,&drive)) goto fail;
         current = to;
     }
-    if (candidate == &presetCoarseToTemp[0]) {
+    if (candidate == &presetCoarseToTemp[0] || candidate == &presetTempToRaw[0]) {
         PresetLeg *before = &route->legs[first], *after = &route->legs[first+1U];
         before->arc = PRESET_ARC_FOUR_POINT;
-        if (abs(before->drive.rightMm) <= 250 || abs(after->drive.upMm) <= 250 ||
+        if (abs(before->drive.upMm)+abs(before->drive.rightMm) <= 250 ||
+            abs(after->drive.upMm)+abs(after->drive.rightMm) <= 250 ||
             !presetArcClear(before,after,route->regions)) goto fail;
         before->drive.heading = after->from.heading;
     } else presetSelectArcs(route,1U,first,0U);
