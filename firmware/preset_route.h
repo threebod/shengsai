@@ -570,8 +570,9 @@ static uint8_t presetTryCandidate(PresetRoute *route, PresetPose start,
         to.x = step->x; to.y = step->y;
         to.heading = last ? stationHeading : step->heading;
         drive.upMm = step->upMm; drive.rightMm = step->rightMm;
-        /* 6/11: shorten only the initial lateral exit by 100mm. */
-        if (taskIndex == 1U && !i && route->regions == ((1U << 5) | (1U << 10)))
+        /* 6/11, zone 1: shorten the upper detour through region 3 by 100mm. */
+        if (candidate == &presetStart1ToQr[1] && i == 2U &&
+            route->regions == ((1U << 5) | (1U << 10)))
             drive.rightMm += 100;
         drive.departureHeading = step->heading; drive.heading = to.heading;
         drive.event = last ? event : 0;
