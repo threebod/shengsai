@@ -52,6 +52,20 @@ static void checkUnchanged(const MechanismAction *before, const MechanismAction 
     }
 }
 
+static void checkUpperLeftExtension(void)
+{
+    MechanismAction actions[RAW_PICK_ACTION_COUNT];
+    uint8_t slot;
+    for (slot = 1U; slot <= 3U; ++slot) {
+        assert(rawPickActionsForPosition(actions,slot,2U));
+        assert(actions[2].pose.horizontalDmm == 649 && actions[4].pose.horizontalDmm == 649);
+        assert(actions[2].pose.turretDdeg == rawPickUpperPoses[0].turretDdeg);
+        assert(actions[2].pose.liftDmm == rawPickUpperPoses[0].liftDmm && actions[4].pose.liftDmm == 0U);
+        assert(rawPickActionsForPosition(actions,slot,3U));
+        assert(actions[2].pose.horizontalDmm == 701 && actions[4].pose.horizontalDmm == 701);
+    }
+}
+
 int main(void)
 {
     static const uint8_t orders[6][3] = {{1,2,3},{1,3,2},{2,1,3},{2,3,1},{3,1,2},{3,2,1}};
@@ -60,6 +74,7 @@ int main(void)
     MechanismAction before[MISSION_PICK_BACK_COUNT], after[MISSION_PICK_BACK_COUNT];
     uint8_t order, layer, coarse, item;
     checkTurretRemount();
+    checkUpperLeftExtension();
     assert(missionInitial.gripperOpenDeg == missionCoarseInitial.gripperOpenDeg);
     memcpy(original, missionRingPoses, sizeof(original));
     assert(ringPosesValid(changed));

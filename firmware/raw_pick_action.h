@@ -18,7 +18,7 @@ static const MechanismPose rawPickLowerPose =
     { -900, 530, 2560, 1000, 200, 2000, 240, 2200 };
 
 static const MechanismPose rawPickUpperPoses[2] = {
-    { 549, 530, 2773, 1000, 200, 2000, 240, 2200 },
+    { 649, 530, 2773, 1000, 200, 2000, 240, 2200 },
     { 701, 530, 2384, 1000, 200, 2000, 240, 2200 }
 };
 
