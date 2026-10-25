@@ -16,12 +16,10 @@ typedef struct {
     PresetStep steps[6];
 } PresetCandidate;
 
-/* Centre; left outside; right outside. Outer candidates retain the original
- * 300mm lane and station joins needed by both swept-safe corners. */
+/* Centre; original four-point left route; right outside. */
 static const PresetCandidate presetRawToCoarse[3] = {
     {1, {{1200,400,-1680,0,2}}},
-    {5, {{300,2080,0,-900,1}, {300,300,-1780,0,2}, {1100,300,0,800,-1},
-         {1100,400,100,0,-1}, {1200,400,0,114,-1}}},
+    {3, {{400,2080,0,-830,1}, {400,400,-1740,0,2}, {1200,400,0,910,-1}}},
     {4, {{2100,2080,0,900,-1}, {2100,300,-1780,0,2},
          {1200,300,0,-900,1}, {1200,400,100,0,1}}}
 };
@@ -35,7 +33,7 @@ static const PresetCandidate presetCoarseToTemp[3] = {
 };
 /* User-requested 7/13 experiment: join x=400 at the upper bend, no final sidestep. */
 static const PresetCandidate presetCoarseToTemp713 =
-    {3, {{1200,2080,1680,0,0}, {400,2080,0,-800,1}, {400,1200,-886,0,2}}};
+    {3, {{1200,2080,1680,0,0}, {400,2080,0,-860,1}, {400,1200,-886,0,2}}};
 /* Up then right; right then up; right outside via 6/3. */
 static const PresetCandidate presetTempToRaw[3] = {
     /* Four-point version: up 631, original arc, right 601. */

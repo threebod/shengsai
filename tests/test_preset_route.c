@@ -179,7 +179,9 @@ static void checkRoute(uint8_t zone)
         if (leg->arc) {
             if (leg->arc == PRESET_ARC_FOUR_POINT)
                 assert(((leg->taskIndex == 8U || leg->taskIndex == 15U) && leg->drive.rightMm == -860) ||
-                       (leg->taskIndex == 10U && leg->drive.upMm == 880));
+                       (leg->taskIndex == 10U && leg->drive.upMm == 880) ||
+                       ((leg->taskIndex == 6U || leg->taskIndex == 13U) &&
+                        (leg->drive.rightMm == -830 || leg->drive.upMm == -1740)));
             assert(!leg->drive.event && i+1U < route.count);
             if (leg->arc == PRESET_ARC_EXPERIMENTAL_713) {
                 assert(route.regions == mask(7,13) && (leg->taskIndex == 8U || leg->taskIndex == 15U));
@@ -382,7 +384,7 @@ static void fixedCandidatePriorities(void)
     unsigned zone, variant;
     /* Region 8 blocks the centre; adding 4 also blocks the left detour. */
     candidateCase(presetRawToCoarse,raw,mask(7,9),6U,-1,1,1200,400);
-    candidateCase(presetRawToCoarse,raw,mask(8,9),6U,-1,5,300,2080);
+    candidateCase(presetRawToCoarse,raw,mask(8,9),6U,-1,3,400,2080);
     candidateCase(presetRawToCoarse,raw,mask(4,8),6U,-1,4,2100,2080);
     candidateCase(presetCoarseToTemp,coarse,mask(7,9),8U,2,2,400,400);
     candidateCase(presetCoarseToTemp,coarse,mask(10,9),8U,2,2,1200,1200);
@@ -454,6 +456,36 @@ static void sameTask(const PresetRoute *a, uint8_t taskA, const PresetRoute *b, 
     assert(j == b->count || b->legs[j].taskIndex != taskB);
 }
 
+static void rawLeftFourPointRoute(void)
+{
+    static const int up[3] = {0,-1242,0}, right[3] = {-581,0,661};
+    static const unsigned blocked[] = {1,2,4,10,13,14,15};
+    unsigned zone, round, i;
+    for (zone = 1U; zone <= 2U; ++zone) {
+        assert(presetBuild(&route,(uint8_t)zone,mask(8,9)));
+        for (round = 0U; round < 2U; ++round) {
+            unsigned first = taskBegin(&route,round ? 13U : 6U);
+            assert(route.legs[first].to.x == 400 && route.legs[first].to.y == 2080);
+            assert(route.legs[first+1U].to.x == 400 && route.legs[first+1U].to.y == 400);
+            assert(route.legs[first].drive.rightMm == routeDistanceLeg(4U,(uint8_t)zone).rightMm);
+            assert(route.legs[first+1U].drive.upMm == routeDistanceLeg(5U,(uint8_t)zone).upMm);
+            assert(route.legs[first+2U].drive.rightMm == routeDistanceLeg(6U,(uint8_t)zone).rightMm);
+            for (i = 0U; i < 3U; ++i) {
+                RouteLeg active;
+                assert(route.legs[first+i].arc == (i < 2U ? PRESET_ARC_FOUR_POINT : 0U));
+                route.index = (uint16_t)(first+i); active = presetActiveLeg(&route);
+                assert(active.upMm == up[i] && active.rightMm == right[i]);
+            }
+            assert(route.legs[first+2U].drive.event && route.legs[first+2U].to.x == 1200);
+        }
+    }
+    for (i = 0U; i < sizeof(blocked)/sizeof(blocked[0]); ++i) {
+        memset(&route,0,sizeof(route)); route.regions = mask(blocked[i],9U);
+        assert(!presetTryCandidate(&route,(PresetPose){1200,2080,1},&presetRawToCoarse[1],6U,"COARSE",-1));
+        assert(!route.count);
+    }
+}
+
 static void experimental713Arrival(void)
 {
     unsigned zone, round, i;
@@ -468,11 +500,11 @@ static void experimental713Arrival(void)
                 ++legs;
             }
             assert(legs == 3U && route.legs[first].arc == 1U);
-            assert(bend->arc == PRESET_ARC_EXPERIMENTAL_713 && bend->drive.rightMm == -800);
+            assert(bend->arc == PRESET_ARC_EXPERIMENTAL_713 && bend->drive.rightMm == -860);
             /* This deliberately bypasses a failed body sweep, not a safety approval. */
             assert(!presetArcClear(bend,&route.legs[first+2U],route.regions));
             assert(!referenceArcClear(bend,&route.legs[first+2U],route.regions));
-            route.index = (uint16_t)(first+1U); assert(presetActiveLeg(&route).rightMm == -302);
+            route.index = (uint16_t)(first+1U); assert(presetActiveLeg(&route).rightMm == -362);
             route.index = (uint16_t)(first+2U); assert(presetActiveLeg(&route).upMm == -637);
             assert(route.legs[first+2U].to.x == 400 && route.legs[first+2U].to.y == 1200);
             assert(route.legs[first+2U].drive.event && !route.legs[first+2U].drive.rightMm);
@@ -499,7 +531,7 @@ int main(void)
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); experimental713Arrival(); recenterEnvelope();
+    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); rawLeftFourPointRoute(); experimental713Arrival(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
     assert(!presetBuild(&route,1,0x8001U) && !route.count);

@@ -16,7 +16,7 @@
 #define PRESET_STATE_COUNT (PRESET_NODE_COUNT * PRESET_NODE_STATES)
 #define PRESET_LEG_CAPACITY 128U
 #define PRESET_ARC_TRIM 249
-/* The user-verified four-point COARSE->TEMP and TEMP->RAW primaries keep
+/* The original RAW->COARSE left route and COARSE->TEMP / TEMP->RAW primaries keep
  * their original arc rule instead of the later fixed-block geometry model. */
 #define PRESET_ARC_FOUR_POINT 2U
 /* Only the 7/13 upper-left experimental bend skips the body sweep check. */
@@ -575,13 +575,18 @@ static uint8_t presetTryCandidate(PresetRoute *route, PresetPose start,
         if (!presetAppend(route,current,to,taskIndex == 1U && !i ? 0U : taskIndex,&drive)) goto fail;
         current = to;
     }
-    if (candidate == &presetCoarseToTemp[0] || candidate == &presetTempToRaw[0]) {
-        PresetLeg *before = &route->legs[first], *after = &route->legs[first+1U];
-        before->arc = PRESET_ARC_FOUR_POINT;
-        if (abs(before->drive.upMm)+abs(before->drive.rightMm) <= 250 ||
-            abs(after->drive.upMm)+abs(after->drive.rightMm) <= 250 ||
-            !presetArcClear(before,after,route->regions)) goto fail;
-        before->drive.heading = after->from.heading;
+    if (candidate == &presetRawToCoarse[1] || candidate == &presetCoarseToTemp[0] ||
+        candidate == &presetTempToRaw[0]) {
+        unsigned bends = candidate == &presetRawToCoarse[1] ? 2U : 1U;
+        for (i = first; i < first+bends; ++i) {
+            PresetLeg *before = &route->legs[i], *after = &route->legs[i+1U];
+            int trim = i > first ? PRESET_ARC_TRIM : 0;
+            before->arc = PRESET_ARC_FOUR_POINT;
+            if (abs(before->drive.upMm)+abs(before->drive.rightMm)-trim <= 250 ||
+                abs(after->drive.upMm)+abs(after->drive.rightMm) <= 250 ||
+                !presetArcClear(before,after,route->regions)) goto fail;
+            before->drive.heading = after->from.heading;
+        }
     } else {
         presetSelectArcs(route,1U,first,0U);
         if (candidate == &presetCoarseToTemp713) {
