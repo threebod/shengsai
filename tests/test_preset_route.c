@@ -515,6 +515,21 @@ static void experimental713Arrival(void)
     assert(route.count == 5U && route.legs[3].drive.rightMm == 100);
 }
 
+static void start611ExitDistance(void)
+{
+    unsigned zone;
+    for (zone = 1U; zone <= 2U; ++zone) {
+        assert(presetBuild(&route,(uint8_t)zone,mask(6,11)));
+        assert(route.legs[0].taskIndex == 0U && !route.legs[0].arc);
+        assert(route.legs[0].drive.upMm == 0);
+        assert(route.legs[0].drive.rightMm == (zone == 1U ? -100 : -50));
+        assert(route.legs[0].from.x == 2250 && route.legs[0].to.x == 2100);
+        assert(route.legs[0].from.y == (zone == 1U ? 2250 : 150));
+        assert(presetBuild(&route,(uint8_t)zone,mask(7,9)));
+        assert(route.legs[0].drive.rightMm == (zone == 1U ? -200 : -150));
+    }
+}
+
 static void fixedStartDetours(void)
 {
     unsigned i;
@@ -531,7 +546,7 @@ int main(void)
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); rawLeftFourPointRoute(); experimental713Arrival(); recenterEnvelope();
+    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); start611ExitDistance(); rawLeftFourPointRoute(); experimental713Arrival(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
     assert(!presetBuild(&route,1,0x8001U) && !route.count);
