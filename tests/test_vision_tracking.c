@@ -188,7 +188,19 @@ static void completionAndBudget(void)
     packet.value[0]=161;receive(2U,120U);assert(!tracking.confirmations);
     packet.value[0]=160;receive(3U,140U);assert(tracking.state==VISION_TRACK_RUN);
     receive(4U,160U);assert(tracking.state==VISION_TRACK_DONE);
-    begin(30U,60U,80.0f); receive(1U,100U); tick(120U); tick(140U);
+    /* Fresh ring tracking may continue past its former duration. */
+    begin(15U,60U,80.0f); packet.value[0]=159; packet.value[1]=120; receive(1U,100U);
+    for(now=120U;now<=1100U;now+=20U) {
+        receive((uint16_t)now,now);
+        assert(tick(now)==VISION_TRACK_RUN && forward>0 && right==0);
+    }
+    packet.value[0]=160;receive(1200U,1120U);assert(tracking.state==VISION_TRACK_RUN);
+    receive(1201U,1140U);assert(tracking.state==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_IN_RANGE"));
+    /* Second-layer material still obeys the tracking duration. */
+    begin(30U,60U,80.0f);
+    tracking.mode=packet.mode=VISION_MODE_MATERIAL;
+    tracking.selector=packet.selector=3U;packet.value[5]=3;
+    receive(1U,100U); tick(120U); tick(140U);
     assert(tick(160U)==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_DEADLINE"));
     begin(30U,10000U,1.0f); receive(1U,100U);
     for(now=120U;now<1000U && tracking.state==VISION_TRACK_RUN;now+=20U) {

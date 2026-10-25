@@ -193,9 +193,14 @@ int main(void)
     routeForwardScale = NAN; assert(!startVisionTracking(20,20));
     routeForwardScale = ROUTE_FORWARD_SCALE; assert(requests == i && !enables);
 
-    /* A ring guard boundary is a failure, never precise alignment or a retry. */
-    reset(); run(); visionTracking.deadlineMs = clockMs; serviceMotion();
-    assert(failures == 1 && !strcmp(failureReason,"TRACK_DEADLINE") && visionSession.state == VISION_STATE_FAILED);
+    /* A ring ignores the former deadline while fresh feedback keeps arriving. */
+    reset(); run(); visionTracking.deadlineMs = clockMs;
+    for(i=2;i<52;++i) { queueFrame(-1,0,i,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20); }
+    assert(!failures && visionTrackingActive() && visionSession.state == VISION_STATE_MOVE && sentForward>0);
+    queueFrame(0,0,52,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
+    queueFrame(0,0,53,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
+    assert(!failures && !visionTrackingActive() && visionSession.state == VISION_STATE_ALIGNED);
+    /* The ring travel boundary remains a failure, never precise alignment. */
     reset(); run(); visionTracking.budgetMm = visionTracking.travelledMm; serviceMotion();
     assert(failures == 1 && !strcmp(failureReason,"TRACK_BUDGET") && visionSession.state == VISION_STATE_FAILED);
     /* Second-layer material retains 30 RPM and the two-round settle/limit behavior. */
@@ -210,6 +215,15 @@ int main(void)
         assert(vision_session_tick(&visionSession,clockMs+299) == VISION_EVENT_NONE);
         assert(vision_session_tick(&visionSession,clockMs+300) == (i==2?VISION_EVENT_CORRECTION_LIMIT:VISION_EVENT_REQUEST));
     }
+
+    reset(); cancelVisionTracking(); visionSession.state = VISION_STATE_MOVE;
+    visionSession.mode = VISION_MODE_MATERIAL; visionSession.selector = 4;
+    visionSession.maxCorrections = 2; visionSession.iteration = 1;
+    missionActive = 1; missionPhase = MISSION_TEMP_ALIGN; expectedWheelLimit = 30;
+    assert(startVisionTracking(44.44f,22.86f));
+    queueFrame(-40,-20,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
+    visionTracking.deadlineMs = clockMs;serviceMotion();
+    assert(!failures && !visionTrackingActive() && visionSession.state == VISION_STATE_SETTLE);
 
     reset(); cancelVisionTracking(); visionSession.sampleOnly = 1; assert(!visionTrackingEligible());
     visionSession.sampleOnly = 0; rawPickAtStation = 1; assert(!visionTrackingEligible());

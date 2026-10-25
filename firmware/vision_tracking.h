@@ -164,7 +164,7 @@ static VisionTrackingState vision_tracking_tick(VisionTracking *tracking, uint32
     tracking->travelledMm += (fabsf(tracking->driveForwardRpm) * forwardScale +
         fabsf(tracking->driveRightRpm) * lateralScale) * (ROUTE_MM_PER_REV / 60000.0f) * dt;
     tracking->updatedAt = now;
-    if ((int32_t)(now - tracking->deadlineMs) >= 0)
+    if (tracking->mode != VISION_MODE_RING && (int32_t)(now - tracking->deadlineMs) >= 0)
         return vision_tracking_stop(tracking, VISION_TRACK_DONE, "TRACK_DEADLINE");
     remaining = tracking->budgetMm - tracking->travelledMm;
     if (remaining <= 0.0f)
