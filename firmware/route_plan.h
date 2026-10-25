@@ -10,8 +10,9 @@
 /* line W 500 120 verified at 500 mm with 9.9 pulses/mm; 3200 pulses/rev.
  * Scale = 3200 / (9.9 * ROUTE_MM_PER_REV), rounded to route tune precision. */
 #define ROUTE_FORWARD_SCALE 1.0289f
-/* Six 100 RPM center tests averaged 103.9 cm vs 105 cm nominal at 90%. */
-#define ROUTE_LATERAL_SCALE 0.9f
+/* 2026-10-25 lateral tests: 400cm commanded, 416.6cm measured at scale 0.9.
+ * Estimate scale = 0.9 * 416.6 / 400 = 0.93735, rounded to four decimals. */
+#define ROUTE_LATERAL_SCALE 0.9374f
 #define ROUTE_MM_PER_REV    314.159265f /* pi * 100 mm, direct drive G=1 */
 #define ROUTE_RPM           240
 #define ROUTE_LATERAL_RPM_MAX 150U
