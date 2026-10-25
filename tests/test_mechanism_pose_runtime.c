@@ -79,6 +79,13 @@ int main(void)
     stopAllMotors();assert(!mechanismEnabledAxes);
     mechanismStateInitialize(&mechanismState,&target);startMechanismPose(&origin);
     assert(enables[0]==2 && enables[1]==2);
+    /* A combined release approach queues both axes for one synchronous start. */
+    reset();target=origin;target.horizontalDmm=50;target.liftDmm=1270;
+    startMechanismPose(&target);
+    assert(mechanismAxes==3 && mechanismPreparing && !positions[0] && !positions[1] && !syncs);
+    dispatchMechanismPose();
+    assert(positions[0]==1 && positions[1]==1 && syncs==1 && syncId==0);
+    assert(mechanismState.running && mechanismState.current.horizontalDmm==0 && mechanismState.current.liftDmm==0);
     /* A failed enable cannot be cached or followed by motion commands. */
     reset();failEnable=1;target=origin;target.horizontalDmm=50;startMechanismPose(&target);
     assert(stops==1 && !mechanismState.valid && !mechanismEnabledAxes && !positions[0] && !positions[1] && !syncs);

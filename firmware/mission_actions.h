@@ -119,6 +119,11 @@ static inline uint16_t missionBuildTaskPlace(MechanismAction *actions,
     }
     actions[26].pose.turretDdeg = missionRingPoses[rings[2] - 1U].turretDdeg;
     if (!coarse) actions[30].pose = actions[27].pose;
+    /* First layer: turn while retracted, then extend and lower together. */
+    if (layer != 2U)
+        for (item = 0U; item < 3U; ++item)
+            actions[ringPoses[item][0]].pose.horizontalDmm =
+                actions[ringPoses[item][0] - 1U].pose.horizontalDmm;
     if (!coarse) return MISSION_PLACE_COUNT;
     /* Go from observation straight to tray pickup, without returning to h=0. */
     memmove(actions + 1, actions + 2, (MISSION_COARSE_PLACE_COUNT - 2U) * sizeof(*actions));
@@ -186,6 +191,10 @@ static void missionBuildStoragePlace(MechanismAction *actions, uint8_t layer)
         }
     }
     actions[26].pose.turretDdeg = missionRingPoses[layer == 2U ? 2U : 0U].turretDdeg;
+    if (layer != 2U)
+        for (item = 0U; item < 3U; ++item)
+            actions[poses[item][0]].pose.horizontalDmm =
+                actions[poses[item][0] - 1U].pose.horizontalDmm;
 }
 
 /* 动作组/10_粗加工回收xiugai.json: turn at the raised ring position, then retract. */

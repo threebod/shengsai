@@ -84,6 +84,18 @@ int main(void)
                     assert(after[land[item] - coarse].pose.horizontalDmm == changed[ring].horizontalDmm);
                     assert(after[land[item] - coarse].pose.turretDdeg == changed[ring].turretDdeg);
                     assert(after[land[item] - coarse].pose.liftDmm == (layer == 2U ? 570U : 1250U));
+                    {
+                        unsigned down = land[item] - coarse;
+                        const MechanismPose *turn = &after[down - 1U].pose;
+                        assert(turn->horizontalDmm == (layer == 2U ? changed[ring].horizontalDmm :
+                                                       after[down - 2U].pose.horizontalDmm));
+                        assert(turn->liftDmm == 0U && turn->turretDdeg == after[down].pose.turretDdeg);
+                        assert(after[down + 1U].type == MECHANISM_ACTION_GRIPPER && after[down + 1U].value == 1U);
+                        if (!coarse || item < 2U) {
+                            assert(after[down + 2U].pose.horizontalDmm == changed[ring].horizontalDmm);
+                            assert(after[down + 2U].pose.liftDmm == 0U);
+                        }
+                    }
                 }
             }
         memcpy(missionRingPoses, original, sizeof(original));
@@ -104,6 +116,13 @@ int main(void)
         memcpy(missionRingPoses, changed, sizeof(changed));
         missionBuildStoragePlace(after, layer);
         checkUnchanged(before, after, MISSION_PLACE_COUNT);
+        for (item = 0U; item < 3U; ++item) {
+            assert(after[land[item] - 1U].pose.horizontalDmm == (layer == 2U ?
+                   after[land[item]].pose.horizontalDmm : after[land[item] - 2U].pose.horizontalDmm));
+            assert(after[land[item] - 1U].pose.liftDmm == 0U);
+            assert(after[land[item] + 2U].pose.horizontalDmm == after[land[item]].pose.horizontalDmm);
+            assert(after[land[item] + 2U].pose.liftDmm == 0U);
+        }
     }
     return 0;
 }
