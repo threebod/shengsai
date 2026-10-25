@@ -22,8 +22,6 @@ static unsigned servoCalls, stops, missionStarts, routeStarts;
 static uint8_t instantServo, rejectMission;
 
 static uint8_t visionSessionActive(void) { return visionActive; }
-static void serialSendString(const char *text) { (void)text; }
-static void serialSendUint(uint16_t value) { (void)value; }
 static void invalidateMechanism(const char *reason) { (void)reason; mechanismState.valid = 0U; }
 static void servoSetTarget(uint8_t channel, uint16_t angle, uint16_t speed)
 {

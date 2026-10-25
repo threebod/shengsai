@@ -78,9 +78,6 @@ static void serviceMissionObservation(const RouteLeg *leg, float remaining,
     missionObservationTask = task;
     startMechanismPose(target);
     if (!mechanismState.running) { missionAbort("observation_start_failed"); return; }
-    serialSendString("ROUTE CAMERA PREP task="); serialSendUint(task);
-    serialSendString(" remaining_mm="); serialSendUint((uint16_t)remaining);
-    serialSendString("\r\n");
 }
 
 /* 0: normal station preparation, 1: still moving, 2: prepared, -1: aborted. */

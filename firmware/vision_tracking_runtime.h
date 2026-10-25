@@ -92,8 +92,6 @@ static uint8_t startVisionTracking(float forwardMm, float rightMm)
     }
     invalidateNavigation("vision_tracking");
     visionUartSend(&visionTrackingRequest);
-    serialSendString("VISION TRACK WAIT token="); serialSendUint32(visionTrackingRequest.token);
-    serialSendString("\r\n");
     return 1U;
 }
 
@@ -107,7 +105,6 @@ static void finishVisionTracking(void)
     visionTrackingTick = now;
     cancelVisionTracking(); motionMode = 0U;
     vision_session_move_complete(&visionSession,now);
-    serialSendString("VISION TRACK DONE\r\n"); printVisionState();
 }
 
 static uint8_t visionTrackingDriveHealthy(void)

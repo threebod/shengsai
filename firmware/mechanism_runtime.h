@@ -94,13 +94,6 @@ static void serviceMechanism(void)
     }
     if(!mechanismPreparing && !pending && !servoChannelMoving[2]) {
         mechanismState.current=mechanismState.target;mechanismState.running=0;
-        printMechanismPose("MECH DONE",&mechanismState.current);
-        for(i=0;i<2;++i) if(mechanismAxes&(1U<<i)) {
-            serialSendString("AXIS DONE motor=");serialSendUint((uint16_t)(5+i));
-            serialSendString(" expected_enc=");serialSendInt32(mechanismFeedback[i].expected);
-            serialSendString(" actual_enc=");serialSendInt32(mechanismFeedback[i].actual);
-            serialSendString(" elapsed_ms=");serialSendUint32(clockMs-mechanismState.startMs);serialSendString("\r\n");
-        }
         return;
     }
     if(clockMs-mechanismPollAt>=MECHANISM_FEEDBACK_POLL_MS) {

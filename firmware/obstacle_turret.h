@@ -37,9 +37,6 @@ static void serviceObstacleTurret(void)
     mechanismState.current.turretDdeg = 530U;
     obstacleTurretPending = 0U;
     obstacleTurretReady = 1U;
-    serialSendString("TASK PREPARE command_done gripper=");
-    serialSendUint(rawPickInitial.gripperCloseDeg);
-    serialSendString(" platform=26 turret=53\r\n");
 }
 
 static void serviceObstacleHostStart(void)

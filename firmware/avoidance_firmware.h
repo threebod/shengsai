@@ -2,68 +2,19 @@
 #ifndef MECANUM_AVOIDANCE_FIRMWARE_H
 #define MECANUM_AVOIDANCE_FIRMWARE_H
 
-static uint32_t avoidanceTick,avoidanceLastRequest,avoidanceLastReport,avoidanceTurnStable;
-static uint16_t avoidanceLastToken,avoidanceSnapshotGeneration;
+static uint32_t avoidanceTick,avoidanceLastRequest,avoidanceTurnStable;
+static uint16_t avoidanceLastToken;
 static int16_t avoidanceMapUp,avoidanceMapRight;
 static AvPhase avoidancePreviousPhase;
-static unsigned avoidancePreviousIndex,avoidanceSnapshotIndex,avoidanceSnapshotCount;
-static AvPoint avoidanceSnapshot[AV_PATH_MAX];
+static unsigned avoidancePreviousIndex;
 
-static void reportAvoidanceObservation(const AvObservation *packet)
-{
-    serialSendString("AV OBS token=");serialSendUint(packet->token);
-    serialSendString(" region=");serialSendUint(packet->region);
-    serialSendString(" u=");serialSendUint(packet->u);
-    serialSendString(" bottom=");serialSendUint(packet->bottom);
-    serialSendString(" pixels=");serialSendUint32(packet->pixels);
-    serialSendString(" gap=");serialSendInt((int16_t)(479-packet->bottom));
-    serialSendString(" front_mm=");serialSendInt((int16_t)av_front_distance(packet->bottom));
-    serialSendString("\r\n");
-}
-
-static void reportAvoidance(void)
-{
-    serialSendString("AV STATE state=");serialSendString(av_phase_name(avoidance.phase));
-    serialSendString(" active=");serialSendUint(avoidance.active);
-    serialSendString(" round=");serialSendUint(avoidance.stage<4?1:2);
-    serialSendString(" target=");serialSendString(av_target_name(avoidance.stage));
-    serialSendString(" region=");serialSendUint(avoidance.region);
-    serialSendString(" blocked=");serialSendUint(avoidance.blocked);
-    serialSendString(" replans=");serialSendUint(avoidance.replans);
-    serialSendString(" camera=");serialSendUint(avoidance.camera);
-    serialSendString(" x=");serialSendInt((int16_t)(avoidance.x+0.5f));
-    serialSendString(" y=");serialSendInt((int16_t)(avoidance.y+0.5f));
-    serialSendString(" yaw_cdeg=");serialSendInt(navFieldYawCdeg());
-    serialSendString(" reason=");serialSendString(avoidance.reason?avoidance.reason:"NONE");
-    serialSendString("\r\n");avoidance.dirty=0;avoidanceLastReport=clockMs;
-}
-static void beginAvoidanceSnapshot(void)
-{
-    unsigned i;avoidanceSnapshotGeneration=avoidance.generation;
-    avoidanceSnapshotCount=avoidance.count;avoidanceSnapshotIndex=0;
-    for(i=0;i<avoidance.count;++i)avoidanceSnapshot[i]=avoidance.path[i];
-    serialSendString("AV PATH_BEGIN version=");serialSendUint(avoidanceSnapshotGeneration);
-    serialSendString(" count=");serialSendUint((uint16_t)avoidanceSnapshotCount);serialSendString("\r\n");
-}
-static void serviceAvoidanceSnapshot(void)
-{
-    if(avoidanceSnapshotIndex<avoidanceSnapshotCount) {
-        AvPoint p=avoidanceSnapshot[avoidanceSnapshotIndex];
-        serialSendString("AV PATH_POINT version=");serialSendUint(avoidanceSnapshotGeneration);
-        serialSendString(" index=");serialSendUint((uint16_t)avoidanceSnapshotIndex++);
-        serialSendString(" x=");serialSendInt(p.x);serialSendString(" y=");serialSendInt(p.y);serialSendString("\r\n");
-    } else if(avoidanceSnapshotIndex==avoidanceSnapshotCount) {
-        serialSendString("AV PATH_END version=");serialSendUint(avoidanceSnapshotGeneration);serialSendString("\r\n");
-        ++avoidanceSnapshotIndex;
-    }
-}
 static uint8_t processAvoidanceCommand(const char *command)
 {
     uint16_t zone,rpm;
-    if(strcmp(command,"avoid status")==0) {reportAvoidance();beginAvoidanceSnapshot();return 1;}
+    if(strcmp(command,"avoid status")==0) {return 1;}
     if(strcmp(command,"avoid stop")==0) {
         av_run_stop(&avoidance,"STOPPED");stopServoMotion();stopAllMotors();
-        avoidanceMapUp=avoidanceMapRight=0;reportAvoidance();return 1;
+        avoidanceMapUp=avoidanceMapRight=0;return 1;
     }
     if(strcmp(command,"avoid clear")==0) {
         if(avoidance.active || routeActive || motionMode || mechanismActionActive || visionSessionActive() ||
@@ -71,7 +22,7 @@ static uint8_t processAvoidanceCommand(const char *command)
             serialSendString("ERR AV: clear requires stopped vehicle\r\n");return 1;
         }
         avoidance.blocked=0;avoidance.count=0;++avoidance.generation;
-        avoidance.reason="CLEARED";reportAvoidance();beginAvoidanceSnapshot();return 1;
+        avoidance.reason="CLEARED";return 1;
     }
     if(strncmp(command,"avoid start ",12)!=0) {
         if(strncmp(command,"avoid ",6)==0) {serialSendString("ERR AV: use avoid start Z RPM|stop|status|clear\r\n");return 1;}
@@ -97,16 +48,16 @@ static uint8_t processAvoidanceCommand(const char *command)
     __disable_irq();avoidanceRxReady=0;__enable_irq();
     setAllMotorsEnabled(true);
     if(motionInterrupted()) {av_fail(&avoidance,"CAN_FAULT");stopAllMotors();}
-    reportAvoidance();return 1;
+    return 1;
 }
 static void serviceAvoidance(void)
 {
     uint32_t now=clockMs,dt=now-avoidanceTick;AvObservation packet;AvPoint target;
-    float error,remaining;int16_t bodyForward,bodyRight,turn;uint8_t lateral,reportObservation=0;
+    float error,remaining;int16_t bodyForward,bodyRight,turn;uint8_t lateral;
     if(avoidance.active && !routeActive) {
-        av_run_stop(&avoidance,"CANCELLED");avoidanceMapUp=avoidanceMapRight=0;reportAvoidance();
+        av_run_stop(&avoidance,"CANCELLED");avoidanceMapUp=avoidanceMapRight=0;
     }
-    if(!avoidance.active) {serviceAvoidanceSnapshot();return;}
+    if(!avoidance.active) {return;}
     if(dt<20) return;
     avoidanceTick=now;
     if(!imuValid || now-imuStamp>250 || dt>150 || motionInterrupted()) av_fail(&avoidance,"CONTROL_FAULT");
@@ -116,8 +67,6 @@ static void serviceAvoidance(void)
         avoidance.y+=routeEstimateScaled(avoidanceMapUp,dt,lateral?routeLateralScale:routeForwardScale);
         if(avoidanceRxReady) {
             __disable_irq();packet=avoidanceRxPacket;avoidanceRxReady=0;__enable_irq();
-            reportObservation=(uint8_t)(packet.token==avoidance.token && packet.region==avoidance.region && packet.seen &&
-                (avoidance.phase==AV_MOVE || (avoidance.phase==AV_CONFIRM && packet.stable)));
             av_run_observe(&avoidance,&packet,now);
         }
         if(avoidance.phase==AV_DWELL && avoidance.stage==0 && !qrResultAtStation) {
@@ -128,8 +77,7 @@ static void serviceAvoidance(void)
     }
     if(!avoidance.active) {
         stopAllMotors();avoidanceMapUp=avoidanceMapRight=0;
-        if(reportObservation)reportAvoidanceObservation(&packet);
-        reportAvoidance();beginAvoidanceSnapshot();return;
+        return;
     }
     /* Moving observations get a fresh request id; stationary confirmation keeps
        one id so the camera can accumulate three consecutive frames. */
@@ -150,12 +98,11 @@ static void serviceAvoidance(void)
         routeHeadingPidReset(&routeHeadingPid);routeTurnPidReset(&routeTurnPid);avoidanceTurnStable=0;
         avoidancePreviousPhase=avoidance.phase;avoidancePreviousIndex=avoidance.index;
     }
-    if(reportObservation)reportAvoidanceObservation(&packet);
     routeX=avoidance.x;routeY=avoidance.y;routeHeading=avoidance.heading==3?-1:(int8_t)avoidance.heading;
     if(avoidance.phase==AV_TURN || avoidance.phase==AV_MOVE || avoidance.phase==AV_RETREAT) {
         target=av_leg_target(&avoidance);
         if(now-avoidance.legStarted>(avoidance.phase==AV_TURN?18000U:45000U)) av_fail(&avoidance,"LEG_TIMEOUT");
-        if(!avoidance.active) {stopAllMotors();avoidanceMapUp=avoidanceMapRight=0;reportAvoidance();return;}
+        if(!avoidance.active) {stopAllMotors();avoidanceMapUp=avoidanceMapRight=0;return;}
         routeYaw=routeBaseYaw+(avoidance.phase==AV_TURN?(target.heading==3?-1:target.heading):routeHeading)*90.0f*yawSign;
         error=headingError(routeYaw,imuYaw);
         if(avoidance.phase==AV_TURN) {
@@ -189,8 +136,5 @@ static void serviceAvoidance(void)
         }
     } else {avoidanceMapUp=avoidanceMapRight=0;sendRouteSpeeds(0,0,0);}
     if(!avoidance.active) {stopAllMotors();avoidanceMapUp=avoidanceMapRight=0;}
-    if(avoidanceSnapshotGeneration!=avoidance.generation)beginAvoidanceSnapshot();
-    if(avoidance.dirty || now-avoidanceLastReport>=200)reportAvoidance();
-    serviceAvoidanceSnapshot();
 }
 #endif

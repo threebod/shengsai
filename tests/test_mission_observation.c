@@ -26,8 +26,6 @@ static uint8_t rejectStart;
 static void cancelMissionObservation(void);
 static uint8_t motionInterrupted(void) { return fault; }
 static uint8_t visionSessionActive(void) { return visionActive; }
-static void serialSendString(const char *value) { (void)value; }
-static void serialSendUint(uint16_t value) { (void)value; }
 static void stopServoMotion(void)
 {
     ++servoStops;

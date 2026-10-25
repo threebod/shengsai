@@ -18,9 +18,7 @@ static uint8_t motionInterrupted(void){return fault;}
 static void stopDriveMotors(void){++stops;}
 static void failVision(const char *reason){++failures;failureReason=reason;stopDriveMotors();motionMode=0;visionSession.state=VISION_STATE_FAILED;}
 static void printVisionMotionStatus(void){++reports;}
-static void printVisionState(void){}
 static void serialSendString(const char *s){(void)s;}
-static void serialSendUint32(uint32_t v){(void)v;}
 static uint8_t jogCanTakeDriveStatus(uint8_t id,uint8_t *status){
     uint8_t bit=(uint8_t)(1U<<(id-1));
     if(!(statusReady&bit)) return 0;

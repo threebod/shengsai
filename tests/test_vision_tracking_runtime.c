@@ -46,10 +46,8 @@ static void sendRouteSpeeds(int16_t forward, int16_t right, int16_t turn)
 }
 static void visionUartSend(const VisionPacket *packet) { ++requests; lastRequest = *packet; }
 static void invalidateNavigation(const char *reason) { (void)reason; }
-static void printVisionState(void) {}
 static void printVisionMotionStatus(void) {}
 static void serialSendString(const char *value) { (void)value; }
-static void serialSendUint32(uint32_t value) { (void)value; }
 static float headingError(float target, float yaw) { return target-yaw; }
 static void jogCanResetDriveStatus(void) { statusReady = 0; }
 static uint8_t jogCanTakeDriveStatus(uint8_t id, uint8_t *status)

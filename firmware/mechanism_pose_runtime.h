@@ -92,5 +92,4 @@ static void dispatchMechanismPose(void)
     if (motionInterrupted()) { stopServoMotion(); stopAllMotors(); return; }
     Emm_V5_Synchronous_motion(axis6TestActive() ? 6U : 0x00);
     if (motionInterrupted()) { stopServoMotion(); stopAllMotors(); return; }
-    printMechanismPose("MECH RUN", target);
 }

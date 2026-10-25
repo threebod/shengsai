@@ -29,12 +29,8 @@ static void serviceMotion(void)
     if (elapsed >= motionDuration) {
         stopDriveMotors();
         motionMode = 0U;
-        serialSendString("VISION MOVE DONE elapsed_ms=");
-        serialSendUint32(elapsed);
-        serialSendString("\r\n");
         if (visionMotionAutomatic) {
             vision_session_move_complete(&visionSession, clockMs);
-            printVisionState();
         } else {
             vision_session_pause(&visionSession);
             serialSendString("VISION PAUSED\r\n");

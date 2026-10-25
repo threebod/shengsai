@@ -42,7 +42,6 @@ static void servoSetTargetMdeg(uint8_t channel,uint32_t angle,uint16_t speed)
     servoChannelEnabled[2]=servoChannelMoving[2]=1;
 }
 static void serialSendString(const char *text){(void)text;}
-static void printMechanismPose(const char *text,const MechanismPose *pose){(void)text;(void)pose;}
 #include "../firmware/mechanism_pose_runtime.h"
 
 static MechanismPose origin={0,0,2600,1000,200,2000,240,2200};
