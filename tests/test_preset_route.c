@@ -181,8 +181,13 @@ static void checkRoute(uint8_t zone)
                 assert(((leg->taskIndex == 8U || leg->taskIndex == 15U) && leg->drive.rightMm == -860) ||
                        (leg->taskIndex == 10U && leg->drive.upMm == 880));
             assert(!leg->drive.event && i+1U < route.count);
-            assert(presetArcClear(leg,&route.legs[i+1U],route.regions));
-            assert(referenceArcClear(leg,&route.legs[i+1U],route.regions));
+            if (leg->arc == PRESET_ARC_EXPERIMENTAL_713) {
+                assert(route.regions == mask(7,13) && (leg->taskIndex == 8U || leg->taskIndex == 15U));
+                assert(leg->to.x == 400 && leg->to.y == 2080);
+            } else {
+                assert(presetArcClear(leg,&route.legs[i+1U],route.regions));
+                assert(referenceArcClear(leg,&route.legs[i+1U],route.regions));
+            }
             assert(presetHeadingChange(leg->from.heading,presetDirection(leg->from,leg->to)) == 0 ||
                    abs(presetHeadingChange(leg->from.heading,presetDirection(leg->from,leg->to))) == 2);
         }
@@ -319,7 +324,8 @@ static void remainingArcsPreserved(void)
         assert(presetFixedConnect(&route,cases[c].start,cases[c].candidates,cases[c].task,"TEST",cases[c].heading));
         for (i = 0U; i < route.count; ++i) if (route.legs[i].arc) {
             ++arcs;
-            assert(referenceArcClear(&route.legs[i],&route.legs[i+1U],route.regions));
+            if (route.legs[i].arc != PRESET_ARC_EXPERIMENTAL_713)
+                assert(referenceArcClear(&route.legs[i],&route.legs[i+1U],route.regions));
         }
         if (arcs != cases[c].arcs) fprintf(stderr,"missing arcs: case=%u task=%u actual=%u expected=%u\n",c,cases[c].task,arcs,cases[c].arcs);
         assert(arcs == cases[c].arcs);
@@ -362,7 +368,8 @@ static void candidateCase(const PresetCandidate candidates[3], PresetPose start,
     assert(route.legs[count-1U].drive.event && route.legs[count-1U].to.heading == heading);
     for (i = 0U; i < count; ++i) {
         const PresetLeg *leg = &route.legs[i];
-        if (leg->arc) assert(referenceArcClear(leg,&route.legs[i+1U],regions));
+        if (leg->arc && leg->arc != PRESET_ARC_EXPERIMENTAL_713)
+            assert(referenceArcClear(leg,&route.legs[i+1U],regions));
         if (i && route.legs[i-1U].to.heading != leg->from.heading && !route.legs[i-1U].arc)
             assert(presetTurnClear(leg->from,regions));
     }
@@ -379,7 +386,7 @@ static void fixedCandidatePriorities(void)
     candidateCase(presetRawToCoarse,raw,mask(4,8),6U,-1,4,2100,2080);
     candidateCase(presetCoarseToTemp,coarse,mask(7,9),8U,2,2,400,400);
     candidateCase(presetCoarseToTemp,coarse,mask(10,9),8U,2,2,1200,1200);
-    candidateCase(presetCoarseToTemp,coarse,mask(13,7),8U,2,5,1200,2080);
+    candidateCase(presetCoarseToTemp,coarse,mask(13,7),8U,2,3,1200,2080);
     candidateCase(presetTempToRaw,temp,mask(7,9),10U,1,2,400,2080);
     candidateCase(presetTempToRaw,temp,mask(4,11),10U,1,2,1200,1200);
     candidateCase(presetTempToRaw,temp,mask(4,5),10U,1,6,400,1150);
@@ -447,6 +454,35 @@ static void sameTask(const PresetRoute *a, uint8_t taskA, const PresetRoute *b, 
     assert(j == b->count || b->legs[j].taskIndex != taskB);
 }
 
+static void experimental713Arrival(void)
+{
+    unsigned zone, round, i;
+    for (zone = 1U; zone <= 2U; ++zone) {
+        assert(presetBuild(&route,(uint8_t)zone,mask(7,13)));
+        for (round = 0U; round < 2U; ++round) {
+            uint8_t task = round ? 15U : 8U;
+            unsigned first = taskBegin(&route,task), legs = 0U;
+            const PresetLeg *bend = &route.legs[first+1U];
+            for (i = first; i < route.count && route.legs[i].taskIndex == task; ++i) {
+                assert(route.legs[i].drive.rightMm <= 0);
+                ++legs;
+            }
+            assert(legs == 3U && route.legs[first].arc == 1U);
+            assert(bend->arc == PRESET_ARC_EXPERIMENTAL_713 && bend->drive.rightMm == -800);
+            /* This deliberately bypasses a failed body sweep, not a safety approval. */
+            assert(!presetArcClear(bend,&route.legs[first+2U],route.regions));
+            assert(!referenceArcClear(bend,&route.legs[first+2U],route.regions));
+            route.index = (uint16_t)(first+1U); assert(presetActiveLeg(&route).rightMm == -302);
+            route.index = (uint16_t)(first+2U); assert(presetActiveLeg(&route).upMm == -637);
+            assert(route.legs[first+2U].to.x == 400 && route.legs[first+2U].to.y == 1200);
+            assert(route.legs[first+2U].drive.event && !route.legs[first+2U].drive.rightMm);
+        }
+    }
+    memset(&route,0,sizeof(route)); route.regions = mask(7,9);
+    assert(presetTryCandidate(&route,(PresetPose){1200,400,-1},&presetCoarseToTemp[2],8U,"TEMP",2));
+    assert(route.count == 5U && route.legs[3].drive.rightMm == 100);
+}
+
 static void fixedStartDetours(void)
 {
     unsigned i;
@@ -463,7 +499,7 @@ int main(void)
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); recenterEnvelope();
+    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); experimental713Arrival(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
     assert(!presetBuild(&route,1,0x8001U) && !route.count);

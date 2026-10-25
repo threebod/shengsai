@@ -33,6 +33,9 @@ static const PresetCandidate presetCoarseToTemp[3] = {
     {5, {{1200,2080,1680,0,0}, {300,2080,0,-900,1}, {300,1300,-780,0,2},
          {400,1300,0,100,2}, {400,1200,-106,0,2}}}
 };
+/* User-requested 7/13 experiment: join x=400 at the upper bend, no final sidestep. */
+static const PresetCandidate presetCoarseToTemp713 =
+    {3, {{1200,2080,1680,0,0}, {400,2080,0,-800,1}, {400,1200,-886,0,2}}};
 /* Up then right; right then up; right outside via 6/3. */
 static const PresetCandidate presetTempToRaw[3] = {
     /* Four-point version: up 631, original arc, right 601. */

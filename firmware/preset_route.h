@@ -19,6 +19,8 @@
 /* The user-verified four-point COARSE->TEMP and TEMP->RAW primaries keep
  * their original arc rule instead of the later fixed-block geometry model. */
 #define PRESET_ARC_FOUR_POINT 2U
+/* Only the 7/13 upper-left experimental bend skips the body sweep check. */
+#define PRESET_ARC_EXPERIMENTAL_713 3U
 typedef struct { int16_t x, y; int8_t heading; } PresetPose;
 typedef struct {
     RouteLeg drive;
@@ -550,8 +552,8 @@ static void presetSelectArcs(PresetRoute *route, uint8_t zone, unsigned first, u
         }
     }
 }
-/* Fixed candidates may blend a safe corner, but never move the corner or add
- * another corridor. Validate parking turns after selecting the actual arcs. */
+/* Fixed candidates keep their corridors; only the explicit 7/13 experiment
+ * forces its unchecked upper-left bend. Validate remaining parking turns. */
 static uint8_t presetTryCandidate(PresetRoute *route, PresetPose start,
                                   const PresetCandidate *candidate, uint8_t taskIndex,
                                   const char *event, int8_t stationHeading)
@@ -580,7 +582,14 @@ static uint8_t presetTryCandidate(PresetRoute *route, PresetPose start,
             abs(after->drive.upMm)+abs(after->drive.rightMm) <= 250 ||
             !presetArcClear(before,after,route->regions)) goto fail;
         before->drive.heading = after->from.heading;
-    } else presetSelectArcs(route,1U,first,0U);
+    } else {
+        presetSelectArcs(route,1U,first,0U);
+        if (candidate == &presetCoarseToTemp713) {
+            PresetLeg *before = &route->legs[first+1U], *after = &route->legs[first+2U];
+            before->arc = PRESET_ARC_EXPERIMENTAL_713;
+            before->drive.heading = after->from.heading;
+        }
+    }
     for (i = first; i < route->count; ++i) {
         const PresetLeg *leg = &route->legs[i];
         PresetPose endpoint = leg->from;
@@ -604,8 +613,12 @@ static uint8_t presetFixedConnect(PresetRoute *route, PresetPose start,
                                   const char *event, int8_t stationHeading)
 {
     unsigned i;
-    for (i = 0U; i < 3U; ++i)
-        if (presetTryCandidate(route,start,&candidates[i],taskIndex,event,stationHeading)) return 1U;
+    for (i = 0U; i < 3U; ++i) {
+        const PresetCandidate *candidate = &candidates[i];
+        if (candidates == presetCoarseToTemp && i == 2U &&
+            route->regions == ((1U << 6) | (1U << 12))) candidate = &presetCoarseToTemp713;
+        if (presetTryCandidate(route,start,candidate,taskIndex,event,stationHeading)) return 1U;
+    }
     return 0U;
 }
 static uint8_t presetBuild(PresetRoute *route, uint8_t zone, uint16_t regions)
