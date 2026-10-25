@@ -36,7 +36,11 @@ ApplicationWindow {
     palette.highlight: "#007AFF"
     onActiveChanged: if (!active) controller.pauseManual()
     onClosing: controller.pauseManual()
-    Connections { target: controller; function onLineReceived(line) { app.logText=(app.logText+line+"\n").slice(-20000) } }
+    Connections {
+        target: controller
+        function onLineReceived(line) { app.logText=(app.logText+line+"\n").slice(-40000) }
+        function onTaskLogReceived(text) { app.logText=text }
+    }
 
     component ActionButton: Button {
         id: ab
@@ -441,7 +445,11 @@ ApplicationWindow {
         id: logDialog; objectName: "logDialog"; title: "运行日志"
         width: Math.min(safeWidth-32,800); height: Math.min(safeHeight-32,600)
         standardButtons: Dialog.Close
-        ScrollView { anchors.fill: parent; TextArea { text: app.logText || "尚无主控日志"; readOnly: true; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.family: "monospace"; font.pixelSize: 12 } }
+        contentItem: ColumnLayout {
+            ActionButton { objectName: "taskLogReadButton"; text: controller.logsLoading ? "正在读取…" : "读取上次任务日志"; enabled: controller.connected && !controller.logsLoading; onClicked: controller.readTaskLog() }
+            Hint { text: controller.logsState }
+            ScrollView { Layout.fillWidth: true; Layout.fillHeight: true; TextArea { text: app.logText || "尚无主控日志"; readOnly: true; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.family: "monospace"; font.pixelSize: 12 } }
+        }
     }
     SafeDialog {
         id: safetyDialog; objectName: "safetyDialog"; title: "确认安全条件与物理零点"

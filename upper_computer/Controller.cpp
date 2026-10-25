@@ -94,6 +94,8 @@ void Controller::disconnectDevice(){
     driveTimer_.stop();heartbeat_.stop();watchdog_.stop();servoTimer_.stop();servoTargets_.clear();
     calibrationTimeout_.stop();calibrationStage_=0;++calibrationGeneration_;
     connected_=confirmed_=ringsRead_=busy_=mechanismValid_=false;pending_.clear();parser_={};
+    if(logsLoading_)logsState_=QStringLiteral("读取中断，已显示的日志仍保留；重连后可重新读取");
+    logsLoading_=false;taskLogBytes_.clear();
     ringState_=QStringLiteral("断线后请重新读取");scaleState_=QStringLiteral("断线后请重新读取");
     if(device_ && device_->isOpen())device_->close();status_=QStringLiteral("未连接");emit changed();
 }
@@ -137,6 +139,11 @@ void Controller::handle(const SsFrame &f){
     if(!(f.flags&SS_RESPONSE) || !f.length || !pending_.contains(f.sequence) || pending_[f.sequence].command!=f.command)return;
     pending_.remove(f.sequence);
     if(f.data[0]){
+        if(f.command==SS_GET_LOG){
+            logsLoading_=false;taskLogBytes_.clear();
+            logsState_=f.data[0]==5?QStringLiteral("日志已更新或被覆盖，请重新读取"):QStringLiteral("读取失败，请确认主控固件支持任务日志读取");
+            emit changed();return;
+        }
         if(f.command==SS_SET_RINGS)ringState_=QStringLiteral("固化失败，请检查主控状态后重试");
         if(f.command==SS_APPLY_SCALE || f.command==SS_SAVE_SCALE)scaleState_=QStringLiteral("写入失败，尚未获得主控确认");
         static const QStringList errors{QString(),QStringLiteral("参数或命令无效"),QStringLiteral("主控忙，请等待或停止"),QStringLiteral("急停锁定"),QStringLiteral("主控执行失败，请检查日志"),QStringLiteral("协议不匹配"),QStringLiteral("请先确认机构零点及安全条件")};
@@ -147,6 +154,32 @@ void Controller::handle(const SsFrame &f){
         if(calibrating())failCalibration(message);else setStatus(message);return;
     }
     switch(f.command){
+    case SS_GET_LOG: {
+        if(!logsLoading_)return;
+        const quint32 task=f.length>=14?ss_get32(f.data+1):0;
+        const quint32 next=f.length>=14?ss_get32(f.data+5):0;
+        const quint32 end=f.length>=14?ss_get32(f.data+9):0;
+        const int size=int(f.length)-14;
+        if(f.length<14 || !task || f.data[13]>1 || next>end || size<0 ||
+           next<quint32(size) || end-(next-quint32(size))>32768U ||
+           (logTask_ && (task!=logTask_ || end!=logEnd_ || next!=logOffset_+quint32(size))) ||
+           (!size && next!=end) || taskLogBytes_.size()+size>32768){
+            logsLoading_=false;taskLogBytes_.clear();logsState_=QStringLiteral("日志应答无效，请重新读取");break;
+        }
+        logTask_=task;logOffset_=next;logEnd_=end;logTruncated_=logTruncated_ || f.data[13];
+        taskLogBytes_.append(reinterpret_cast<const char *>(f.data+14),size);
+        if(next<end){
+            QByteArray data(12,0);auto *p=reinterpret_cast<uint8_t *>(data.data());
+            ss_put32(p,task);ss_put32(p+4,next);ss_put32(p+8,end);
+            if(request(SS_GET_LOG,data)<0){logsLoading_=false;logsState_=QStringLiteral("日志读取发送失败，请重试");}
+        }else{
+            logsLoading_=false;
+            logsState_=logTruncated_?QStringLiteral("已读取最近任务日志（前部已覆盖，保留最新32KiB）"):QStringLiteral("已读取主控最近任务日志");
+            emit taskLogReceived(taskLogBytes_.isEmpty()?QStringLiteral("主控尚无最近任务日志\n"):QString::fromUtf8(taskLogBytes_));
+            taskLogBytes_.clear();
+        }
+        break;
+    }
     case SS_HELLO:
         if(f.length!=4 || f.data[1]!=1 || f.data[3]!=1){disconnectDevice();setStatus(QStringLiteral("固件版本或协议不匹配"));return;}
         if(f.data[2]!=SS_ROUTE_REVISION){disconnectDevice();setStatus(QStringLiteral("请更新支持15区障碍选择的主控固件"));return;}
@@ -180,6 +213,13 @@ void Controller::pauseManual(){
     servoTimer_.stop();servoTargets_.clear();
 }
 void Controller::readRings(){if(connected_)request(SS_GET_RINGS);}
+void Controller::readTaskLog(){
+    if(!connected_ || logsLoading_)return;
+    taskLogBytes_.clear();logTask_=logOffset_=logEnd_=0;logTruncated_=false;
+    logsLoading_=true;logsState_=QStringLiteral("正在读取主控最近任务日志…");
+    if(request(SS_GET_LOG,QByteArray(12,0))<0){logsLoading_=false;logsState_=QStringLiteral("日志读取发送失败，请重试");}
+    emit changed();
+}
 void Controller::saveRings(const QVariantList &values){
     if(!connected_ || !ringsRead_ || values.size()!=3 || busy_)return;
     QByteArray data(12,0);

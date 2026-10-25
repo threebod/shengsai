@@ -27,6 +27,7 @@
 #include "jog_can.h"
 #include "axis_feedback.h"
 #include "axis6_test.h"
+#include "task_log.h"
 
 #define COMMAND_BAUD_RATE  115200U
 
@@ -74,6 +75,7 @@ static const uint8_t motorDirections[4][5] = {
 static volatile uint8_t emergencyStop;
 static uint8_t hostEStop;
 static void hostLogChar(char c);
+static TaskLog taskLog;
 static uint8_t armed;
 static uint8_t servoTimerReady;
 static volatile uint8_t servoChannelEnabled[3];
@@ -1851,6 +1853,7 @@ static uint8_t processRouteCommand(const char *command)
             presetRoute.legs[i].drive.heading = presetRoute.legs[i].to.heading;
         }
     }
+    taskLogReset(&taskLog);
     missionButtonReady = 0U;
     invalidateNavigation("manual_motion");
     start = (uint8_t)degrees;
@@ -2879,6 +2882,7 @@ void UART5_IRQHandler(void)
 
 int main(void)
 {
+    taskLogReset(&taskLog);
     delay_init(168U);
     board_init();
     clockInit();

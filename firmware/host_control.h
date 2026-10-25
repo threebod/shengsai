@@ -35,6 +35,7 @@ static void hostLogChar(char c) {
                (hostLogLength>=12 && memcmp(hostLog,"VISION ERROR",12)==0) ||
                (hostLogLength>=12 && memcmp(hostLog,"BUTTON ERROR",12)==0)) { hostError=1;hostOperationFailed=1; }
             f.flags=SS_EVENT;f.command=SS_LOG;f.sequence=0;f.length=hostLogLength;
+            taskLogAppend(&taskLog,hostLog,hostLogLength);
             memcpy(f.data,hostLog,hostLogLength);hostSend(&f);hostLogLength=0;
         }
     }
@@ -74,6 +75,7 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
         r->length=4;r->data[1]=1;r->data[2]=SS_ROUTE_REVISION;r->data[3]=1;return;
     }
     if(q->command==SS_STATUS && !q->length) {hostSnapshot(r);return;}
+    if(q->command==SS_GET_LOG) {taskLogRead(&taskLog,q,r);return;}
     if(q->command==SS_HEARTBEAT && !q->length) {hostHeartbeatActive=1;hostHeartbeatStamp=clockMs;return;}
     if((q->command==SS_STOP || q->command==SS_ESTOP) && !q->length) {
         hostCancelled=hostOperationFailed=1;

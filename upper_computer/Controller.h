@@ -32,6 +32,8 @@ class Controller : public QObject {
     Q_PROPERTY(QString scaleState READ scaleState NOTIFY changed)
     Q_PROPERTY(QString ringState READ ringState NOTIFY changed)
     Q_PROPERTY(QString connectionName READ connectionName NOTIFY changed)
+    Q_PROPERTY(bool logsLoading READ logsLoading NOTIFY changed)
+    Q_PROPERTY(QString logsState READ logsState NOTIFY changed)
     Q_PROPERTY(QVariantList devices READ devices NOTIFY changed)
     Q_PROPERTY(QVariantList rings READ rings NOTIFY changed)
     Q_PROPERTY(QVariantList obstacleRegions READ obstacleRegions CONSTANT)
@@ -50,6 +52,8 @@ public:
     QString status()const{return status_;} QString task()const{return task_;}
     QString scaleState()const{return scaleState_;} QString ringState()const{return ringState_;}
     QString connectionName()const{return connectionName_;}
+    bool logsLoading()const{return logsLoading_;}
+    QString logsState()const{return logsState_;}
     QVariantList devices()const{return devices_;} QVariantList rings()const{return rings_;}
     QVariantList obstacleRegions()const;
     QVariantList servoAngles()const{return angles_;}
@@ -61,6 +65,7 @@ public:
     Q_INVOKABLE void stop(bool emergency=false);
     Q_INVOKABLE void pauseManual();
     Q_INVOKABLE void readRings();
+    Q_INVOKABLE void readTaskLog();
     Q_INVOKABLE void saveRings(const QVariantList &values);
     Q_INVOKABLE void readScale();
     Q_INVOKABLE void applyScale(double forward,double right,bool save);
@@ -75,6 +80,7 @@ public:
 signals:
     void changed();
     void lineReceived(QString line);
+    void taskLogReceived(QString text);
     void requestAccepted(int command);
 private:
     friend class ControllerTest;
@@ -97,6 +103,11 @@ private:
     QElapsedTimer clock_;qint64 lastRx_{};
     QHash<int,int> servoTargets_;
     bool connected_{},busy_{},confirmed_{},ringsRead_{},mechanismValid_{};
+    bool logsLoading_{};
+    QByteArray taskLogBytes_;
+    quint32 logTask_{},logOffset_{},logEnd_{};
+    bool logTruncated_{};
+    QString logsState_{QStringLiteral("连接后可读取主控最近任务日志；断电或重启清空")};
     int axis6TestSequence_{-1};
     QString axis6TestState_{QStringLiteral("尚未测试")};
     QString status_{QStringLiteral("未连接")},task_{QStringLiteral("待启动")};

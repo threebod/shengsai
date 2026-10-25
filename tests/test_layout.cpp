@@ -140,6 +140,11 @@ private slots:
             QVERIFY(y + dialog->property("height").toReal() <= size.height() - insets.bottom());
             auto *content = dialog->property("contentItem").value<QQuickItem *>();
             QVERIFY(content);
+            if (QString::fromLatin1(name) == "logDialog") {
+                auto *readLog = content->findChild<QQuickItem *>("taskLogReadButton");
+                QVERIFY(readLog && readLog->isVisible() && !readLog->isEnabled());
+                QVERIFY(readLog->height() >= 44);
+            }
             for (auto *item : content->findChildren<QQuickItem *>()) {
                 if (!item->isVisible() || !item->property("down").isValid()) continue;
                 const auto rect = sceneRect(item);

@@ -11,6 +11,44 @@ public: QByteArray written;
 class ControllerTest:public QObject {
     Q_OBJECT
 private slots:
+    void taskLogsReadInPagesWithoutReplayingCalibration(){
+        Wire wire;Controller c;c.device_=&wire;
+        c.readTaskLog();QVERIFY(wire.written.isEmpty());
+        c.connected_=true;QSignalSpy logs(&c,&Controller::taskLogReceived);
+        c.readTaskLog();auto q=wire.last();QCOMPARE(int(q.command),int(SS_GET_LOG));QCOMPARE(int(q.length),12);
+        c.readTaskLog();QVERIFY(wire.written.isEmpty());QVERIFY(c.logsLoading());
+        const QByteArray text=QStringLiteral("ERR offline\nVISION PAUSED\n中文日志\n").toUtf8();
+        const int split=text.indexOf(char(0xe4))+1;
+        SsFrame r{};r.flags=SS_RESPONSE;r.sequence=q.sequence;r.command=q.command;r.length=quint16(14+split);
+        ss_put32(r.data+1,7);ss_put32(r.data+5,split);ss_put32(r.data+9,text.size());r.data[13]=1;
+        memcpy(r.data+14,text.constData(),split);c.handle(r);
+        QVERIFY(logs.isEmpty());q=wire.last();QCOMPARE(ss_get32(q.data),quint32(7));
+        QCOMPARE(ss_get32(q.data+4),quint32(split));QCOMPARE(ss_get32(q.data+8),quint32(text.size()));
+        c.calibrationStage_=2;
+        r.sequence=q.sequence;r.length=quint16(14+text.size()-split);ss_put32(r.data+5,text.size());
+        memcpy(r.data+14,text.constData()+split,text.size()-split);c.handle(r);
+        QCOMPARE(logs.size(),1);QCOMPARE(logs[0][0].toString(),QString::fromUtf8(text));
+        QCOMPARE(c.calibrationStage_,2);QVERIFY(!c.logsLoading());QVERIFY(c.logsState().contains("覆盖"));
+        QVERIFY(wire.written.isEmpty());
+        c.readTaskLog();wire.last();c.disconnectDevice();QVERIFY(!c.logsLoading());
+        QCOMPARE(logs.size(),1);QVERIFY(c.logsState().contains("中断"));c.device_=nullptr;
+    }
+    void taskLogErrorsKeepPreviouslyDisplayedLogs(){
+        Wire wire;Controller c;c.device_=&wire;c.connected_=true;
+        QSignalSpy logs(&c,&Controller::taskLogReceived);
+        for(int error:{1,5}){
+            c.readTaskLog();auto q=wire.last();SsFrame r{};
+            r.flags=SS_RESPONSE|SS_ERROR;r.command=q.command;r.sequence=q.sequence;r.length=1;r.data[0]=quint8(error);
+            c.handle(r);QVERIFY(!c.logsLoading());QVERIFY(logs.isEmpty());
+        }
+        c.readTaskLog();auto q=wire.last();SsFrame r{};
+        r.flags=SS_RESPONSE;r.command=q.command;r.sequence=q.sequence;r.length=14;
+        ss_put32(r.data+1,1);ss_put32(r.data+9,10);c.handle(r);
+        QVERIFY(!c.logsLoading());QVERIFY(c.logsState().contains("无效"));QVERIFY(logs.isEmpty());
+        c.readTaskLog();q=wire.last();r.sequence=q.sequence;ss_put32(r.data+9,0);c.handle(r);
+        QCOMPARE(logs.size(),1);QVERIFY(logs[0][0].toString().contains("尚无"));
+        c.disconnectDevice();c.device_=nullptr;
+    }
     void handshakeAndConfirmation(){
         Wire wire;Controller c;c.device_=&wire;c.opened();auto q=wire.last();QCOMPARE(int(q.command),int(SS_HELLO));QVERIFY(!c.connected());
         SsFrame reply{};reply.flags=SS_RESPONSE;reply.sequence=q.sequence;reply.command=SS_HELLO;reply.length=4;reply.data[1]=1;reply.data[2]=SS_ROUTE_REVISION;reply.data[3]=1;c.handle(reply);
