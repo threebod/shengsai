@@ -21,7 +21,7 @@ typedef struct {
     const char *reason;
     uint32_t token, requestAt, durationMs, deadlineMs, updatedAt, controlAt, lastFrameAt;
     uint16_t sequence, limitRpm;
-    uint8_t mode, selector, target, sequenceValid;
+    uint8_t mode, selector, target, sequenceValid, confirmations;
     float forwardMm, rightMm, forwardRpm, rightRpm;
     float driveForwardRpm, driveRightRpm, budgetMm, travelledMm;
 } VisionTracking;
@@ -118,8 +118,12 @@ static VisionTrackingState vision_tracking_observe(VisionTracking *tracking,
         return vision_tracking_stop(tracking, VISION_TRACK_FAILED, "TRACK_CALIBRATION_INVALID");
     tracking->sequence = sequence; tracking->sequenceValid = 1U;
     tracking->lastFrameAt = now - age;
-    if (du == 0 && dv == 0)
-        return vision_tracking_stop(tracking, VISION_TRACK_DONE, "TRACK_IN_RANGE");
+    if (du == 0 && dv == 0) {
+        if (tracking->mode != VISION_MODE_RING || ++tracking->confirmations >= 2U)
+            return vision_tracking_stop(tracking, VISION_TRACK_DONE, "TRACK_IN_RANGE");
+        tracking->forwardRpm = tracking->rightRpm = 0.0f;
+        tracking->driveForwardRpm = tracking->driveRightRpm = 0.0f;
+    } else tracking->confirmations = 0U;
     if (tracking->state == VISION_TRACK_WAIT) {
         tracking->state = VISION_TRACK_RUN;
         tracking->deadlineMs = now + tracking->durationMs;
@@ -197,6 +201,11 @@ static VisionTrackingState vision_tracking_tick(VisionTracking *tracking, uint32
     }
     forward = (float)routeRound(tracking->forwardRpm);
     right = (float)routeRound(tracking->rightRpm);
+    /* Ring errors below half an RPM still need the drive's smallest integer command. */
+    if (tracking->mode == VISION_MODE_RING) {
+        if (forward == 0.0f && tracking->forwardMm != 0.0f) forward = tracking->forwardMm > 0.0f ? 1.0f : -1.0f;
+        if (right == 0.0f && tracking->rightMm != 0.0f) right = tracking->rightMm > 0.0f ? 1.0f : -1.0f;
+    }
     if (fabsf(forward) + fabsf(right) > tracking->limitRpm) {
         if (fabsf(forward) > fabsf(right)) forward += forward > 0.0f ? -1.0f : 1.0f;
         else right += right > 0.0f ? -1.0f : 1.0f;

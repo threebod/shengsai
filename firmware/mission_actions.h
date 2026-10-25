@@ -95,7 +95,7 @@ static const MechanismAction missionPlaceActions[] = {
 #define MISSION_PICK_BACK_COUNT 34U
 
 /* Tray slots preserve task pickup order; rings gives each item's destination. */
-static inline void missionBuildTaskPlace(MechanismAction *actions,
+static inline uint16_t missionBuildTaskPlace(MechanismAction *actions,
                                  const uint8_t rings[3], uint8_t layer,
                                  uint8_t coarse)
 {
@@ -119,6 +119,10 @@ static inline void missionBuildTaskPlace(MechanismAction *actions,
     }
     actions[26].pose.turretDdeg = missionRingPoses[rings[2] - 1U].turretDdeg;
     if (!coarse) actions[30].pose = actions[27].pose;
+    if (!coarse) return MISSION_PLACE_COUNT;
+    /* Go from observation straight to tray pickup, without returning to h=0. */
+    memmove(actions + 1, actions + 2, (MISSION_COARSE_PLACE_COUNT - 2U) * sizeof(*actions));
+    return MISSION_COARSE_PLACE_COUNT - 1U;
 }
 
 /* Raise before the first pickup; lower 15mm for each tray release, then raise. */

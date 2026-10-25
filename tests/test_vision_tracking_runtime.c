@@ -29,7 +29,7 @@ static int8_t yawSign = 1;
 static RouteHeadingPidGains routeHeadingGains = {ROUTE_HEADING_KP,ROUTE_HEADING_KI,ROUTE_HEADING_KD};
 static unsigned enables, stops, sends, requests, failures, queries;
 static int16_t sentForward, sentRight, sentTurn;
-static unsigned expectedWheelLimit = 30;
+static unsigned expectedWheelLimit = 15;
 static const char *failureReason;
 static void cancelVisionTracking(void);
 static void failVision(const char *reason);
@@ -73,7 +73,7 @@ static void reset(void)
     visionTrackingOpen = visionTrackingStarted = visionTrackingEndPending = 0;
     vision_session_init(&visionSession);
     visionSession.state = VISION_STATE_MOVE; visionSession.mode = VISION_MODE_RING;
-    visionSession.target = 2; visionSession.maxCorrections = 2; visionSession.iteration = 1;
+    visionSession.target = 2; visionSession.maxCorrections = 0; visionSession.iteration = 1;
     clockMs = imuStamp = hostHeartbeatStamp = 100;
     imuValid = 1; imuYaw = 0;
     visionRxReady = emergencyStop = hostEStop = fault = motionMode = 0;
@@ -82,7 +82,7 @@ static void reset(void)
     visionPickActive = rawPickAtStation = statusReady = 0;
     enables = stops = sends = requests = failures = queries = 0;
     sentForward = sentRight = 0; failureReason = NULL;
-    expectedWheelLimit = 30;
+    expectedWheelLimit = 15;
     for (unsigned id = 0; id <= 4; ++id) motorTrim[id] = 1000;
     missionOffsetForward = missionOffsetRight = 0;
     assert(startVisionTracking(44.44f,22.86f));
@@ -109,22 +109,21 @@ static void run(void)
 int main(void)
 {
     unsigned i;
-    uint32_t token, completedAt;
+    uint32_t token;
     float expected;
     int16_t farForward;
     reset(); step(20); assert(!enables && !sends && visionTracking.state == VISION_TRACK_WAIT);
     run(); farForward = sentForward; assert(farForward > 0 && sentRight > 0);
     for (i = 2; i <= 5; ++i) { queueFrame(-4,0,i,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20); }
     assert(sentForward < farForward && sentRight == 0);
+    token = visionTrackingRequest.token;
     queueFrame(0,0,6,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
-    assert(!visionTrackingActive() && !motionMode && stops && visionSession.state == VISION_STATE_SETTLE);
-    assert(visionSession.state != VISION_STATE_ALIGNED);
-    completedAt = clockMs; token = visionTrackingRequest.token;
+    assert(visionTrackingActive() && visionSession.state == VISION_STATE_MOVE && !sentForward && !sentRight);
+    queueFrame(0,0,7,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
+    assert(!visionTrackingActive() && !motionMode && stops && visionSession.state == VISION_STATE_ALIGNED);
+    assert(visionSession.iteration == 1 && requests == 1);
+    assert(vision_session_tick(&visionSession,clockMs+300) == VISION_EVENT_NONE);
     flushVisionTrackingEnd(); assert(lastRequest.value[7] == VISION_TRACK_END && lastRequest.token == token);
-    assert(vision_session_tick(&visionSession,completedAt+299) == VISION_EVENT_NONE);
-    assert(vision_session_tick(&visionSession,completedAt+300) == VISION_EVENT_REQUEST);
-    vision_session_make_request(&visionSession,&calibration,&lastRequest,completedAt+300);
-    assert(lastRequest.token != token && !(lastRequest.flags&VISION_FLAG_TRACKING));
 
     reset(); queueFrame(-40,0,1,VISION_FLAG_VALID|VISION_FLAG_STABLE); step(20);
     assert(failures == 1 && !enables && !sends && !strcmp(failureReason,"CAMERA_TRACKING_UNSUPPORTED"));
@@ -145,6 +144,8 @@ int main(void)
     expected = routeEstimateScaled(sentForward,5,routeForwardScale);
     clockMs += 5; imuStamp = clockMs;
     queueFrame(0,0,2,VISION_FLAG_TRACKING|VISION_FLAG_VALID); receiveVisionTracking();
+    assert(visionTrackingActive());
+    queueFrame(0,0,3,VISION_FLAG_TRACKING|VISION_FLAG_VALID); receiveVisionTracking();
     assert(!visionTrackingActive() && fabsf(missionOffsetForward-expected) < 0.001f);
     reset(); run(); assert(sentForward > 0);
     clockMs += 1; imuStamp = clockMs;
@@ -175,31 +176,46 @@ int main(void)
     motorTrim[1] = 1600; motorTrim[2] = 900; motorTrim[3] = 1300;
     queueFrame(-40,-20,2,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
     assert(sentTurn > 0 && visionTracking.driveForwardRpm == sentForward && visionTracking.driveRightRpm == sentRight);
-    reset(); cancelVisionTracking(); visionSession.iteration = 2; expectedWheelLimit = 10;
-    assert(startVisionTracking(44.44f,22.86f));
-    imuYaw = -10.0f; motorTrim[1] = 1600; motorTrim[3] = 1300;
-    queueFrame(-40,-20,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20); step(20);
-    assert(!failures && abs(sentTurn) <= 10 && visionTracking.driveForwardRpm == sentForward);
+    reset(); cancelVisionTracking(); visionSession.iteration = 2;
+    assert(!startVisionTracking(44.44f,22.86f)); /* No second ring tracking session. */
+
+    reset(); cancelVisionTracking();
+    assert(startVisionTracking(1.111f,0));
+    queueFrame(-1,0,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
+    for(i=2;i<8;++i){queueFrame(-1,0,i,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);}
+    assert(!failures && visionTrackingActive() && sentForward>0);
+    queueFrame(0,0,8,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
+    queueFrame(0,0,9,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
+    assert(!failures && visionSession.state==VISION_STATE_ALIGNED);
 
     reset(); cancelVisionTracking();
     i = requests; assert(!startVisionTracking(NAN,20)); assert(requests == i && !enables);
     routeForwardScale = NAN; assert(!startVisionTracking(20,20));
     routeForwardScale = ROUTE_FORWARD_SCALE; assert(requests == i && !enables);
 
-    reset(); visionSession.iteration = 2; cancelVisionTracking();
-    expectedWheelLimit = 10;
-    assert(startVisionTracking(44.44f,22.86f) && visionTracking.limitRpm == 10);
-    queueFrame(0,0,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
-    assert(!enables && visionSession.state == VISION_STATE_SETTLE);
-    assert(vision_session_tick(&visionSession,clockMs+299) == VISION_EVENT_NONE);
-    assert(vision_session_tick(&visionSession,clockMs+300) == VISION_EVENT_CORRECTION_LIMIT);
-    assert(!visionTrackingEligible());
+    /* A ring guard boundary is a failure, never precise alignment or a retry. */
+    reset(); run(); visionTracking.deadlineMs = clockMs; serviceMotion();
+    assert(failures == 1 && !strcmp(failureReason,"TRACK_DEADLINE") && visionSession.state == VISION_STATE_FAILED);
+    reset(); run(); visionTracking.budgetMm = visionTracking.travelledMm; serviceMotion();
+    assert(failures == 1 && !strcmp(failureReason,"TRACK_BUDGET") && visionSession.state == VISION_STATE_FAILED);
+    /* Second-layer material retains 30 RPM and the two-round settle/limit behavior. */
+    for(i = 1; i <= 2; ++i) {
+        reset(); cancelVisionTracking(); visionSession.state = VISION_STATE_MOVE;
+        visionSession.mode = VISION_MODE_MATERIAL; visionSession.selector = 4;
+        visionSession.maxCorrections = 2; visionSession.iteration = (uint8_t)i;
+        missionActive = 1; missionPhase = MISSION_TEMP_ALIGN; expectedWheelLimit = 30;
+        assert(startVisionTracking(44.44f,22.86f) && visionTracking.limitRpm == 30);
+        queueFrame(0,0,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
+        assert(!enables && visionSession.state == VISION_STATE_SETTLE);
+        assert(vision_session_tick(&visionSession,clockMs+299) == VISION_EVENT_NONE);
+        assert(vision_session_tick(&visionSession,clockMs+300) == (i==2?VISION_EVENT_CORRECTION_LIMIT:VISION_EVENT_REQUEST));
+    }
 
     reset(); cancelVisionTracking(); visionSession.sampleOnly = 1; assert(!visionTrackingEligible());
     visionSession.sampleOnly = 0; rawPickAtStation = 1; assert(!visionTrackingEligible());
     rawPickAtStation = 0; visionSession.requestFlags = VISION_FLAG_MATERIAL_LAYOUT; assert(!visionTrackingEligible());
     visionSession.requestFlags = 0; visionSession.mode = VISION_MODE_MATERIAL; visionSession.selector = 4;
-    assert(!visionTrackingEligible()); missionActive = 1; missionPhase = MISSION_TEMP_ALIGN;
+    assert(!visionTrackingEligible()); missionActive = 1; missionPhase = MISSION_TEMP_ALIGN; visionSession.maxCorrections = 2;
     assert(visionTrackingEligible());
     puts("PASS production vision tracking runtime ACK gate, live speed, stop/fault/watchdog, offsets and correction limits");
     return 0;

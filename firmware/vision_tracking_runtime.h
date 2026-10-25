@@ -38,11 +38,11 @@ static void flushVisionTrackingEnd(void)
 static uint8_t visionTrackingEligible(void)
 {
     return visionSession.state == VISION_STATE_MOVE && visionSession.iteration > 0U &&
-        visionSession.iteration <= 2U && !visionSession.sampleOnly && !visionPickActive && !rawPickAtStation &&
+        !visionSession.sampleOnly && !visionPickActive && !rawPickAtStation &&
         !(visionSession.requestFlags & VISION_FLAG_MATERIAL_LAYOUT) &&
-        visionSession.maxCorrections == 2U &&
-        (visionSession.mode == VISION_MODE_RING ||
-         (missionActive && missionPhase == MISSION_TEMP_ALIGN &&
+        ((visionSession.mode == VISION_MODE_RING && visionSession.iteration == 1U) ||
+         (visionSession.iteration <= 2U && visionSession.maxCorrections == 2U &&
+          missionActive && missionPhase == MISSION_TEMP_ALIGN &&
           visionSession.mode == VISION_MODE_MATERIAL && visionSession.target == 2U));
 }
 
@@ -52,7 +52,7 @@ static uint8_t startVisionTracking(float forwardMm, float rightMm)
     VisionSession requestSession = visionSession;
     float forward, right, largest, pulseEstimate;
     uint32_t pulses, duration;
-    uint16_t rpm = visionSession.mode == VISION_MODE_RING && visionSession.iteration >= 2U ? 10U : 30U;
+    uint16_t rpm = visionSession.mode == VISION_MODE_RING ? 15U : 30U;
     if (!visionTrackingEligible() || !vision_calibration_valid(calibration) ||
         !imuValid || clockMs-imuStamp > 250U || motionInterrupted() ||
         !vision_tracking_finite(forwardMm) || !vision_tracking_finite(rightMm) ||
@@ -66,6 +66,8 @@ static uint8_t startVisionTracking(float forwardMm, float rightMm)
     pulses = (uint32_t)pulseEstimate;
     if (!pulses) return 0U;
     duration = pulses*60000U/(3200U*rpm)+800U;
+    /* Combine the former two correction allowances into one ring session. */
+    if (visionSession.mode == VISION_MODE_RING) duration *= 2U;
     flushVisionTrackingEnd();
     vision_session_make_request(&requestSession,calibration,&visionTrackingRequest,clockMs);
     visionTrackingEpoch = (visionTrackingEpoch+1U)&0x7FFFFFFFUL;
@@ -74,6 +76,7 @@ static uint8_t startVisionTracking(float forwardMm, float rightMm)
     visionTrackingRequest.value[7] = VISION_TRACK_START;
     vision_tracking_begin(&visionTracking,visionTrackingRequest.token,visionSession.mode,
                           visionSession.selector,visionSession.target,forwardMm,rightMm,rpm,duration,clockMs);
+    if (visionSession.mode == VISION_MODE_RING) visionTracking.budgetMm *= 2.0f;
     visionTrackingYaw = imuYaw;
     visionTrackingTick = clockMs;
     visionTrackingForward = visionTrackingRight = 0;
@@ -98,13 +101,19 @@ static uint8_t startVisionTracking(float forwardMm, float rightMm)
 static void finishVisionTracking(void)
 {
     uint32_t now = clockMs, dt = now-visionTrackingTick;
+    if (visionSession.mode == VISION_MODE_RING &&
+        strcmp(visionTracking.reason,"TRACK_IN_RANGE") != 0) {
+        failVision(visionTracking.reason);
+        return;
+    }
     if (visionTrackingStarted && missionActive && routeWaiting) {
         missionOffsetForward += routeEstimateScaled(visionTrackingForward,dt,routeForwardScale);
         missionOffsetRight += routeEstimateScaled(visionTrackingRight,dt,routeLateralScale);
     }
     visionTrackingTick = now;
     cancelVisionTracking(); motionMode = 0U;
-    vision_session_move_complete(&visionSession,now);
+    if (visionSession.mode == VISION_MODE_RING) visionSession.state = VISION_STATE_ALIGNED;
+    else vision_session_move_complete(&visionSession,now);
 }
 
 static uint8_t visionTrackingDriveHealthy(void)
@@ -199,7 +208,7 @@ static void serviceVisionTrackingMotion(void)
         sentForward = (int16_t)((int32_t)sentForward*available/peak);
         sentRight = (int16_t)((int32_t)sentRight*available/peak);
     }
-    /* Include per-wheel trims in the original 30/10 RPM wheel ceiling. */
+    /* Include per-wheel trims in the selected wheel-speed ceiling. */
     for (;;) {
         peak = 0;
         for (id = 1U; id <= 4U; ++id) {

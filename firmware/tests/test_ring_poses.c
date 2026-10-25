@@ -66,17 +66,24 @@ int main(void)
     for (order = 0U; order < 6U; ++order) {
         for (layer = 1U; layer <= 2U; ++layer)
             for (coarse = 0U; coarse < 2U; ++coarse) {
-                uint16_t count = coarse ? MISSION_COARSE_PLACE_COUNT : MISSION_PLACE_COUNT;
+                uint16_t count;
                 memcpy(missionRingPoses, original, sizeof(original));
-                missionBuildTaskPlace(before, orders[order], layer, coarse);
+                count = missionBuildTaskPlace(before, orders[order], layer, coarse);
+                assert(count == (coarse ? MISSION_COARSE_PLACE_COUNT - 1U : MISSION_PLACE_COUNT));
+                if (coarse) {
+                    assert(before[0].type == MECHANISM_ACTION_PLATFORM && before[0].value == 1U);
+                    assert(before[1].type == MECHANISM_ACTION_GRIPPER && before[1].value == 1U);
+                    assert(before[2].type == MECHANISM_ACTION_POSE && before[2].pose.horizontalDmm == -500);
+                    assert(before[2].pose.liftDmm == 0U && before[3].pose.liftDmm == 300U);
+                }
                 memcpy(missionRingPoses, changed, sizeof(changed));
                 missionBuildTaskPlace(after, orders[order], layer, coarse);
                 checkUnchanged(before, after, count);
                 for (item = 0U; item < 3U; ++item) {
                     uint8_t ring = orders[order][item] - 1U;
-                    assert(after[land[item]].pose.horizontalDmm == changed[ring].horizontalDmm);
-                    assert(after[land[item]].pose.turretDdeg == changed[ring].turretDdeg);
-                    assert(after[land[item]].pose.liftDmm == (layer == 2U ? 570U : 1250U));
+                    assert(after[land[item] - coarse].pose.horizontalDmm == changed[ring].horizontalDmm);
+                    assert(after[land[item] - coarse].pose.turretDdeg == changed[ring].turretDdeg);
+                    assert(after[land[item] - coarse].pose.liftDmm == (layer == 2U ? 570U : 1250U));
                 }
             }
         memcpy(missionRingPoses, original, sizeof(original));

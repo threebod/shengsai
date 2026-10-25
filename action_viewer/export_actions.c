@@ -84,7 +84,7 @@ int main(void)
     static const uint8_t orders[6][3] = {{2,3,1},{1,2,3},{1,3,2},{2,1,3},{3,1,2},{3,2,1}};
     MechanismAction actions[MISSION_PICK_BACK_COUNT];
     unsigned order, position, slot;
-    uint16_t firstLayer, secondLayer, rawTray, returnTray;
+    uint16_t firstLayer, secondLayer, rawTray, returnTray, count;
     char id[40];
     missionBuildTaskPlace(actions, orders[0], 1U, 0U);
     firstLayer = actions[8].pose.liftDmm;
@@ -111,8 +111,8 @@ int main(void)
     for (order = 0U; order < 6U; ++order) {
         const uint8_t *rings = orders[order];
         snprintf(id, sizeof(id), "coarse-%u%u%u", rings[0], rings[1], rings[2]);
-        missionBuildTaskPlace(actions, rings, 1U, 1U);
-        printGroup(id, "coarse", 1U, 0U, 0U, rings, &missionCoarseInitial, actions, MISSION_COARSE_PLACE_COUNT);
+        count = missionBuildTaskPlace(actions, rings, 1U, 1U);
+        printGroup(id, "coarse", 1U, 0U, 0U, rings, &missionCoarseInitial, actions, count);
         snprintf(id, sizeof(id), "storage1-%u%u%u", rings[0], rings[1], rings[2]);
         missionBuildTaskPlace(actions, rings, 1U, 0U);
         printGroup(id, "storage1", 1U, 0U, 0U, rings, &missionInitial, actions, MISSION_PLACE_COUNT);

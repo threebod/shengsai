@@ -155,8 +155,8 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
         }
         if(q->data[0]==1 || q->data[0]==2) {
             const uint8_t rings[3]={1,2,3};
-            missionBuildTaskPlace(missionWorkActions,rings,1,q->data[0]==1);
-            if(!mechanismActionStart(q->data[0]==1?&missionCoarseInitial:&missionInitial,missionWorkActions,q->data[0]==1?MISSION_COARSE_PLACE_COUNT:MISSION_PLACE_COUNT)) r->data[0]=2;
+            uint16_t count=missionBuildTaskPlace(missionWorkActions,rings,1,q->data[0]==1);
+            if(!mechanismActionStart(q->data[0]==1?&missionCoarseInitial:&missionInitial,missionWorkActions,count)) r->data[0]=2;
             return;
         }
         break;

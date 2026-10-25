@@ -1051,8 +1051,6 @@ static uint8_t startVisionMotion(float forwardMm, float rightMm,
     uint32_t maximumPulses = 0U;
     uint8_t id;
     uint8_t moved = 0U;
-    if (automatic && visionSession.mode == VISION_MODE_RING &&
-        visionSession.iteration >= 2U) rpm = 10U;
     visionMotionMotorMask = visionMotionQueryId = 0U;
     wheelMm[0] = forward - right;
     wheelMm[1] = forward + right;
@@ -2321,7 +2319,7 @@ static void serviceVision(void)
         return;
     }
     if (event == VISION_EVENT_MOVE) {
-        if (visionTrackingEligible()) {
+        if (visionSession.mode == VISION_MODE_RING || visionTrackingEligible()) {
             if (!startVisionTracking(visionSession.forwardMm,visionSession.rightMm))
                 failVision("TRACKING_START_FAILED");
             return;
@@ -2485,7 +2483,7 @@ static void serviceMission(void)
                 return;
             }
             visionSession.waitForTarget = 1U;
-            visionSession.maxCorrections = 2U;
+            visionSession.maxCorrections = materialAlign ? 2U : 0U;
             if (materialAlign)
                 visionSession.materialMask = (uint8_t)(1U << (visionSession.selector - 1U));
             missionActionStarted = 2U;
@@ -2508,10 +2506,9 @@ static void serviceMission(void)
             const MechanismInitialState *initial = &missionInitial;
             uint16_t count = MISSION_PLACE_COUNT;
             if (missionPhase == MISSION_COARSE_PLACE) {
-                missionBuildTaskPlace(missionWorkActions,
-                                      missionTask.rings[routeIndex == 14U], 1U, 1U);
+                count = missionBuildTaskPlace(missionWorkActions,
+                                             missionTask.rings[routeIndex == 14U], 1U, 1U);
                 initial = &missionCoarseInitial;
-                count = MISSION_COARSE_PLACE_COUNT;
             } else if (missionPhase == MISSION_COARSE_PICK) {
                 missionBuildTaskPickBack(missionPickBackActions,
                                          missionTask.rings[routeIndex == 14U],
@@ -2590,7 +2587,7 @@ static void serviceMission(void)
             missionAbort("raw_return_blocked");
             return;
         }
-        if (!startVisionMotion(-missionOffsetForward,-missionOffsetRight,15U,0U)) {
+        if (!startVisionMotion(-missionOffsetForward,-missionOffsetRight,40U,0U)) {
             missionAbort("raw_exit_failed");
             return;
         }
@@ -2609,7 +2606,7 @@ static void serviceMission(void)
                 missionContinue();
                 return;
             }
-            if (!startVisionMotion(-missionOffsetForward, 0.0f, 15U, 0U)) {
+            if (!startVisionMotion(-missionOffsetForward, 0.0f, 40U, 0U)) {
                 missionAbort("raw_exit_failed");
                 return;
             }
@@ -2624,7 +2621,7 @@ static void serviceMission(void)
             missionContinue();
             return;
         }
-        if (!startVisionMotion(0.0f, -missionOffsetRight, 15U, 0U)) {
+        if (!startVisionMotion(0.0f, -missionOffsetRight, 40U, 0U)) {
             missionAbort("raw_exit_failed");
             return;
         }
@@ -2728,7 +2725,6 @@ static uint8_t processVisionCommand(const char *command)
         serialSendString("VISION ERROR reason=START_REJECTED\r\n");
         return 1U;
     }
-    visionSession.maxCorrections = 2U;
     armed = 0U;
     invalidateNavigation("vision_motion");
 

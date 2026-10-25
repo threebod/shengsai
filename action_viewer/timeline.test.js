@@ -19,6 +19,7 @@ test('JSON round trips all firmware groups and recalculates the same production 
 test('editing JSON recalculates movement after changed poses, speeds and direct turret commands', () => {
   const source = dataset.groups.find(g => g.id === 'coarse-231');
   const draft = structuredClone(source);
+  draft.initial.pose.turret = 260; // Fix the test's 40-degree move independently of current calibration.
   draft.actions = [structuredClone(source.actions.find(a => a.type === 'pose'))];
   Object.assign(draft.actions[0].pose, { h: 20, lift: 40, turret: 300 });
   draft.actions[0].motionMs = { h: 99999, lift: 99999, turret: 99999 };

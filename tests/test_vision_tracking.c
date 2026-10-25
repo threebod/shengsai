@@ -177,9 +177,17 @@ static void completionAndBudget(void)
     uint32_t now;
     begin(30U,1200U,80.0f); receive(1U,100U); tick(120U);
     packet.value[0]=160; packet.value[1]=120; receive(2U,140U);
+    assert(tracking.state==VISION_TRACK_RUN && tracking.confirmations==1U);
+    assert(tick(140U)==VISION_TRACK_RUN && forward==0 && right==0);
+    receive(2U,150U);assert(tracking.confirmations==1U); /* Duplicate is not a second confirmation. */
+    receive(3U,160U);
     assert(tracking.state==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_IN_RANGE"));
-    assert(tick(140U)==VISION_TRACK_DONE && forward==0 && right==0);
-    receive(3U,160U); assert(tracking.state==VISION_TRACK_DONE);
+    assert(tick(160U)==VISION_TRACK_DONE && forward==0 && right==0);
+    receive(4U,180U); assert(tracking.state==VISION_TRACK_DONE);
+    begin(15U,1200U,80.0f);packet.value[0]=160;packet.value[1]=120;receive(1U,100U);
+    packet.value[0]=161;receive(2U,120U);assert(!tracking.confirmations);
+    packet.value[0]=160;receive(3U,140U);assert(tracking.state==VISION_TRACK_RUN);
+    receive(4U,160U);assert(tracking.state==VISION_TRACK_DONE);
     begin(30U,60U,80.0f); receive(1U,100U); tick(120U); tick(140U);
     assert(tick(160U)==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_DEADLINE"));
     begin(30U,10000U,1.0f); receive(1U,100U);
@@ -218,6 +226,10 @@ static void zeroPixelTolerance(void)
             packet.value[0]=(int16_t)(160+offsets[index][0]);
             packet.value[1]=(int16_t)(120+offsets[index][1]);
             receive(1U,100U);
+            if(index==0U && mode==VISION_MODE_RING) {
+                assert(tracking.state==VISION_TRACK_RUN);
+                receive(2U,120U);
+            }
             assert(tracking.state==(index==0U?VISION_TRACK_DONE:VISION_TRACK_RUN));
             if(index==0U) assert(!strcmp(tracking.reason,"TRACK_IN_RANGE"));
         }
