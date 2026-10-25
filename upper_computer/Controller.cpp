@@ -87,6 +87,10 @@ void Controller::opened(){
     request(SS_HELLO,data);
 }
 void Controller::disconnectDevice(){
+    if(lateralTesting()){
+        if(device_ && device_->isOpen())request(SS_STOP);
+        lateralTestSequence_=-1;lateralTestState_=QStringLiteral("连接已断开，横移结果未知");
+    }
     if(axis6Testing()){
         if(device_ && device_->isOpen())request(SS_STOP);
         axis6TestSequence_=-1;axis6TestState_=QStringLiteral("连接已断开，测试结果未知");
@@ -118,6 +122,13 @@ void Controller::ingest(){
 void Controller::handle(const SsFrame &f){
     if(f.flags==SS_EVENT){
         if(f.command==SS_LOG){log(QString::fromUtf8(reinterpret_cast<const char *>(f.data),f.length));return;}
+        if(f.command==SS_LATERAL_TEST && f.length==1 && f.sequence==lateralTestSequence_){
+            lateralTestSequence_=-1;
+            if(f.data[0])mechanismValid_=false;
+            lateralTestState_=f.data[0]?QStringLiteral("横移测试中止，请检查主控日志"):
+                QStringLiteral("横移指令完成：%1%2mm，请记录实测距离").arg(lateralTestDistance_<0?QStringLiteral("左"):QStringLiteral("右")).arg(qAbs(lateralTestDistance_));
+            emit changed();return;
+        }
         if(f.command==SS_ACTION && f.length==1 && f.sequence==axis6TestSequence_){
             axis6TestSequence_=-1;
             if(f.data[0])mechanismValid_=false;
@@ -148,12 +159,22 @@ void Controller::handle(const SsFrame &f){
         if(f.command==SS_APPLY_SCALE || f.command==SS_SAVE_SCALE)scaleState_=QStringLiteral("写入失败，尚未获得主控确认");
         static const QStringList errors{QString(),QStringLiteral("参数或命令无效"),QStringLiteral("主控忙，请等待或停止"),QStringLiteral("急停锁定"),QStringLiteral("主控执行失败，请检查日志"),QStringLiteral("协议不匹配"),QStringLiteral("请先确认机构零点及安全条件")};
         const QString message=errors.value(f.data[0],QStringLiteral("主控拒绝指令"));
+        if(f.command==SS_LATERAL_TEST && f.sequence==lateralTestSequence_){
+            lateralTestSequence_=-1;lateralTestState_=QStringLiteral("横移测试未启动：")+message;
+        }
         if(f.command==SS_ACTION && f.sequence==axis6TestSequence_){
             axis6TestSequence_=-1;axis6TestState_=QStringLiteral("测试未启动：")+message;
         }
         if(calibrating())failCalibration(message);else setStatus(message);return;
     }
     switch(f.command){
+    case SS_LATERAL_TEST:
+        if(f.sequence==lateralTestSequence_){
+            if(f.length!=3){
+                stop();lateralTestSequence_=-1;lateralTestState_=QStringLiteral("横移应答无效，请检查固件版本");
+            }else lateralTestState_=QStringLiteral("横移测试进行中 · 巡航上限%1RPM").arg(ss_get16(f.data+1));
+        }
+        break;
     case SS_GET_LOG: {
         if(!logsLoading_)return;
         const quint32 task=f.length>=14?ss_get32(f.data+1):0;
@@ -206,10 +227,11 @@ void Controller::stop(bool emergency){
     driveTimer_.stop();servoTimer_.stop();servoTargets_.clear();
     calibrationTimeout_.stop();calibrationStage_=0;++calibrationGeneration_;
     if(axis6Testing())axis6TestState_=QStringLiteral("正在停止测试…");
+    if(lateralTesting())lateralTestState_=QStringLiteral("正在停止横移测试…");
     request(emergency?SS_ESTOP:SS_STOP);confirmed_=emergency?false:confirmed_;emit changed();
 }
 void Controller::pauseManual(){
-    if(driveTimer_.isActive() || calibrating() || !servoTargets_.isEmpty() || axis6Testing())stop();
+    if(driveTimer_.isActive() || calibrating() || !servoTargets_.isEmpty() || axis6Testing() || lateralTesting())stop();
     servoTimer_.stop();servoTargets_.clear();
 }
 void Controller::readRings(){if(connected_)request(SS_GET_RINGS);}
@@ -256,6 +278,16 @@ void Controller::testAxis6(){
     const int sequence=request(SS_ACTION,QByteArray(1,char(SS_ACTION_AXIS6_TEST)));
     if(sequence<0)return;
     axis6TestSequence_=sequence;axis6TestState_=QStringLiteral("等待主控开始测试");emit changed();
+}
+void Controller::testLateral(int direction,double distanceMm){
+    if(!connected_ || !confirmed_ || busy() || calibrating() || driveTimer_.isActive() ||
+       !servoTargets_.isEmpty() || (direction!=1 && direction!=-1) || !qIsFinite(distanceMm) ||
+       distanceMm<SS_LATERAL_TEST_MIN_MM || distanceMm>SS_LATERAL_TEST_MAX_MM || distanceMm!=qRound(distanceMm))return;
+    lateralTestDistance_=direction*qRound(distanceMm);
+    QByteArray data(2,0);ss_put16(reinterpret_cast<uint8_t *>(data.data()),quint16(lateralTestDistance_));
+    const int sequence=request(SS_LATERAL_TEST,data);
+    if(sequence<0)return;
+    lateralTestSequence_=sequence;lateralTestState_=QStringLiteral("等待主控开始横移测距");emit changed();
 }
 void Controller::drive(int direction){
     if(!connected_ || !confirmed_ || calibrating() || (direction!=1 && direction!=-1))return;

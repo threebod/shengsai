@@ -11,6 +11,37 @@ public: QByteArray written;
 class ControllerTest:public QObject {
     Q_OBJECT
 private slots:
+    void lateralTestRequiresSafeIdleAndCompletion(){
+        Wire wire;Controller c;c.device_=&wire;
+        c.testLateral(-1,1000);QVERIFY(wire.written.isEmpty());
+        c.connected_=true;c.testLateral(-1,1000);QVERIFY(wire.written.isEmpty());
+        c.confirmed_=true;c.busy_=true;c.testLateral(-1,1000);QVERIFY(wire.written.isEmpty());c.busy_=false;
+        for(double value:{0.,99.,2001.,100.5,std::numeric_limits<double>::quiet_NaN(),std::numeric_limits<double>::infinity()}){
+            c.testLateral(-1,value);QVERIFY(wire.written.isEmpty());
+        }
+        c.testLateral(0,1000);QVERIFY(wire.written.isEmpty());
+        c.testLateral(-1,1000);auto q=wire.last();
+        QCOMPARE(int(q.command),int(SS_LATERAL_TEST));QCOMPARE(int(q.length),2);
+        QCOMPARE(qint16(ss_get16(q.data)),qint16(-1000));QVERIFY(c.lateralTesting() && c.busy());
+        c.testLateral(1,1000);QTest::qWait(150);QVERIFY(wire.written.isEmpty());
+        SsFrame r{};r.command=q.command;r.sequence=q.sequence;r.flags=SS_RESPONSE;r.length=3;ss_put16(r.data+1,150);
+        c.handle(r);QVERIFY(c.lateralTesting() && c.lateralTestState().contains("150RPM"));
+        r.flags=SS_EVENT;r.length=1;r.sequence=q.sequence+1;c.handle(r);QVERIFY(c.lateralTesting());
+        r.sequence=q.sequence;c.handle(r);QVERIFY(!c.lateralTesting());QVERIFY(c.lateralTestState().contains("左1000mm"));
+        c.testLateral(1,2000);q=wire.last();QCOMPARE(qint16(ss_get16(q.data)),qint16(2000));
+        r.sequence=q.sequence;r.data[0]=4;c.handle(r);QVERIFY(!c.lateralTesting() && c.lateralTestState().contains("中止"));
+        c.disconnectDevice();c.device_=nullptr;
+    }
+    void lateralTestRejectsAndStopsOnPauseOrDisconnect(){
+        Wire wire;Controller c;c.device_=&wire;c.connected_=c.confirmed_=true;
+        c.testLateral(1,100);auto q=wire.last();SsFrame r{};
+        r.command=q.command;r.sequence=q.sequence;r.flags=SS_RESPONSE|SS_ERROR;r.length=1;r.data[0]=1;c.handle(r);
+        QVERIFY(!c.lateralTesting() && c.lateralTestState().contains("未启动"));
+        c.testLateral(1,100);wire.last();c.pauseManual();q=wire.last();QCOMPARE(int(q.command),int(SS_STOP));
+        QVERIFY(c.lateralTestState().contains("停止"));
+        c.disconnectDevice();q=wire.last();QCOMPARE(int(q.command),int(SS_STOP));
+        QVERIFY(!c.lateralTesting() && c.lateralTestState().contains("未知"));c.device_=nullptr;
+    }
     void taskLogsReadInPagesWithoutReplayingCalibration(){
         Wire wire;Controller c;c.device_=&wire;
         c.readTaskLog();QVERIFY(wire.written.isEmpty());

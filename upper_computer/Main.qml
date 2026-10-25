@@ -24,7 +24,7 @@ ApplicationWindow {
     readonly property bool mobile: width - SafeArea.margins.left - SafeArea.margins.right < 760 || (Qt.platform.os === "android" && height < 500)
     readonly property int pageSpacing: mobile ? 14 : 20
     readonly property color blue: "#007AFF"
-    readonly property bool motionReady: controller.connected && controller.confirmed && !controller.calibrating && !controller.axis6Testing
+    readonly property bool motionReady: controller.connected && controller.confirmed && !controller.calibrating && !controller.axis6Testing && !controller.lateralTesting
     readonly property var pageNames: ["比赛", "圆环", "视觉", "手动"]
     font.family: Qt.platform.os === "windows" ? "Microsoft YaHei UI" : "sans-serif"
     font.pixelSize: 14
@@ -402,6 +402,20 @@ ApplicationWindow {
                                 ActionButton { text: "按住前进"; primary: true; Layout.fillWidth: true; enabled: app.motionReady; onPressed: controller.drive(1); onReleased: controller.stop(); onCanceled: controller.stop() }
                                 ActionButton { text: "按住后退"; primary: true; Layout.fillWidth: true; enabled: app.motionReady; onPressed: controller.drive(-1); onReleased: controller.stop(); onCanceled: controller.stop() }
                                 Hint { text: "松开、切换页面或窗口失焦即停；主控另有点动指令超时保护。" }
+                            }
+                            Card {
+                                objectName: "lateralTestCard"; heading: "左右横移测距"
+                                Hint { text: "测试距离（mm）" }
+                                NumberField { id: lateralDistance; objectName: "lateralTestDistance"; minimum: 100; maximum: 2000; decimals: 0; text: "1000"; enabled: !controller.lateralTesting }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    ActionButton { objectName: "lateralLeftButton"; text: "向左测试"; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy && lateralDistance.valid; onClicked: controller.testLateral(-1,lateralDistance.number) }
+                                    ActionButton { objectName: "lateralRightButton"; text: "向右测试"; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy && lateralDistance.valid; onClicked: controller.testLateral(1,lateralDistance.number) }
+                                }
+                                ActionButton { text: "停止横移"; Layout.fillWidth: true; enabled: controller.connected && controller.lateralTesting; onClicked: controller.stop() }
+                                Hint { text: "按车体左右单次移动100～2000mm。沿用正式横移速度（最高150RPM）、加减速、航向保持与横移比例；请用尺测实际距离。" }
+                                Hint { text: "切页、失焦或断连停止；完成表示指令距离估算结束，不是实测到位。" }
+                                Hint { text: controller.lateralTestState }
                             }
                         }
                     }

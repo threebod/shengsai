@@ -104,6 +104,7 @@ static uint32_t motionStart, motionDuration, lastControl;
 static void serviceMotion(void);
 /* Route progress is nominal, NOT measured ground position. */
 static uint8_t routeActive, routeWaiting, routeIndex, routeStartZone, routeStep;
+static uint8_t lateralTestActive;
 /* Independent QR-to-RAW arc test: 1 approach, 2 QR wait, 3 arc, 4 exit. */
 static uint8_t arcRoutePhase;
 /* Formal mission uses only the selected corners; exit retains live speeds. */
@@ -642,6 +643,7 @@ static void stopAllMotors(void)
     missionArcActive = missionArcExit = 0U;
     routeActive = 0U;
     fullRouteRunning = 0U;
+    lateralTestActive = 0U;
     presetRouteActive = 0U;
     presetRoute.count = presetRoute.index = 0U;
     missionButtonReady = 0U;
@@ -1507,6 +1509,7 @@ static void finishNavigation(void)
     NavPoint target = navPath[navPathCount - 1U];
     stopDriveMotors();
     routeActive = 0U;
+    lateralTestActive = 0U;
     routeWaiting = 0U;
     routeRotating = routeOnlyTurn = routeTurnInBand = 0U;
     routeHeadingPidReset(&routeHeadingPid);
@@ -2869,6 +2872,7 @@ static void processCommand(const char *command)
 #include "avoidance_firmware.h"
 #include "qr_camera_control.h"
 
+#include "lateral_test.h"
 #include "host_control.h"
 void UART5_IRQHandler(void)
 {

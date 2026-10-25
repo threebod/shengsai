@@ -67,7 +67,7 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
     if(q->command==SS_HELLO) {
         if(q->length!=4) {r->data[0]=1;return;}
         if(hostSession!=ss_get32(q->data)) {
-            if(axis6TestActive()) {
+            if(axis6TestActive() || lateralTestActive) {
                 hostCancelled=hostOperationFailed=1;stopServoMotion();stopAllMotors();
             }
             memset(hostCache,0,sizeof(hostCache));hostConfirmed=0;hostSession=ss_get32(q->data);
@@ -128,6 +128,15 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
         if(!hostDriveActive) {invalidateNavigation("manual_drive");setAllMotorsEnabled(true);}
         hostDriveActive=1;hostDriveAt=clockMs;motionMode=8;
         sendRouteSpeeds(q->data[0]==1?30:-30,0,0);return;
+    case SS_LATERAL_TEST:
+        if(q->length!=2) break;
+        {
+            int16_t distance=(int16_t)ss_get16(q->data);
+            if(abs(distance)<SS_LATERAL_TEST_MIN_MM || abs(distance)>SS_LATERAL_TEST_MAX_MM) break;
+            if(!startLateralTest(distance)) {r->data[0]=4;return;}
+            r->length=3;ss_put16(r->data+1,routeRpm<routeLateralRpmLimit?routeRpm:routeLateralRpmLimit);
+            return;
+        }
     case SS_PREPARE: case SS_MISSION: case SS_ROUTE:
         if(!ss_route_request_valid(q->data,q->length)) break;
         a=ss_get16(q->data+3);
