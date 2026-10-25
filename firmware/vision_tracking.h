@@ -118,9 +118,11 @@ static VisionTrackingState vision_tracking_observe(VisionTracking *tracking,
         return vision_tracking_stop(tracking, VISION_TRACK_FAILED, "TRACK_CALIBRATION_INVALID");
     tracking->sequence = sequence; tracking->sequenceValid = 1U;
     tracking->lastFrameAt = now - age;
-    if (du == 0 && dv == 0) {
+    if (du >= -VISION_ALIGN_TOLERANCE_PX && du <= VISION_ALIGN_TOLERANCE_PX &&
+        dv >= -VISION_ALIGN_TOLERANCE_PX && dv <= VISION_ALIGN_TOLERANCE_PX) {
         if (tracking->mode != VISION_MODE_RING || ++tracking->confirmations >= 2U)
             return vision_tracking_stop(tracking, VISION_TRACK_DONE, "TRACK_IN_RANGE");
+        tracking->forwardMm = tracking->rightMm = 0.0f;
         tracking->forwardRpm = tracking->rightRpm = 0.0f;
         tracking->driveForwardRpm = tracking->driveRightRpm = 0.0f;
     } else tracking->confirmations = 0U;

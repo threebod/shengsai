@@ -170,6 +170,9 @@ static void speedAndDirection(void)
     assert(forward==0); /* A frame arriving between 20ms updates stops the wrong sign now. */
     tick(140U); assert(forward==0);
     tick(141U); assert(forward<0);
+    begin(15U,3000U,80.0f);calibration.matrix[0]=-0.1f;
+    packet.value[0]=158;packet.value[1]=120;receive(1U,100U);tick(120U);
+    assert(forward==1 && right==0); /* Out-of-tolerance small errors still get the minimum RPM. */
 }
 
 static void completionAndBudget(void)
@@ -185,11 +188,11 @@ static void completionAndBudget(void)
     assert(tick(160U)==VISION_TRACK_DONE && forward==0 && right==0);
     receive(4U,180U); assert(tracking.state==VISION_TRACK_DONE);
     begin(15U,1200U,80.0f);packet.value[0]=160;packet.value[1]=120;receive(1U,100U);
-    packet.value[0]=161;receive(2U,120U);assert(!tracking.confirmations);
+    packet.value[0]=162;receive(2U,120U);assert(!tracking.confirmations);
     packet.value[0]=160;receive(3U,140U);assert(tracking.state==VISION_TRACK_RUN);
     receive(4U,160U);assert(tracking.state==VISION_TRACK_DONE);
     /* Fresh ring tracking may continue past its former duration. */
-    begin(15U,60U,80.0f); packet.value[0]=159; packet.value[1]=120; receive(1U,100U);
+    begin(15U,60U,80.0f); packet.value[0]=158; packet.value[1]=120; receive(1U,100U);
     for(now=120U;now<=1100U;now+=20U) {
         receive((uint16_t)now,now);
         assert(tick(now)==VISION_TRACK_RUN && forward>0 && right==0);
@@ -224,12 +227,14 @@ static void completionAndBudget(void)
     assert(tracking.state==VISION_TRACK_DONE);
 }
 
-static void zeroPixelTolerance(void)
+static void pixelTolerance(void)
 {
-    static const int16_t offsets[7][2] = {{0,0},{1,0},{-1,0},{0,1},{0,-1},{2,2},{-2,-2}};
+    static const int16_t offsets[13][2] = {{0,0},{1,0},{-1,0},{0,1},{0,-1},
+        {1,1},{1,-1},{-1,1},{-1,-1},{2,0},{-2,0},{0,2},{0,-2}};
     unsigned index, mode;
     for(mode=VISION_MODE_MATERIAL;mode<=VISION_MODE_RING;++mode) {
-        for(index=0;index<7;++index) {
+        for(index=0;index<13;++index) {
+            unsigned aligned = index<9U;
             begin(30U,1200U,80.0f);
             if(mode==VISION_MODE_MATERIAL) {
                 tracking.mode=packet.mode=VISION_MODE_MATERIAL;
@@ -238,12 +243,15 @@ static void zeroPixelTolerance(void)
             packet.value[0]=(int16_t)(160+offsets[index][0]);
             packet.value[1]=(int16_t)(120+offsets[index][1]);
             receive(1U,100U);
-            if(index==0U && mode==VISION_MODE_RING) {
+            if(aligned && mode==VISION_MODE_RING) {
                 assert(tracking.state==VISION_TRACK_RUN);
+                assert(tick(100U)==VISION_TRACK_RUN && forward==0 && right==0);
+                receive(1U,110U);assert(tracking.confirmations==1U);
+                assert(tick(110U)==VISION_TRACK_RUN && forward==0 && right==0);
                 receive(2U,120U);
             }
-            assert(tracking.state==(index==0U?VISION_TRACK_DONE:VISION_TRACK_RUN));
-            if(index==0U) assert(!strcmp(tracking.reason,"TRACK_IN_RANGE"));
+            assert(tracking.state==(aligned?VISION_TRACK_DONE:VISION_TRACK_RUN));
+            if(aligned) assert(!strcmp(tracking.reason,"TRACK_IN_RANGE"));
         }
     }
 }
@@ -251,7 +259,7 @@ static void zeroPixelTolerance(void)
 int main(void)
 {
     handshakeAndIdentity(); frameValidation(); sequenceFreshness(); thirteenFpsCamera();
-    speedAndDirection(); completionAndBudget(); zeroPixelTolerance();
+    speedAndDirection(); completionAndBudget(); pixelTolerance();
     puts("PASS vision tracking: explicit ACK, strict frames, bounded fresh velocity, reversal stop, deadline/budget and cancellation");
     return 0;
 }

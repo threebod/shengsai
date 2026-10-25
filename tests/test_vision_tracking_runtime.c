@@ -117,9 +117,11 @@ int main(void)
     for (i = 2; i <= 5; ++i) { queueFrame(-4,0,i,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20); }
     assert(sentForward < farForward && sentRight == 0);
     token = visionTrackingRequest.token;
-    queueFrame(0,0,6,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
+    queueFrame(1,-1,6,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
     assert(visionTrackingActive() && visionSession.state == VISION_STATE_MOVE && !sentForward && !sentRight);
-    queueFrame(0,0,7,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
+    queueFrame(1,-1,6,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
+    assert(visionTrackingActive() && !sentForward && !sentRight);
+    queueFrame(-1,1,7,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
     assert(!visionTrackingActive() && !motionMode && stops && visionSession.state == VISION_STATE_ALIGNED);
     assert(visionSession.iteration == 1 && requests == 1);
     assert(vision_session_tick(&visionSession,clockMs+300) == VISION_EVENT_NONE);
@@ -180,9 +182,9 @@ int main(void)
     assert(!startVisionTracking(44.44f,22.86f)); /* No second ring tracking session. */
 
     reset(); cancelVisionTracking();
-    assert(startVisionTracking(1.111f,0));
-    queueFrame(-1,0,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
-    for(i=2;i<8;++i){queueFrame(-1,0,i,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);}
+    assert(startVisionTracking(2.222f,0));
+    queueFrame(-2,0,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
+    for(i=2;i<8;++i){queueFrame(-2,0,i,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);}
     assert(!failures && visionTrackingActive() && sentForward>0);
     queueFrame(0,0,8,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
     queueFrame(0,0,9,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
@@ -195,7 +197,7 @@ int main(void)
 
     /* A ring ignores the former deadline while fresh feedback keeps arriving. */
     reset(); run(); visionTracking.deadlineMs = clockMs;
-    for(i=2;i<52;++i) { queueFrame(-1,0,i,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20); }
+    for(i=2;i<52;++i) { queueFrame(-2,0,i,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20); }
     assert(!failures && visionTrackingActive() && visionSession.state == VISION_STATE_MOVE && sentForward>0);
     queueFrame(0,0,52,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
     queueFrame(0,0,53,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
@@ -210,7 +212,7 @@ int main(void)
         visionSession.maxCorrections = 2; visionSession.iteration = (uint8_t)i;
         missionActive = 1; missionPhase = MISSION_TEMP_ALIGN; expectedWheelLimit = 30;
         assert(startVisionTracking(44.44f,22.86f) && visionTracking.limitRpm == 30);
-        queueFrame(0,0,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
+        queueFrame(1,-1,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
         assert(!enables && visionSession.state == VISION_STATE_SETTLE);
         assert(vision_session_tick(&visionSession,clockMs+299) == VISION_EVENT_NONE);
         assert(vision_session_tick(&visionSession,clockMs+300) == (i==2?VISION_EVENT_CORRECTION_LIMIT:VISION_EVENT_REQUEST));

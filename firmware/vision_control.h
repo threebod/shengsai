@@ -6,6 +6,7 @@
 
 #define VISION_FRAME_SIZE 30U
 #define VISION_VALUE_COUNT 8U
+#define VISION_ALIGN_TOLERANCE_PX 1
 
 #define VISION_MESSAGE_REQUEST 1U
 #define VISION_MESSAGE_RESULT 2U
@@ -516,7 +517,8 @@ static VisionEvent vision_session_observe(VisionSession *session,
     absRight = right < 0.0f ? -right : right;
     aligned = (uint8_t)(absForward <= 3.0f && absRight <= 3.0f);
     if (session->mode == VISION_MODE_RING || session->target != 0U) {
-        aligned = (uint8_t)(du == 0 && dv == 0);
+        aligned = (uint8_t)(du >= -VISION_ALIGN_TOLERANCE_PX && du <= VISION_ALIGN_TOLERANCE_PX &&
+                            dv >= -VISION_ALIGN_TOLERANCE_PX && dv <= VISION_ALIGN_TOLERANCE_PX);
     }
     if (session->mode == VISION_MODE_MATERIAL && session->pickupMode != 0U) {
         aligned = (uint8_t)(du >= -17 && du <= 17);
