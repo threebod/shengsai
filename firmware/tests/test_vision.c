@@ -125,6 +125,24 @@ int main(void)
     }
 
     {
+        VisionSession layout;
+        vision_session_init(&layout);
+        vision_session_start(&layout, VISION_MODE_MATERIAL, 0U, 0U, &calibration, 0U);
+        layout.requestFlags = VISION_FLAG_MATERIAL_LAYOUT;
+        layout.layoutPhase = VISION_LAYOUT_CONFIRM;
+        vision_session_move_complete(&layout, 100U);
+        if (!require(vision_session_tick(&layout, 100U) == VISION_EVENT_NONE &&
+                     layout.state == VISION_STATE_WAIT,
+                     "material layout retained a parking settle delay")) return 1;
+        layout.requestFlags = 0U;
+        vision_session_move_complete(&layout, 200U);
+        vision_session_tick(&layout, 499U);
+        if (!require(layout.state == VISION_STATE_SETTLE &&
+                     vision_session_tick(&layout, 500U) == VISION_EVENT_REQUEST,
+                     "other vision sessions lost their parking settle delay")) return 1;
+    }
+
+    {
         VisionSession recheck;
         VisionPacket result;
         vision_session_init(&recheck);

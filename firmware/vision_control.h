@@ -547,7 +547,8 @@ static VisionEvent vision_session_observe(VisionSession *session,
 static void vision_session_move_complete(VisionSession *session, uint32_t now)
 {
     session->state = VISION_STATE_SETTLE;
-    session->settleUntil = now + 300U;
+    session->settleUntil = now +
+        ((session->requestFlags & VISION_FLAG_MATERIAL_LAYOUT) ? 0U : 300U);
 }
 
 static VisionEvent vision_session_tick(VisionSession *session, uint32_t now)
