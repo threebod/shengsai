@@ -313,7 +313,7 @@ static void remainingArcsPreserved(void)
         {presetRawToCoarse,raw,mask(4,5),6U,2U,-1},
         {presetCoarseToTemp,coarse,mask(13,7),8U,2U,2},
         {presetTempToRaw,temp,mask(7,9),10U,1U,1},
-        {presetTempToRaw,temp,mask(4,5),10U,2U,1},
+        {presetTempToRaw,temp,mask(1,5),10U,2U,1},
         {presetQr1ToRaw,qr,mask(6,5),3U,1U,1},
         {presetQr2ToRaw,qr,mask(6,5),3U,1U,1}
     };
@@ -333,7 +333,7 @@ static void remainingArcsPreserved(void)
         /* Full missions: preserve the old arc count at each workstation,
          * including both repeated rounds and both start-zone tables. */
         static const unsigned focus[][5] = {
-            {7,9,0,1,1}, {8,9,2,1,1}, {4,5,2,1,2}, {7,13,0,2,1}
+            {7,9,0,1,1}, {8,9,2,1,1}, {1,5,2,1,2}, {7,13,0,2,1}
         };
         unsigned zone;
         for (zone = 1U; zone <= 2U; ++zone) for (c = 0U; c < 4U; ++c) {
@@ -388,9 +388,9 @@ static void fixedCandidatePriorities(void)
     candidateCase(presetCoarseToTemp,coarse,mask(13,7),8U,2,3,1200,2080);
     candidateCase(presetTempToRaw,temp,mask(7,9),10U,1,2,400,2080);
     candidateCase(presetTempToRaw,temp,mask(4,11),10U,1,2,1200,1200);
-    candidateCase(presetTempToRaw,temp,mask(4,5),10U,1,6,400,1150);
+    candidateCase(presetTempToRaw,temp,mask(1,5),10U,1,3,2100,1200);
     /* A clear line cannot authorize a station turn swept into region 2. */
-    candidateCase(presetTempToRaw,temp,mask(2,11),10U,1,6,400,1150);
+    candidateCase(presetTempToRaw,temp,mask(2,11),10U,1,3,2100,1200);
     for (zone = 1U; zone <= 2U; ++zone) {
         const PresetCandidate *startRoutes = zone == 1U ? presetStart1ToQr : presetStart2ToQr;
         const PresetCandidate *qrRoutes = zone == 1U ? presetQr1ToRaw : presetQr2ToRaw;
@@ -600,7 +600,7 @@ static void start2ExitAndHome1(void)
         if (!presetBuild(&route,1U,mask(a,b))) continue;
         ++homeRoutes;
         i = taskBegin(&route,19U);
-        assert(route.legs[i].from.heading == 2); /* Leave TEMP without a pivot. */
+        assert(abs(presetHeadingChange(2,route.legs[i].from.heading)) != 2);
         assert(route.legs[route.count-2U].drive.rightMm > 0);
         assert(route.legs[route.count-2U].to.x == 2250 && route.legs[route.count-2U].to.y == 2080);
         assert(route.legs[route.count-1U].drive.upMm == 170);
@@ -633,12 +633,41 @@ static void start2ExitAndHome1(void)
     }
 }
 
+static void tempThirdDirectRight(void)
+{
+    static const int up[] = {0,382,0}, right[] = {1451,0,-651};
+    unsigned zone, i, first;
+    for (zone = 1U; zone <= 2U; ++zone) {
+        assert(presetBuild(&route,(uint8_t)zone,mask(1,5)));
+        first = taskBegin(&route,10U);
+        for (i = 0U; i < 3U; ++i) {
+            RouteLeg active;
+            const PresetLeg *leg = &route.legs[first+i];
+            assert(leg->taskIndex == 10U && leg->arc == (i < 2U));
+            route.index = (uint16_t)(first+i); active = presetActiveLeg(&route);
+            assert(active.upMm == up[i] && active.rightMm == right[i]);
+        }
+        assert(route.legs[first].from.x == 400 && route.legs[first].from.y == 1200);
+        assert(route.legs[first].to.x == 2100 && route.legs[first].to.y == 1200);
+        assert(route.legs[first].drive.rightMm == 1700);
+        assert(route.legs[first+1U].drive.upMm == 880);
+        assert(route.legs[first+2U].drive.rightMm == -900);
+        assert(!strcmp(route.legs[first+2U].drive.event,"RAW_2"));
+        /* Without the former 50mm exit, region 4 blocks the departure pivot. */
+        assert(!presetBuild(&route,(uint8_t)zone,mask(4,5)) && !route.count);
+    }
+    assert(presetBuild(&route,1U,mask(1,5)));
+    first = taskBegin(&route,19U);
+    assert(route.legs[first].drive.rightMm == 1700 && !route.legs[first].drive.upMm);
+    assert(route.legs[first].to.x == 2100 && route.legs[first].to.y == 1200);
+}
+
 int main(void)
 {
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); startSharedDetourDistance(); sharedQrDistance(); rawLeftFourPointRoute(); upperArrivalUsesRawBend(); start2ExitAndHome1(); recenterEnvelope();
+    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); startSharedDetourDistance(); sharedQrDistance(); rawLeftFourPointRoute(); upperArrivalUsesRawBend(); start2ExitAndHome1(); tempThirdDirectRight(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
     assert(!presetBuild(&route,1,0x8001U) && !route.count);
