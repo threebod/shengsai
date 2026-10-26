@@ -47,8 +47,8 @@ static const PresetCandidate presetTempToRaw[3] = {
  * heading during lateral detours: a turn at y=2250/150 cannot fit the body. */
 static const PresetCandidate presetStart1ToQr[3] = {
     {2, {{2100,2250,0,-200,0}, {2100,1200,-1080,0,0}}},
-    {5, {{2100,2250,0,-200,0}, {2100,2100,-150,0,0},
-         {1200,2100,0,-800,0}, {1200,1200,-900,0,0}, {2100,1200,0,900,0}}},
+    {4, {{2250,2000,-250,0,0}, {1200,2000,0,-1000,0},
+         {1200,1200,-800,0,0}, {2100,1200,0,900,0}}},
     {5, {{2100,2250,0,-200,0}, {2100,2100,-150,0,0},
          {300,2100,0,-1800,0}, {300,1200,-900,0,0}, {2100,1200,0,1800,0}}}
 };
@@ -59,11 +59,6 @@ static const PresetCandidate presetStart2ToQr[3] = {
     {5, {{2100,150,0,-150,0}, {2100,300,150,0,0},
          {300,300,0,-1800,0}, {300,1200,900,0,0}, {2100,1200,0,1800,0}}}
 };
-
-/* Zone 1, obstacles 6/7: exit downward before the lateral detour. */
-static const PresetCandidate presetStart1ToQr67 =
-    {4, {{2250,2000,-250,0,0}, {1200,2000,0,-1000,0},
-         {1200,1200,-800,0,0}, {2100,1200,0,900,0}}};
 
 /* 6/3; 9/5; 9/8/7/4/1/2. Keep separate QR->RAW calibration per start zone. */
 static const PresetCandidate presetQr1ToRaw[3] = {

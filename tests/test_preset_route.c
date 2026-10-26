@@ -403,7 +403,10 @@ static void fixedCandidatePriorities(void)
             uint16_t regions = variant == 0U ? mask(7,9) : zone == 1U ?
                 (variant == 1U ? mask(6,11) : mask(6,5)) :
                 (variant == 1U ? mask(12,5) : mask(12,11));
-            candidateCase(startRoutes,start,regions,1U,0,variant ? 5U : 2U,2100,start.y);
+            if (zone == 1U && variant == 1U)
+                candidateCase(startRoutes,start,regions,1U,0,4U,2250,2000);
+            else
+                candidateCase(startRoutes,start,regions,1U,0,variant ? 5U : 2U,2100,start.y);
             assert(route.legs[0].taskIndex == 0U && route.legs[1].taskIndex == 1U);
             if (variant) assert(route.legs[2].to.x == (variant == 1U ? 1200 : 300));
         }
@@ -515,34 +518,36 @@ static void experimental713Arrival(void)
     assert(route.count == 5U && route.legs[3].drive.rightMm == 100);
 }
 
-static void startUpperDetourDistance(void)
+static void startSharedDetourDistance(void)
 {
-    static const unsigned otherRegions[] = {1,4,10,11,12,13};
+    static const unsigned otherRegions[] = {1,4,7,10,11,12,13};
+    static const int up[] = {-250,0,-800,0}, right[] = {0,-1000,0,900};
+    static const int x[] = {2250,1200,1200,2100}, y[] = {2000,2000,1200,1200};
     unsigned zone, i;
     for (zone = 1U; zone <= 2U; ++zone) {
-        assert(presetBuild(&route,(uint8_t)zone,mask(6,11)));
+        assert(presetBuild(&route,(uint8_t)zone,mask(7,9)));
         assert(route.legs[0].taskIndex == 0U && !route.legs[0].arc);
         assert(route.legs[0].drive.upMm == 0);
         assert(route.legs[0].drive.rightMm == (zone == 1U ? -200 : -150));
         assert(route.legs[0].from.x == 2250 && route.legs[0].to.x == 2100);
         assert(route.legs[0].from.y == (zone == 1U ? 2250 : 150));
-        if (zone == 1U) {
-            assert(route.legs[2].taskIndex == 1U && !route.legs[2].arc);
-            assert(route.legs[2].from.x == 2100 && route.legs[2].from.y == 2100);
-            assert(route.legs[2].to.x == 1200 && route.legs[2].to.y == 2100);
-            assert(!route.legs[2].drive.upMm && route.legs[2].drive.rightMm == -800);
-        } else {
-            assert(route.legs[2].taskIndex == 3U && route.legs[2].drive.rightMm == -900);
-        }
-        assert(presetBuild(&route,(uint8_t)zone,mask(7,9)));
-        assert(route.legs[0].drive.rightMm == (zone == 1U ? -200 : -150));
     }
     for (i = 0U; i < sizeof(otherRegions)/sizeof(otherRegions[0]); ++i) {
+        unsigned legIndex;
         assert(presetBuild(&route,1U,mask(6,otherRegions[i])));
-        assert(route.legs[0].drive.rightMm == -200);
-        assert(route.legs[2].from.x == 2100 && route.legs[2].from.y == 2100);
-        assert(route.legs[2].to.x == 1200 && route.legs[2].to.y == 2100);
-        assert(route.legs[2].drive.rightMm == -800);
+        for (legIndex = 0U; legIndex < 4U; ++legIndex) {
+            const PresetLeg *leg = &route.legs[legIndex];
+            RouteLeg active;
+            route.index = (uint16_t)legIndex; active = presetActiveLeg(&route);
+            assert(active.upMm == up[legIndex] && active.rightMm == right[legIndex]);
+            assert(leg->to.x == x[legIndex] && leg->to.y == y[legIndex]);
+            assert(leg->taskIndex == (legIndex ? 1U : 0U) && !leg->arc);
+            assert(leg->from.heading == 0 && leg->to.heading == 0);
+            assert(!!leg->drive.event == (legIndex == 3U));
+        }
+        assert(!strcmp(route.legs[3].drive.event,"QR"));
+        assert(presetBuild(&route,2U,mask(6,otherRegions[i])));
+        assert(route.legs[0].drive.rightMm == -150 && !route.legs[0].drive.upMm);
     }
 }
 
@@ -557,25 +562,9 @@ static void fixedStartDetours(void)
     assert(route.legs[i].from.x == 1200 && route.legs[i].to.x == 2100);
 }
 
-static void start67AndSharedQrDistance(void)
+static void sharedQrDistance(void)
 {
-    static const int up[] = {-250,0,-800,0}, right[] = {0,-1000,0,900};
-    static const int x[] = {2250,1200,1200,2100}, y[] = {2000,2000,1200,1200};
-    unsigned i, zone, a, b, secondCandidates = 0U;
-    assert(presetBuild(&route,1U,mask(6,7)));
-    for (i = 0U; i < 4U; ++i) {
-        const PresetLeg *leg = &route.legs[i];
-        RouteLeg active;
-        route.index = (uint16_t)i; active = presetActiveLeg(&route);
-        assert(active.upMm == up[i] && active.rightMm == right[i]);
-        assert(leg->to.x == x[i] && leg->to.y == y[i]);
-        assert(leg->taskIndex == (i ? 1U : 0U) && !leg->arc);
-        assert(leg->from.heading == 0 && leg->to.heading == 0);
-        assert(!!leg->drive.event == (i == 3U));
-    }
-    assert(!strcmp(route.legs[3].drive.event,"QR"));
-    assert(presetBuild(&route,2U,mask(6,7)));
-    assert(route.legs[0].drive.rightMm == -150 && !route.legs[0].drive.upMm);
+    unsigned zone, a, b, secondCandidates = 0U;
     for (zone = 1U; zone <= 2U; ++zone) for (a = 1U; a <= 15U; ++a)
         for (b = a+1U; b <= 15U; ++b) {
             const PresetCandidate *candidates = zone == 1U ? presetQr1ToRaw : presetQr2ToRaw;
@@ -598,7 +587,7 @@ int main(void)
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); startUpperDetourDistance(); start67AndSharedQrDistance(); rawLeftFourPointRoute(); experimental713Arrival(); recenterEnvelope();
+    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); startSharedDetourDistance(); sharedQrDistance(); rawLeftFourPointRoute(); experimental713Arrival(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
     assert(!presetBuild(&route,1,0x8001U) && !route.count);

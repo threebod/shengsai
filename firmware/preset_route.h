@@ -618,8 +618,6 @@ static uint8_t presetFixedConnect(PresetRoute *route, PresetPose start,
                                   const char *event, int8_t stationHeading)
 {
     unsigned i;
-    if (candidates == presetStart1ToQr && route->regions == ((1U << 5) | (1U << 6)))
-        return presetTryCandidate(route,start,&presetStart1ToQr67,taskIndex,event,stationHeading);
     for (i = 0U; i < 3U; ++i) {
         const PresetCandidate *candidate = &candidates[i];
         if (candidates == presetCoarseToTemp && i == 2U &&
