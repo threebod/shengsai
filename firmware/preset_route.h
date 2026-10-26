@@ -652,6 +652,13 @@ static uint8_t presetPlanConnect(PresetRoute *route, PresetPose start,
     calibrated.upMm = primary->steps[last].upMm; calibrated.rightMm = primary->steps[last].rightMm;
     calibrated.event = home1 ? 0 : event;
     calibrated.departureHeading = calibrated.heading = stationHeading;
+    if (candidates == presetStart1ToQr) {
+        PresetPose down = {2250,2100,0}, exit = {2100,2100,0};
+        RouteLeg descent = {-150,0,0,0,0}, left = {0,-150,0,0,0};
+        if (!presetAppend(route,start,down,0U,&descent) ||
+            !presetAppend(route,down,exit,taskIndex,&left)) goto fail;
+        start = exit;
+    }
     if (candidates == presetStart2ToQr && (route->regions & (1U << 11))) {
         PresetPose rise = {2250,300,0}, exit = {2100,300,0};
         RouteLeg up = {150,0,0,0,0}, left = {0,-150,0,0,0};

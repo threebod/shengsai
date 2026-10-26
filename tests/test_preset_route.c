@@ -411,10 +411,11 @@ static void fixedCandidatePriorities(void)
             uint16_t regions = variant == 0U ? mask(7,9) : zone == 1U ?
                 (variant == 1U ? mask(6,11) : mask(6,5)) :
                 (variant == 1U ? mask(12,5) : mask(12,11));
-            if (variant && (zone == 2U || variant == 1U))
-                candidateCase(startRoutes,start,regions,1U,0,4U,2250,zone == 1U ? 2000 : 300);
+            if (variant)
+                candidateCase(startRoutes,start,regions,1U,0,4U,2250,
+                              zone == 1U ? (variant == 1U ? 2000 : 2100) : 300);
             else
-                candidateCase(startRoutes,start,regions,1U,0,variant ? 5U : 2U,2100,start.y);
+                candidateCase(startRoutes,start,regions,1U,0,2U,2100,start.y);
             assert(route.legs[0].taskIndex == 0U && route.legs[1].taskIndex == 1U);
             if (variant) assert(route.legs[2].to.x == (variant == 1U ? 1200 : 300));
         }
@@ -797,12 +798,39 @@ static void rawRightDirectArrival(void)
     }
 }
 
+static void start1LoopDownBeforeLeft(void)
+{
+    static const unsigned pairs[][2] = {{5,6},{6,8},{6,9}};
+    unsigned map, i;
+    for (map = 0U; map < sizeof(pairs)/sizeof(pairs[0]); ++map) {
+        unsigned qr, arcs = 0U;
+        assert(presetBuild(&route,1U,mask(pairs[map][0],pairs[map][1])));
+        assert(route.legs[0].taskIndex == 0U && !route.legs[0].arc);
+        assert(route.legs[0].from.x == 2250 && route.legs[0].from.y == 2250);
+        assert(route.legs[0].to.x == 2250 && route.legs[0].to.y == 2100);
+        assert(route.legs[0].drive.upMm == -150 && !route.legs[0].drive.rightMm);
+        assert(route.legs[1].taskIndex == 1U && !route.legs[1].arc);
+        assert(route.legs[1].from.y == 2100 && route.legs[1].to.y == 2100);
+        assert(route.legs[1].drive.rightMm < 0 && !route.legs[1].drive.upMm);
+        if (!map) {
+            assert(route.legs[1].drive.rightMm == -2000);
+            assert(route.legs[1].to.x == 300);
+        } else {
+            assert(route.legs[1].drive.rightMm == -150 && route.legs[1].to.x == 2100);
+        }
+        for (qr = 0U; qr < route.count && !route.legs[qr].drive.event; ++qr) { }
+        assert(qr < route.count && !strcmp(route.legs[qr].drive.event,"QR"));
+        for (i = 0U; i <= qr; ++i) arcs += !!route.legs[i].arc;
+        if (map == 1U) assert(arcs == 3U); /* Keep the pictured outer-loop bends. */
+    }
+}
+
 int main(void)
 {
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); startSharedDetourDistance(); sharedQrDistance(); rawLeftFourPointRoute(); upperArrivalUsesRawBend(); start2ExitAndHome1(); tempThirdDirectRight(); tempFourthViaCoarse(); searchedCorridors(); rawRightDirectArrival(); recenterEnvelope();
+    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); startSharedDetourDistance(); sharedQrDistance(); rawLeftFourPointRoute(); upperArrivalUsesRawBend(); start2ExitAndHome1(); tempThirdDirectRight(); tempFourthViaCoarse(); searchedCorridors(); rawRightDirectArrival(); start1LoopDownBeforeLeft(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
     assert(!presetBuild(&route,1,0x8001U) && !route.count);
