@@ -30,21 +30,24 @@ static const PresetCandidate presetCoarseToTemp[3] = {
     {2, {{1200,1200,800,0,2}, {400,1200,0,-800,2}}},
     {3, {{1200,2080,1680,0,0}, {400,2080,0,-860,1}, {400,1200,-886,0,2}}}
 };
-/* Up then right; right then up; right outside via 6/3. */
-static const PresetCandidate presetTempToRaw[3] = {
+/* Up then right; right then up; right outside; down via COARSE then up. */
+static const PresetCandidate presetTempToRaw[4] = {
     /* Four-point version: up 631, original arc, right 601. */
     {2, {{400,2080,880,0,2}, {1200,2080,0,850,1}}},
     {2, {{1200,1200,0,800,2}, {1200,2080,880,0,2}}},
-    {3, {{2100,1200,0,1700,-1}, {2100,2080,880,0,0}, {1200,2080,0,-900,1}}}
+    {3, {{2100,1200,0,1700,-1}, {2100,2080,880,0,0}, {1200,2080,0,-900,1}}},
+    {3, {{400,400,-850,0,2}, {1200,400,0,860,-1}, {1200,2080,1680,0,0}}}
 };
 
 /* Reuse TEMP->RAW corridors; continue east then north with the post-bend heading. */
-static const PresetCandidate presetTempToHome1[3] = {
+static const PresetCandidate presetTempToHome1[4] = {
     {3, {{400,2080,880,0,2}, {2250,2080,0,1850,1}, {2250,2250,170,0,1}}},
     {4, {{1200,1200,0,800,2}, {1200,2080,880,0,2},
          {2250,2080,0,1050,1}, {2250,2250,170,0,1}}},
     {4, {{2100,1200,0,1700,-1}, {2100,2080,880,0,0},
-         {2250,2080,0,150,1}, {2250,2250,170,0,1}}}
+         {2250,2080,0,150,1}, {2250,2250,170,0,1}}},
+    {5, {{400,400,-850,0,2}, {1200,400,0,860,-1}, {1200,2080,1680,0,0},
+         {2250,2080,0,1050,1}, {2250,2250,170,0,1}}}
 };
 
 /* Start-zone tables are intentionally independent. Keep the initial exit

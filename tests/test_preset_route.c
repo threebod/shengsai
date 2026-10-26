@@ -183,6 +183,8 @@ static void checkRoute(uint8_t zone)
             if (leg->arc == PRESET_ARC_FOUR_POINT)
                 assert(((leg->taskIndex == 8U || leg->taskIndex == 15U) && leg->drive.rightMm == -860) ||
                        ((leg->taskIndex == 10U || leg->taskIndex == 19U) && leg->drive.upMm == 880) ||
+                       ((leg->taskIndex == 10U || leg->taskIndex == 19U) &&
+                        (leg->drive.upMm == -850 || leg->drive.rightMm == 860)) ||
                        ((leg->taskIndex == 6U || leg->taskIndex == 13U) &&
                         (leg->drive.rightMm == -830 || leg->drive.upMm == -1740)));
             assert(!leg->drive.event && i+1U < route.count);
@@ -611,7 +613,7 @@ static void start2ExitAndHome1(void)
             const PresetLeg *leg = &route.legs[i];
             assert(abs(presetHeadingChange(leg->from.heading,leg->to.heading)) != 2);
             if (i) assert(abs(presetHeadingChange(route.legs[i-1U].to.heading,leg->from.heading)) != 2);
-            if (leg->arc == PRESET_ARC_FOUR_POINT) {
+            if (leg->arc == PRESET_ARC_FOUR_POINT && leg->drive.upMm > 0) {
                 assert(leg->drive.upMm == presetTempToRaw[0].steps[0].upMm);
                 assert(leg->to.x == presetTempToRaw[0].steps[0].x);
                 assert(leg->to.y == presetTempToRaw[0].steps[0].y);
@@ -662,12 +664,52 @@ static void tempThirdDirectRight(void)
     assert(route.legs[first].to.x == 2100 && route.legs[first].to.y == 1200);
 }
 
+static void tempFourthViaCoarse(void)
+{
+    static const unsigned upper[] = {1,4}, blocked[] = {2,5,10,13,14};
+    static const int up[] = {-601,0,1431}, right[] = {0,362,0};
+    unsigned zone, map, i, first;
+    const PresetPose start = {400,1200,2};
+    for (zone = 1U; zone <= 2U; ++zone) for (map = 0U; map < 2U; ++map) {
+        for (i = 0U; i < 3U; ++i) {
+            memset(&route,0,sizeof(route)); route.regions = mask(upper[map],7);
+            assert(!presetTryCandidate(&route,start,&presetTempToRaw[i],10U,"RAW_2",1));
+            assert(!route.count);
+        }
+        assert(presetBuild(&route,(uint8_t)zone,mask(upper[map],7)));
+        first = taskBegin(&route,10U);
+        for (i = 0U; i < 3U; ++i) {
+            RouteLeg active;
+            const PresetLeg *leg = &route.legs[first+i];
+            assert(leg->taskIndex == 10U && leg->arc == (i < 2U ? PRESET_ARC_FOUR_POINT : 0U));
+            route.index = (uint16_t)(first+i); active = presetActiveLeg(&route);
+            assert(active.upMm == up[i] && active.rightMm == right[i]);
+        }
+        assert(route.legs[first].drive.upMm == -presetCoarseToTemp[0].steps[1].upMm);
+        assert(route.legs[first+1U].drive.rightMm == -presetCoarseToTemp[0].steps[0].rightMm);
+        assert(route.legs[first+2U].drive.upMm == -presetRawToCoarse[0].steps[0].upMm);
+        assert(!strcmp(route.legs[first+2U].drive.event,"RAW_2"));
+        if (zone == 1U) {
+            first = taskBegin(&route,19U);
+            assert(route.legs[first].drive.upMm == -850 && route.legs[first].from.heading == 2);
+            assert(route.legs[first+1U].drive.rightMm == 860);
+            assert(route.legs[first+2U].drive.upMm == 1680);
+            assert(!route.legs[first+2U].drive.event);
+        }
+    }
+    for (map = 0U; map < sizeof(blocked)/sizeof(blocked[0]); ++map) {
+        memset(&route,0,sizeof(route)); route.regions = mask(blocked[map],7);
+        assert(!presetTryCandidate(&route,start,&presetTempToRaw[3],10U,"RAW_2",1));
+        assert(!route.count);
+    }
+}
+
 int main(void)
 {
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); startSharedDetourDistance(); sharedQrDistance(); rawLeftFourPointRoute(); upperArrivalUsesRawBend(); start2ExitAndHome1(); tempThirdDirectRight(); recenterEnvelope();
+    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); startSharedDetourDistance(); sharedQrDistance(); rawLeftFourPointRoute(); upperArrivalUsesRawBend(); start2ExitAndHome1(); tempThirdDirectRight(); tempFourthViaCoarse(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
     assert(!presetBuild(&route,1,0x8001U) && !route.count);

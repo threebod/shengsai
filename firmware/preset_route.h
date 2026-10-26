@@ -574,8 +574,10 @@ static uint8_t presetTryCandidate(PresetRoute *route, PresetPose start,
         current = to;
     }
     if (candidate == &presetRawToCoarse[1] || candidate == &presetCoarseToTemp[0] ||
-        candidate == &presetTempToRaw[0] || candidate == &presetTempToHome1[0]) {
-        unsigned bends = candidate == &presetRawToCoarse[1] ? 2U : 1U;
+        candidate == &presetTempToRaw[0] || candidate == &presetTempToHome1[0] ||
+        candidate == &presetTempToRaw[3] || candidate == &presetTempToHome1[3]) {
+        unsigned bends = candidate == &presetRawToCoarse[1] ||
+                         candidate == &presetTempToRaw[3] || candidate == &presetTempToHome1[3] ? 2U : 1U;
         for (i = first; i < first+bends; ++i) {
             PresetLeg *before = &route->legs[i], *after = &route->legs[i+1U];
             int trim = i > first ? PRESET_ARC_TRIM : 0;
@@ -615,11 +617,11 @@ fail:
     route->count = (uint16_t)first; return 0U;
 }
 static uint8_t presetFixedConnect(PresetRoute *route, PresetPose start,
-                                  const PresetCandidate candidates[3], uint8_t taskIndex,
+                                  const PresetCandidate candidates[], uint8_t taskIndex,
                                   const char *event, int8_t stationHeading)
 {
-    unsigned i;
-    for (i = 0U; i < 3U; ++i) {
+    unsigned i, count = candidates == presetTempToRaw || candidates == presetTempToHome1 ? 4U : 3U;
+    for (i = 0U; i < count; ++i) {
         const PresetCandidate *candidate = &candidates[i];
         if (presetTryCandidate(route,start,candidate,taskIndex,event,stationHeading)) return 1U;
     }
