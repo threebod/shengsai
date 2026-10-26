@@ -13,7 +13,7 @@ typedef struct {
 } PresetStep;
 typedef struct {
     uint8_t count;
-    PresetStep steps[6];
+    PresetStep steps[7];
 } PresetCandidate;
 
 /* Centre; original four-point left route; right outside. */
@@ -28,12 +28,8 @@ static const PresetCandidate presetCoarseToTemp[3] = {
     /* Four-point version: left 611, original arc, up 601. No extra moves. */
     {2, {{400,400,0,-860,-1}, {400,1200,850,0,2}}},
     {2, {{1200,1200,800,0,2}, {400,1200,0,-800,2}}},
-    {5, {{1200,2080,1680,0,0}, {300,2080,0,-900,1}, {300,1300,-780,0,2},
-         {400,1300,0,100,2}, {400,1200,-106,0,2}}}
+    {3, {{1200,2080,1680,0,0}, {400,2080,0,-860,1}, {400,1200,-886,0,2}}}
 };
-/* User-requested 7/13 experiment: join x=400 at the upper bend, no final sidestep. */
-static const PresetCandidate presetCoarseToTemp713 =
-    {3, {{1200,2080,1680,0,0}, {400,2080,0,-860,1}, {400,1200,-886,0,2}}};
 /* Up then right; right then up; right outside via 6/3. */
 static const PresetCandidate presetTempToRaw[3] = {
     /* Four-point version: up 631, original arc, right 601. */
@@ -41,6 +37,16 @@ static const PresetCandidate presetTempToRaw[3] = {
     {2, {{1200,1200,0,800,2}, {1200,2080,880,0,2}}},
     {6, {{400,1150,-50,0,2}, {1300,1150,0,900,-1}, {1300,1200,50,0,-1},
          {2100,1200,0,800,-1}, {2100,2080,880,0,0}, {1200,2080,0,-900,1}}}
+};
+
+/* Reuse TEMP->RAW corridors; continue east then north with the post-bend heading. */
+static const PresetCandidate presetTempToHome1[3] = {
+    {3, {{400,2080,880,0,2}, {2250,2080,0,1850,1}, {2250,2250,170,0,1}}},
+    {4, {{1200,1200,0,800,2}, {1200,2080,880,0,2},
+         {2250,2080,0,1050,1}, {2250,2250,170,0,1}}},
+    {7, {{400,1150,-50,0,2}, {1300,1150,0,900,-1}, {1300,1200,50,0,-1},
+         {2100,1200,0,800,-1}, {2100,2080,880,0,0},
+         {2250,2080,0,150,1}, {2250,2250,170,0,1}}}
 };
 
 /* Start-zone tables are intentionally independent. Keep the initial exit
@@ -54,10 +60,10 @@ static const PresetCandidate presetStart1ToQr[3] = {
 };
 static const PresetCandidate presetStart2ToQr[3] = {
     {2, {{2100,150,0,-150,0}, {2100,1200,1020,0,0}}},
-    {5, {{2100,150,0,-150,0}, {2100,300,150,0,0},
-         {1200,300,0,-900,0}, {1200,1200,900,0,0}, {2100,1200,0,900,0}}},
-    {5, {{2100,150,0,-150,0}, {2100,300,150,0,0},
-         {300,300,0,-1800,0}, {300,1200,900,0,0}, {2100,1200,0,1800,0}}}
+    {4, {{2250,300,150,0,0}, {1200,300,0,-1050,0},
+         {1200,1200,900,0,0}, {2100,1200,0,900,0}}},
+    {4, {{2250,300,150,0,0}, {300,300,0,-1950,0},
+         {300,1200,900,0,0}, {2100,1200,0,1800,0}}}
 };
 
 /* 6/3; 9/5; 9/8/7/4/1/2. Keep separate QR->RAW calibration per start zone. */

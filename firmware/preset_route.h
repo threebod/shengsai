@@ -16,11 +16,9 @@
 #define PRESET_STATE_COUNT (PRESET_NODE_COUNT * PRESET_NODE_STATES)
 #define PRESET_LEG_CAPACITY 128U
 #define PRESET_ARC_TRIM 249
-/* The original RAW->COARSE left route and COARSE->TEMP / TEMP->RAW primaries keep
- * their original arc rule instead of the later fixed-block geometry model. */
+/* Reused four-point bends check selected obstacles and the field boundary
+ * instead of the later fixed-block geometry model. */
 #define PRESET_ARC_FOUR_POINT 2U
-/* Only the 7/13 upper-left experimental bend skips the body sweep check. */
-#define PRESET_ARC_EXPERIMENTAL_713 3U
 typedef struct { int16_t x, y; int8_t heading; } PresetPose;
 typedef struct {
     RouteLeg drive;
@@ -552,8 +550,8 @@ static void presetSelectArcs(PresetRoute *route, uint8_t zone, unsigned first, u
         }
     }
 }
-/* Fixed candidates keep their corridors; only the explicit 7/13 experiment
- * forces its unchecked upper-left bend. Validate remaining parking turns. */
+/* Fixed candidates keep their corridors and the original four-point bends.
+ * Validate remaining parking turns. */
 static uint8_t presetTryCandidate(PresetRoute *route, PresetPose start,
                                   const PresetCandidate *candidate, uint8_t taskIndex,
                                   const char *event, int8_t stationHeading)
@@ -576,7 +574,7 @@ static uint8_t presetTryCandidate(PresetRoute *route, PresetPose start,
         current = to;
     }
     if (candidate == &presetRawToCoarse[1] || candidate == &presetCoarseToTemp[0] ||
-        candidate == &presetTempToRaw[0]) {
+        candidate == &presetTempToRaw[0] || candidate == &presetTempToHome1[0]) {
         unsigned bends = candidate == &presetRawToCoarse[1] ? 2U : 1U;
         for (i = first; i < first+bends; ++i) {
             PresetLeg *before = &route->legs[i], *after = &route->legs[i+1U];
@@ -589,9 +587,12 @@ static uint8_t presetTryCandidate(PresetRoute *route, PresetPose start,
         }
     } else {
         presetSelectArcs(route,1U,first,0U);
-        if (candidate == &presetCoarseToTemp713) {
+        if (candidate == &presetCoarseToTemp[2]) {
             PresetLeg *before = &route->legs[first+1U], *after = &route->legs[first+2U];
-            before->arc = PRESET_ARC_EXPERIMENTAL_713;
+            before->arc = PRESET_ARC_FOUR_POINT;
+            if (abs(before->drive.rightMm)-PRESET_ARC_TRIM <= 250 ||
+                abs(after->drive.upMm) <= 250 ||
+                !presetArcClear(before,after,route->regions)) goto fail;
             before->drive.heading = after->from.heading;
         }
     }
@@ -620,16 +621,13 @@ static uint8_t presetFixedConnect(PresetRoute *route, PresetPose start,
     unsigned i;
     for (i = 0U; i < 3U; ++i) {
         const PresetCandidate *candidate = &candidates[i];
-        if (candidates == presetCoarseToTemp && i == 2U &&
-            route->regions == ((1U << 6) | (1U << 12))) candidate = &presetCoarseToTemp713;
         if (presetTryCandidate(route,start,candidate,taskIndex,event,stationHeading)) return 1U;
     }
     return 0U;
 }
 static uint8_t presetBuild(PresetRoute *route, uint8_t zone, uint16_t regions)
 {
-    /* Select each fixed group in priority order. Only the final return home
-     * retains the original search and local outer-corner construction. */
+    /* Select fixed groups in priority order. Zone 2 keeps its home search. */
     static const uint8_t events[8] = {1,3,6,8,10,13,15,19};
     static const PresetPose stations[7] = {
         {1200,2080,1}, {1200,400,-1}, {400,1200,2}, {1200,2080,1},
@@ -648,9 +646,12 @@ static uint8_t presetBuild(PresetRoute *route, uint8_t zone, uint16_t regions)
     for (stage = 0; stage < 7U; ++stage) {
         PresetPose station = stations[stage];
         if (stage == 6U && zone == 2U) station.y = 150;
+        if (stage == 6U && zone == 1U) station.heading = 1;
         uint8_t task = events[stage+1U];
         calibrated = routeDistanceLeg(task,zone);
-        if (stage == 6U) {
+        if (stage == 6U && zone == 1U) {
+            if (!presetFixedConnect(route,current,presetTempToHome1,task,calibrated.event,station.heading)) goto fail;
+        } else if (stage == 6U) {
             unsigned first = route->count;
             if (!presetConnect(route,current,station,task,calibrated)) goto fail;
             presetSelectArcs(route,zone,first,1U);
