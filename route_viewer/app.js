@@ -85,8 +85,11 @@
                     return [leg.to[0] + localX * c - y * s, leg.to[1] + localX * s + y * c,
                             leg.from[2] + d * degrees / 90];
                 });
-                add('arc', points, 1.65, i, `${kind === 'reverse' ? '倒车' : '前进'}连续${d > 0 ? '左' : '右'}转 90°`,
-                    `225 mm 基准半径 · 缓变曲率 · 两端各裁切 ${data.trim} mm`);
+                const arcType = leg.experimentalArc ? ' · 7/13实验弯' : leg.fourPointArc ? ' · 四点版' : '';
+                const checks = leg.experimentalArc ? ' · 未做车体扫掠检查' :
+                    leg.fourPointArc ? ' · 检查边界及所选障碍，未检查固定区' : '';
+                add('arc', points, 1.65, i, `${kind === 'reverse' ? '倒车' : '前进'}连续${d > 0 ? '左' : '右'}转 90°${arcType}`,
+                    `225 mm 基准半径 · 缓变曲率 · 两端各裁切 ${data.trim} mm${checks}`);
             } else {
                 turn(leg.heading, i);
             }
@@ -145,8 +148,9 @@
         drawField(); $('steps').replaceChildren(); stepNodes = [];
         const start = Number($('from').value), end = Number($('to').value);
         $('route-title').textContent = `${names[start]} → ${names[end]}`;
-        $('route-status').classList.toggle('error', !route);
-        $('route-status').textContent = route ? `${a} / ${b} 号障碍 · 固件规划可行` : a === b ? '请选择两个不同的障碍区域。' : '固件拒绝此组合：完整比赛路线不可行。请更换障碍位置。';
+        const experimental = route && route.some(leg => leg.experimentalArc);
+        $('route-status').classList.toggle('error', !route || experimental);
+        $('route-status').textContent = route ? `${a} / ${b} 号障碍 · 固件已生成路线${experimental ? ' · 含7/13实验弯，未做该弯车体扫掠检查' : ''}` : a === b ? '请选择两个不同的障碍区域。' : '固件拒绝此组合：完整比赛路线不可行。请更换障碍位置。';
         ['play', 'reset', 'progress', 'speed'].forEach(id => $(id).disabled = !route);
         if (!route) {
             all = selected = []; total = 0;

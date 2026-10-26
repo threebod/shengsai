@@ -48,10 +48,10 @@ int main(void)
             route.index = (uint16_t)i;
             active = presetActiveLeg(&route);
             if (i) putchar(',');
-            printf("{\"from\":[%d,%d,%d],\"to\":[%d,%d,%d],\"task\":%u,\"arc\":%u,\"fourPointArc\":%u,"
+            printf("{\"from\":[%d,%d,%d],\"to\":[%d,%d,%d],\"task\":%u,\"arc\":%u,\"fourPointArc\":%u,\"experimentalArc\":%u,"
                    "\"up\":%d,\"right\":%d,\"departure\":%d,\"heading\":%d,\"event\":",
                    l->from.x,l->from.y,l->from.heading,l->to.x,l->to.y,l->to.heading,
-                   l->taskIndex,!!l->arc,l->arc == PRESET_ARC_FOUR_POINT,
+                   l->taskIndex,!!l->arc,l->arc == PRESET_ARC_FOUR_POINT,l->arc == PRESET_ARC_EXPERIMENTAL_713,
                    active.upMm,active.rightMm,active.departureHeading,active.heading);
             if (l->drive.event) printf("\"%s\"",l->drive.event); else printf("null");
             putchar('}');
