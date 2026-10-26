@@ -2,81 +2,440 @@
 #define SHENGSAI_ROUTE_CANDIDATES_H
 #include <stdint.h>
 
-/* Absolute nominal endpoints, calibrated signed commands in mm, travel heading.
- * Each group is ordered by priority. Workstation events are bound by the caller,
- * so both rounds and both start zones use the same station-to-station tables.
- * Detours reuse nominal corridors and existing station calibration; physical
- * validation is still required. */
+/* Complete immutable motion templates. Headings: 0 up, 1 left, 2 down, -1 right.
+ * up/right are signed calibrated commands BEFORE the fixed 249mm arc trims.
+ * Each step freezes departure, nominal arrival, command-end heading and arc.
+ * Region selection may reject a whole template, never edit its steps. */
+typedef struct { int16_t x, y; int8_t heading; } PresetPose;
 typedef struct {
     int16_t x, y, upMm, rightMm;
-    int8_t heading;
+    int8_t departureHeading, arrivalHeading, commandHeading;
+    uint8_t arc;
 } PresetStep;
 typedef struct {
+    const char *code;
+    const PresetStep *steps;
     uint8_t count;
-    PresetStep steps[7];
 } PresetCandidate;
+typedef struct {
+    PresetPose start, goal;
+    const uint8_t *templates;
+    uint8_t count;
+} PresetGroup;
 
-/* Centre; original four-point left route; right outside. */
-static const PresetCandidate presetRawToCoarse[3] = {
-    {1, {{1200,400,-1680,0,2}}},
-    {3, {{400,2080,0,-830,1}, {400,400,-1740,0,2}, {1200,400,0,910,-1}}},
-    {3, {{2100,2080,0,900,-1}, {2100,400,-1680,0,2}, {1200,400,0,-900,-1}}}
+/* S1-1 */
+static const PresetStep presetSteps1[] = {
+    {2100,2250,0,-200,0,0,0,0},
+    {2100,1200,-1080,0,0,0,0,0},
 };
-/* Left then up (14/13/10); up then left (11/8/7); upper outside (2/1/4). */
-static const PresetCandidate presetCoarseToTemp[3] = {
-    /* Four-point version: left 611, original arc, up 601. No extra moves. */
-    {2, {{400,400,0,-860,-1}, {400,1200,850,0,2}}},
-    {2, {{1200,1200,800,0,2}, {400,1200,0,-800,2}}},
-    {3, {{1200,2080,1680,0,0}, {400,2080,0,-910,1}, {400,1200,-886,0,2}}}
+/* S1-2 */
+static const PresetStep presetSteps2[] = {
+    {2250,2000,-250,0,0,0,0,0},
+    {1200,2000,0,-1000,0,0,0,0},
+    {1200,1200,-800,0,0,0,0,0},
+    {2100,1200,0,900,0,0,0,0},
 };
-/* Up then right; right then up; right outside; down via COARSE then up. */
-static const PresetCandidate presetTempToRaw[4] = {
-    /* Four-point version: up 631, original arc, right 601. */
-    {2, {{400,2080,880,0,2}, {1200,2080,0,850,1}}},
-    {2, {{1200,1200,0,800,2}, {1200,2080,880,0,2}}},
-    {3, {{2100,1200,0,1700,-1}, {2100,2080,880,0,0}, {1200,2080,0,-900,1}}},
-    {3, {{400,400,-850,0,2}, {1200,400,0,860,-1}, {1200,2080,1680,0,0}}}
+/* S1-3 */
+static const PresetStep presetSteps3[] = {
+    {2250,2100,-150,0,0,0,0,0},
+    {300,2100,0,-2000,0,0,0,0},
+    {300,1200,-900,0,0,0,0,0},
+    {2100,1200,0,1800,0,0,0,0},
+};
+/* S1-B1 */
+static const PresetStep presetSteps4[] = {
+    {2250,2100,-150,0,0,0,0,0},
+    {2100,2100,0,-150,0,0,0,0},
+    {300,2100,0,-1800,1,1,2,1},
+    {300,300,-1800,0,2,2,-1,1},
+    {2100,300,0,1800,-1,-1,0,1},
+    {2100,1200,926,0,0,0,0,0},
+};
+/* S2-1 */
+static const PresetStep presetSteps5[] = {
+    {2100,150,0,-150,0,0,0,0},
+    {2100,1200,1020,0,0,0,0,0},
+};
+/* S2-2 */
+static const PresetStep presetSteps6[] = {
+    {2250,300,150,0,0,0,0,0},
+    {1200,300,0,-1050,0,0,0,0},
+    {1200,1200,900,0,0,0,0,0},
+    {2100,1200,0,900,0,0,0,0},
+};
+/* S2-3 */
+static const PresetStep presetSteps7[] = {
+    {2250,300,150,0,0,0,0,0},
+    {300,300,0,-1950,0,0,0,0},
+    {300,1200,900,0,0,0,0,0},
+    {2100,1200,0,1800,0,0,0,0},
+};
+/* S2-B1 */
+static const PresetStep presetSteps8[] = {
+    {2250,300,150,0,0,0,0,0},
+    {2100,300,0,-150,0,0,0,0},
+    {300,300,0,-1800,1,1,0,1},
+    {300,2080,1780,0,0,0,-1,1},
+    {2100,2080,0,1800,-1,-1,2,1},
+    {2100,1250,-830,0,2,2,2,0},
+    {2100,1200,-49,0,0,0,0,0},
+};
+/* Q1-1 */
+static const PresetStep presetSteps9[] = {
+    {2100,2080,860,0,0,0,1,1},
+    {1200,2080,0,-870,1,1,1,0},
+};
+/* Q-2 */
+static const PresetStep presetSteps10[] = {
+    {1200,1200,0,-900,0,0,0,0},
+    {1200,2080,800,0,0,1,1,0},
+};
+/* Q-3 */
+static const PresetStep presetSteps11[] = {
+    {2100,1150,-50,0,0,0,0,0},
+    {400,1150,0,-1700,0,0,0,0},
+    {400,1300,150,0,2,2,2,0},
+    {300,1300,0,-100,2,2,2,0},
+    {300,2080,780,0,2,2,1,1},
+    {1200,2080,0,870,1,1,1,0},
+};
+/* Q-B1 */
+static const PresetStep presetSteps12[] = {
+    {2100,1250,50,0,0,0,0,0},
+    {1200,1250,0,-900,1,1,1,0},
+    {1200,2080,830,0,1,1,1,0},
+};
+/* Q-B2 */
+static const PresetStep presetSteps13[] = {
+    {2100,1150,-50,0,0,0,0,0},
+    {2100,300,-850,0,2,2,1,1},
+    {300,300,0,-1800,1,1,0,1},
+    {300,2080,1780,0,0,0,-1,1},
+    {1200,2080,0,870,-1,1,1,0},
+};
+/* Q-B3 */
+static const PresetStep presetSteps14[] = {
+    {2100,300,-900,0,2,2,1,1},
+    {300,300,0,-1800,1,1,0,1},
+    {300,2080,1780,0,0,0,-1,1},
+    {1100,2080,0,800,-1,-1,-1,0},
+    {1200,2080,0,97,1,1,1,0},
+};
+/* Q-B4 */
+static const PresetStep presetSteps15[] = {
+    {2100,1150,-50,0,0,0,0,0},
+    {1200,1150,0,-900,1,1,1,0},
+    {1200,2080,930,0,0,0,0,0},
+    {1300,2080,0,100,0,0,0,0},
+    {1200,2080,0,-97,1,1,1,0},
+};
+/* Q2-1 */
+static const PresetStep presetSteps16[] = {
+    {2100,2080,855,0,0,0,1,1},
+    {1200,2080,0,-870,1,1,1,0},
+};
+/* RC-1A */
+static const PresetStep presetSteps17[] = {
+    {1200,400,-1680,0,2,-1,-1,0},
+};
+/* RC-1B */
+static const PresetStep presetSteps18[] = {
+    {1200,400,-1680,0,-1,-1,-1,0},
+};
+/* RC-2 */
+static const PresetStep presetSteps19[] = {
+    {400,2080,0,-830,1,1,2,2},
+    {400,400,-1740,0,2,2,-1,2},
+    {1200,400,0,910,-1,-1,-1,0},
+};
+/* RC-3 */
+static const PresetStep presetSteps20[] = {
+    {2100,2080,0,900,-1,-1,2,1},
+    {2100,400,-1680,0,2,2,2,0},
+    {1200,400,0,-900,-1,-1,-1,0},
+};
+/* RC-B1 */
+static const PresetStep presetSteps21[] = {
+    {1200,1300,-780,0,1,1,1,0},
+    {1200,400,-900,0,2,-1,-1,0},
+};
+/* RC-B2 */
+static const PresetStep presetSteps22[] = {
+    {1300,2080,0,100,1,1,1,0},
+    {2100,2080,0,800,-1,-1,2,1},
+    {2100,400,-1680,0,2,2,2,0},
+    {1200,400,0,-900,-1,-1,-1,0},
+};
+/* RC-B3 */
+static const PresetStep presetSteps23[] = {
+    {300,2080,0,-900,1,1,2,1},
+    {300,300,-1780,0,2,2,-1,1},
+    {1200,300,0,900,-1,-1,-1,0},
+    {1200,400,100,0,-1,-1,-1,0},
+};
+/* RC-B4 */
+static const PresetStep presetSteps24[] = {
+    {1300,2080,0,100,1,1,1,0},
+    {1200,2080,0,-100,2,2,2,0},
+    {1200,1200,-880,0,2,2,2,0},
+    {1200,400,-800,0,-1,-1,-1,0},
+};
+/* RC-B5 */
+static const PresetStep presetSteps25[] = {
+    {1100,2080,0,-100,1,1,1,0},
+    {1200,2080,0,100,2,2,2,0},
+    {1200,1200,-880,0,2,2,2,0},
+    {1200,400,-800,0,-1,-1,-1,0},
+};
+/* CT-1 */
+static const PresetStep presetSteps26[] = {
+    {400,400,0,-860,-1,-1,2,2},
+    {400,1200,850,0,2,2,2,0},
+};
+/* CT-2 */
+static const PresetStep presetSteps27[] = {
+    {1200,1200,800,0,2,2,2,0},
+    {400,1200,0,-800,2,2,2,0},
+};
+/* CT-3 */
+static const PresetStep presetSteps28[] = {
+    {1200,2080,1680,0,0,0,1,1},
+    {400,2080,0,-910,1,1,2,2},
+    {400,1200,-886,0,2,2,2,0},
+};
+/* CT-B1 */
+static const PresetStep presetSteps29[] = {
+    {1200,1150,750,0,-1,-1,-1,0},
+    {400,1150,0,-800,1,1,1,0},
+    {400,1250,100,0,1,1,1,0},
+    {400,1200,-53,0,2,2,2,0},
+};
+/* CT-B2 */
+static const PresetStep presetSteps30[] = {
+    {1300,400,0,100,-1,-1,-1,0},
+    {1300,300,-100,0,-1,-1,-1,0},
+    {2100,300,0,800,-1,-1,0,1},
+    {2100,2080,1780,0,0,0,1,1},
+    {300,2080,0,-1800,1,1,2,1},
+    {300,1300,-780,0,2,2,2,0},
+    {400,1300,0,100,2,2,2,0},
+    {400,1200,-106,0,2,2,2,0},
+};
+/* CT-B3 */
+static const PresetStep presetSteps31[] = {
+    {1200,1150,750,0,-1,-1,-1,0},
+    {400,1150,0,-800,1,1,1,0},
+    {400,1200,53,0,2,2,2,0},
+};
+/* TR-1 */
+static const PresetStep presetSteps32[] = {
+    {400,2080,880,0,2,2,1,2},
+    {1200,2080,0,850,1,1,1,0},
+};
+/* TR-2 */
+static const PresetStep presetSteps33[] = {
+    {1200,1200,0,800,2,2,2,0},
+    {1200,2080,880,0,2,1,1,0},
+};
+/* TR-3 */
+static const PresetStep presetSteps34[] = {
+    {2100,1200,0,1700,-1,-1,0,1},
+    {2100,2080,880,0,0,0,1,1},
+    {1200,2080,0,-900,1,1,1,0},
+};
+/* TR-4 */
+static const PresetStep presetSteps35[] = {
+    {400,400,-850,0,2,2,-1,2},
+    {1200,400,0,860,-1,-1,0,2},
+    {1200,2080,1680,0,0,1,1,0},
+};
+/* TR-B1 */
+static const PresetStep presetSteps36[] = {
+    {400,300,-900,0,2,2,2,0},
+    {2100,300,0,1700,-1,-1,0,1},
+    {2100,2080,1780,0,0,0,1,1},
+    {1300,2080,0,-800,1,1,1,0},
+    {1200,2080,0,-106,1,1,1,0},
+};
+/* TR-B2 */
+static const PresetStep presetSteps37[] = {
+    {400,1250,50,0,2,2,2,0},
+    {1200,1250,0,800,-1,-1,-1,0},
+    {1200,1300,50,0,-1,-1,-1,0},
+    {1200,2080,780,0,1,1,1,0},
+};
+/* TR-B3 */
+static const PresetStep presetSteps38[] = {
+    {400,1150,-50,0,2,2,2,0},
+    {1200,1150,0,800,-1,-1,-1,0},
+    {1200,2080,930,0,0,0,0,0},
+    {1100,2080,0,-100,0,0,0,0},
+    {1200,2080,0,106,1,1,1,0},
+};
+/* H1-1 */
+static const PresetStep presetSteps39[] = {
+    {400,2080,880,0,2,2,1,2},
+    {2250,2080,0,1850,1,1,1,0},
+    {2250,2250,170,0,1,1,1,0},
+};
+/* H1-2 */
+static const PresetStep presetSteps40[] = {
+    {1200,1200,0,800,2,2,2,0},
+    {1200,2080,880,0,2,2,1,1},
+    {2250,2080,0,1050,1,1,1,0},
+    {2250,2250,170,0,1,1,1,0},
+};
+/* H1-3 */
+static const PresetStep presetSteps41[] = {
+    {2100,1200,0,1700,-1,-1,0,1},
+    {2100,2080,880,0,0,0,0,0},
+    {2250,2080,0,150,1,1,1,0},
+    {2250,2250,170,0,1,1,1,0},
+};
+/* H1-4 */
+static const PresetStep presetSteps42[] = {
+    {400,400,-850,0,2,2,-1,2},
+    {1200,400,0,860,-1,-1,0,2},
+    {1200,2080,1680,0,0,0,0,0},
+    {2250,2080,0,1050,1,1,1,0},
+    {2250,2250,170,0,1,1,1,0},
+};
+/* H1-B1 */
+static const PresetStep presetSteps43[] = {
+    {400,300,-900,0,2,2,2,0},
+    {2100,300,0,1700,-1,-1,0,1},
+    {2100,2080,1780,0,0,0,0,0},
+    {2250,2080,0,150,1,1,1,0},
+    {2250,2250,170,0,1,1,1,0},
+};
+/* H1-B2 */
+static const PresetStep presetSteps44[] = {
+    {400,1250,50,0,2,2,2,0},
+    {1300,1250,0,900,-1,-1,-1,0},
+    {1300,1200,-50,0,-1,-1,-1,0},
+    {2100,1200,0,800,-1,-1,0,1},
+    {2100,2080,880,0,0,0,0,0},
+    {2250,2080,0,150,1,1,1,0},
+    {2250,2250,170,0,1,1,1,0},
+};
+/* H2-B1 */
+static const PresetStep presetSteps45[] = {
+    {300,1200,0,-100,2,2,2,0},
+    {300,300,-900,0,2,2,-1,1},
+    {2100,300,0,1800,-1,-1,-1,0},
+    {2100,150,-150,0,-1,-1,-1,0},
+    {2250,150,0,150,-1,-1,-1,0},
+};
+/* H2-B2 */
+static const PresetStep presetSteps46[] = {
+    {300,1200,0,-100,2,2,2,0},
+    {300,2080,880,0,2,2,1,1},
+    {2100,2080,0,1800,1,1,1,0},
+    {2100,300,-1780,0,2,2,2,0},
+    {2100,150,-150,0,-1,-1,-1,0},
+    {2250,150,0,150,-1,-1,-1,0},
+};
+/* H2-B3 */
+static const PresetStep presetSteps47[] = {
+    {400,1150,-50,0,2,2,2,0},
+    {1200,1150,0,800,2,2,2,0},
+    {1200,400,-750,0,2,2,2,0},
+    {2100,400,0,900,-1,-1,-1,0},
+    {2100,150,-250,0,-1,-1,-1,0},
+    {2250,150,0,150,-1,-1,-1,0},
+};
+/* H2-B4 */
+static const PresetStep presetSteps48[] = {
+    {400,1150,-50,0,2,2,2,0},
+    {1200,1150,0,800,-1,-1,-1,0},
+    {1200,400,-750,0,-1,-1,-1,0},
+    {2100,400,0,900,-1,-1,-1,0},
+    {2100,150,-250,0,-1,-1,-1,0},
+    {2250,150,0,150,-1,-1,-1,0},
+};
+/* H2-B5 */
+static const PresetStep presetSteps49[] = {
+    {400,1150,-50,0,2,2,2,0},
+    {2100,1150,0,1700,-1,-1,-1,0},
+    {2100,300,-850,0,2,2,2,0},
+    {2100,150,-150,0,-1,-1,-1,0},
+    {2250,150,0,150,-1,-1,-1,0},
 };
 
-/* Reuse TEMP->RAW corridors; continue east then north with the post-bend heading. */
-static const PresetCandidate presetTempToHome1[4] = {
-    {3, {{400,2080,880,0,2}, {2250,2080,0,1850,1}, {2250,2250,170,0,1}}},
-    {4, {{1200,1200,0,800,2}, {1200,2080,880,0,2},
-         {2250,2080,0,1050,1}, {2250,2250,170,0,1}}},
-    {4, {{2100,1200,0,1700,-1}, {2100,2080,880,0,0},
-         {2250,2080,0,150,1}, {2250,2250,170,0,1}}},
-    {5, {{400,400,-850,0,2}, {1200,400,0,860,-1}, {1200,2080,1680,0,0},
-         {2250,2080,0,1050,1}, {2250,2250,170,0,1}}}
+/* IDs are stable, one-based catalog indices; zero means no template. */
+static const PresetCandidate presetTemplates[] = {
+    {0,0,0},
+    {"S1-1",presetSteps1,2},
+    {"S1-2",presetSteps2,4},
+    {"S1-3",presetSteps3,4},
+    {"S1-B1",presetSteps4,6},
+    {"S2-1",presetSteps5,2},
+    {"S2-2",presetSteps6,4},
+    {"S2-3",presetSteps7,4},
+    {"S2-B1",presetSteps8,7},
+    {"Q1-1",presetSteps9,2},
+    {"Q-2",presetSteps10,2},
+    {"Q-3",presetSteps11,6},
+    {"Q-B1",presetSteps12,3},
+    {"Q-B2",presetSteps13,5},
+    {"Q-B3",presetSteps14,5},
+    {"Q-B4",presetSteps15,5},
+    {"Q2-1",presetSteps16,2},
+    {"RC-1A",presetSteps17,1},
+    {"RC-1B",presetSteps18,1},
+    {"RC-2",presetSteps19,3},
+    {"RC-3",presetSteps20,3},
+    {"RC-B1",presetSteps21,2},
+    {"RC-B2",presetSteps22,4},
+    {"RC-B3",presetSteps23,4},
+    {"RC-B4",presetSteps24,4},
+    {"RC-B5",presetSteps25,4},
+    {"CT-1",presetSteps26,2},
+    {"CT-2",presetSteps27,2},
+    {"CT-3",presetSteps28,3},
+    {"CT-B1",presetSteps29,4},
+    {"CT-B2",presetSteps30,8},
+    {"CT-B3",presetSteps31,3},
+    {"TR-1",presetSteps32,2},
+    {"TR-2",presetSteps33,2},
+    {"TR-3",presetSteps34,3},
+    {"TR-4",presetSteps35,3},
+    {"TR-B1",presetSteps36,5},
+    {"TR-B2",presetSteps37,4},
+    {"TR-B3",presetSteps38,5},
+    {"H1-1",presetSteps39,3},
+    {"H1-2",presetSteps40,4},
+    {"H1-3",presetSteps41,4},
+    {"H1-4",presetSteps42,5},
+    {"H1-B1",presetSteps43,5},
+    {"H1-B2",presetSteps44,7},
+    {"H2-B1",presetSteps45,5},
+    {"H2-B2",presetSteps46,6},
+    {"H2-B3",presetSteps47,6},
+    {"H2-B4",presetSteps48,6},
+    {"H2-B5",presetSteps49,5},
 };
+#define PRESET_TEMPLATE_COUNT ((unsigned)(sizeof(presetTemplates)/sizeof(presetTemplates[0])-1U))
 
-/* Start-zone tables are intentionally independent. Keep the initial exit
- * heading during lateral detours: a turn at y=2250/150 cannot fit the body. */
-static const PresetCandidate presetStart1ToQr[3] = {
-    {2, {{2100,2250,0,-200,0}, {2100,1200,-1080,0,0}}},
-    {4, {{2250,2000,-250,0,0}, {1200,2000,0,-1000,0},
-         {1200,1200,-800,0,0}, {2100,1200,0,900,0}}},
-    {4, {{2250,2100,-150,0,0}, {300,2100,0,-2000,0},
-         {300,1200,-900,0,0}, {2100,1200,0,1800,0}}}
-};
-static const PresetCandidate presetStart2ToQr[3] = {
-    {2, {{2100,150,0,-150,0}, {2100,1200,1020,0,0}}},
-    {4, {{2250,300,150,0,0}, {1200,300,0,-1050,0},
-         {1200,1200,900,0,0}, {2100,1200,0,900,0}}},
-    {4, {{2250,300,150,0,0}, {300,300,0,-1950,0},
-         {300,1200,900,0,0}, {2100,1200,0,1800,0}}}
-};
-
-/* 6/3; 9/5; 9/8/7/4/1/2. Keep separate QR->RAW calibration per start zone. */
-static const PresetCandidate presetQr1ToRaw[3] = {
-    {2, {{2100,2080,860,0,0}, {1200,2080,0,-870,1}}},
-    {2, {{1200,1200,0,-900,0}, {1200,2080,800,0,0}}},
-    {6, {{2100,1150,-50,0,0}, {400,1150,0,-1700,0}, {400,1300,150,0,2},
-         {300,1300,0,-100,2}, {300,2080,780,0,2}, {1200,2080,0,870,1}}}
-};
-static const PresetCandidate presetQr2ToRaw[3] = {
-    {2, {{2100,2080,855,0,0}, {1200,2080,0,-870,1}}},
-    {2, {{1200,1200,0,-900,0}, {1200,2080,800,0,0}}},
-    {6, {{2100,1150,-50,0,0}, {400,1150,0,-1700,0}, {400,1300,150,0,2},
-         {300,1300,0,-100,2}, {300,2080,780,0,2}, {1200,2080,0,870,1}}}
+enum { PRESET_GROUP_S1, PRESET_GROUP_S2, PRESET_GROUP_Q1, PRESET_GROUP_Q2, PRESET_GROUP_RC, PRESET_GROUP_CT, PRESET_GROUP_TR, PRESET_GROUP_H1, PRESET_GROUP_H2, PRESET_GROUP_COUNT };
+static const uint8_t presetOrderS1[] = {1,2,3,4};
+static const uint8_t presetOrderS2[] = {5,6,7,8};
+static const uint8_t presetOrderQ1[] = {9,10,11,12,13,14,15};
+static const uint8_t presetOrderQ2[] = {16,10,11,12,13,14,15};
+static const uint8_t presetOrderRC[] = {17,18,19,20,21,22,23,24,25};
+static const uint8_t presetOrderCT[] = {26,27,28,29,30,31};
+static const uint8_t presetOrderTR[] = {32,33,34,35,36,37,38};
+static const uint8_t presetOrderH1[] = {39,40,41,42,43,44};
+static const uint8_t presetOrderH2[] = {45,46,47,48,49};
+static const PresetGroup presetGroups[PRESET_GROUP_COUNT] = {
+    {{2250,2250,0},{2100,1200,0},presetOrderS1,4}, /* S1 */
+    {{2250,150,0},{2100,1200,0},presetOrderS2,4}, /* S2 */
+    {{2100,1200,0},{1200,2080,1},presetOrderQ1,7}, /* Q1 */
+    {{2100,1200,0},{1200,2080,1},presetOrderQ2,7}, /* Q2 */
+    {{1200,2080,1},{1200,400,-1},presetOrderRC,9}, /* RC */
+    {{1200,400,-1},{400,1200,2},presetOrderCT,6}, /* CT */
+    {{400,1200,2},{1200,2080,1},presetOrderTR,7}, /* TR */
+    {{400,1200,2},{2250,2250,1},presetOrderH1,6}, /* H1 */
+    {{400,1200,2},{2250,150,-1},presetOrderH2,5}, /* H2 */
 };
 #endif

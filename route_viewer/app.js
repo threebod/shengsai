@@ -54,7 +54,7 @@
         let pose = [...legs[0].from];
         function add(kind, points, duration, legIndex, label, detail) {
             const stage = tasks.indexOf(legs[legIndex].task) + 1 || 1;
-            result.push({kind, points, duration, legIndex, stage, label, detail});
+            result.push({kind, points, duration, legIndex, stage, label, detail, template: legs[legIndex].template});
             pose = [...points[points.length - 1]];
         }
         function turn(target, i) {
@@ -148,6 +148,7 @@
         drawField(); $('steps').replaceChildren(); stepNodes = [];
         const start = Number($('from').value), end = Number($('to').value);
         $('route-title').textContent = `${names[start]} → ${names[end]}`;
+        $('route-template').textContent = '';
         const experimental = route && route.some(leg => leg.experimentalArc);
         $('route-status').classList.toggle('error', !route || experimental);
         $('route-status').textContent = route ? `${a} / ${b} 号障碍 · 固件已生成路线${experimental ? ' · 含7/13实验弯，未做该弯车体扫掠检查' : ''}` : a === b ? '请选择两个不同的障碍区域。' : '固件拒绝此组合：完整比赛路线不可行。请更换障碍位置。';
@@ -165,6 +166,7 @@
         $('empty').hidden = true;
         all = makeTimeline(route);
         selected = all.filter(m => m.stage > start && m.stage <= end);
+        $('route-template').textContent = `固定模板：${[...new Set(selected.map(m => m.template))].join(' → ')}`;
         total = selected.reduce((sum, m) => sum + m.duration, 0);
         basePath.setAttribute('d', path(all)); selectedPath.setAttribute('d', path(selected));
         const length = selected.reduce((sum, m) => sum + m.points.slice(1).reduce((s, p, i) => s + Math.hypot(p[0] - m.points[i][0], p[1] - m.points[i][1]), 0), 0);
@@ -174,7 +176,7 @@
             const row = document.createElement('li'); row.className = m.kind; row.dataset.index = String(i + 1).padStart(2, '0');
             row.tabIndex = 0; row.setAttribute('role', 'button');
             row.append(document.createTextNode(m.label));
-            const detail = document.createElement('small'); detail.textContent = m.detail; row.append(detail);
+            const detail = document.createElement('small'); detail.textContent = `${m.template} · ${m.detail}`; row.append(detail);
             row.title = `${names[m.stage - 1]} → ${names[m.stage]}`;
             const seek = () => { setPlaying(false); elapsed = selected.slice(0, i).reduce((sum, item) => sum + item.duration, 0); render(); };
             row.onclick = seek;

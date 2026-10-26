@@ -1850,11 +1850,9 @@ static uint8_t processRouteCommand(const char *command)
         return 1U;
     }
     if (ARC_BLEND_GEOMETRY_MM * routeForwardScale / ARC_BLEND_RADIUS_MM >= 0.98f) {
-        unsigned i;
-        for (i = 0U; i < presetRoute.count; ++i) {
-            presetRoute.legs[i].arc = 0U;
-            presetRoute.legs[i].drive.heading = presetRoute.legs[i].to.heading;
-        }
+        presetRoute.count = presetRoute.index = 0U;
+        serialSendString("ERR ROUTE: fixed template arc incompatible with forward scale\r\n");
+        return 1U;
     }
     taskLogReset(&taskLog);
     missionButtonReady = 0U;

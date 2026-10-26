@@ -48,8 +48,9 @@ int main(void)
             route.index = (uint16_t)i;
             active = presetActiveLeg(&route);
             if (i) putchar(',');
-            printf("{\"from\":[%d,%d,%d],\"to\":[%d,%d,%d],\"task\":%u,\"arc\":%u,\"fourPointArc\":%u,\"experimentalArc\":%u,"
+            printf("{\"template\":\"%s\",\"from\":[%d,%d,%d],\"to\":[%d,%d,%d],\"task\":%u,\"arc\":%u,\"fourPointArc\":%u,\"experimentalArc\":%u,"
                    "\"up\":%d,\"right\":%d,\"departure\":%d,\"heading\":%d,\"event\":",
+                   presetTemplates[l->templateId].code,
                    l->from.x,l->from.y,l->from.heading,l->to.x,l->to.y,l->to.heading,
                    l->taskIndex,!!l->arc,l->arc == PRESET_ARC_FOUR_POINT,0U,
                    active.upMm,active.rightMm,active.departureHeading,active.heading);
