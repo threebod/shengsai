@@ -321,7 +321,7 @@ static void remainingArcsPreserved(void)
         int8_t heading;
     } cases[] = {
         {presetRawToCoarse,raw,mask(8,9),6U,2U,-1},
-        {presetRawToCoarse,raw,mask(4,5),6U,2U,-1},
+        {presetRawToCoarse,raw,mask(4,5),6U,1U,-1},
         {presetCoarseToTemp,coarse,mask(13,7),8U,2U,2},
         {presetTempToRaw,temp,mask(7,9),10U,1U,1},
         {presetTempToRaw,temp,mask(1,5),10U,2U,1},
@@ -344,7 +344,7 @@ static void remainingArcsPreserved(void)
         /* Full missions: preserve the old arc count at each workstation,
          * including both repeated rounds and both start-zone tables. */
         static const unsigned focus[][5] = {
-            {7,9,0,1,1}, {8,9,2,1,1}, {1,5,2,1,2}, {7,13,0,2,1}
+            {7,9,0,1,1}, {8,9,2,1,1}, {1,5,1,1,2}, {7,13,0,2,1}
         };
         unsigned zone;
         for (zone = 1U; zone <= 2U; ++zone) for (c = 0U; c < 4U; ++c) {
@@ -393,7 +393,7 @@ static void fixedCandidatePriorities(void)
     /* Region 8 blocks the centre; adding 4 also blocks the left detour. */
     candidateCase(presetRawToCoarse,raw,mask(7,9),6U,-1,1,1200,400);
     candidateCase(presetRawToCoarse,raw,mask(8,9),6U,-1,3,400,2080);
-    candidateCase(presetRawToCoarse,raw,mask(4,8),6U,-1,4,2100,2080);
+    candidateCase(presetRawToCoarse,raw,mask(4,8),6U,-1,3,2100,2080);
     candidateCase(presetCoarseToTemp,coarse,mask(7,9),8U,2,2,400,400);
     candidateCase(presetCoarseToTemp,coarse,mask(10,9),8U,2,2,1200,1200);
     candidateCase(presetCoarseToTemp,coarse,mask(13,7),8U,2,3,1200,2080);
@@ -767,12 +767,42 @@ static void searchedCorridors(void)
     }
 }
 
+static void rawRightDirectArrival(void)
+{
+    static PresetRoute reference;
+    static const unsigned regions[][2] = {{4,8},{8,14}};
+    static const int up[] = {0,-1431,0}, right[] = {651,0,-900};
+    unsigned zone, map, round, i;
+    for (zone = 1U; zone <= 2U; ++zone) for (map = 0U; map < 2U; ++map) {
+        assert(presetBuild(&route,(uint8_t)zone,mask(regions[map][0],regions[map][1])));
+        for (round = 0U; round < 2U; ++round) {
+            uint8_t task = round ? 13U : 6U;
+            unsigned first = taskBegin(&route,task);
+            for (i = 0U; i < 3U; ++i) {
+                RouteLeg active;
+                const PresetLeg *leg = &route.legs[first+i];
+                assert(leg->taskIndex == task && leg->drive.upMm <= 0);
+                assert(leg->arc == (i == 0U));
+                route.index = (uint16_t)(first+i); active = presetActiveLeg(&route);
+                assert(active.upMm == up[i] && active.rightMm == right[i]);
+            }
+            assert(route.legs[first+1U].to.x == 2100 && route.legs[first+1U].to.y == 400);
+            assert(route.legs[first+1U].drive.upMm == -1680);
+            assert(route.legs[first+2U].from.y == 400 && route.legs[first+2U].to.y == 400);
+            assert(route.legs[first+2U].to.x == 1200 && route.legs[first+2U].drive.event);
+            assert(route.legs[first+2U].from.heading == -1 && route.legs[first+2U].to.heading == -1);
+            if (map) sameTask(&reference,task,&route,task);
+        }
+        if (!map) reference = route;
+    }
+}
+
 int main(void)
 {
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); startSharedDetourDistance(); sharedQrDistance(); rawLeftFourPointRoute(); upperArrivalUsesRawBend(); start2ExitAndHome1(); tempThirdDirectRight(); tempFourthViaCoarse(); searchedCorridors(); recenterEnvelope();
+    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); startSharedDetourDistance(); sharedQrDistance(); rawLeftFourPointRoute(); upperArrivalUsesRawBend(); start2ExitAndHome1(); tempThirdDirectRight(); tempFourthViaCoarse(); searchedCorridors(); rawRightDirectArrival(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
     assert(!presetBuild(&route,1,0x8001U) && !route.count);
