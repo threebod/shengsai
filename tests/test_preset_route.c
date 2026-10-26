@@ -825,12 +825,43 @@ static void start1LoopDownBeforeLeft(void)
     }
 }
 
+static void rawCentrePrealigned(void)
+{
+    static const unsigned pairs[][2] = {{7,14},{7,15},{14,15}};
+    unsigned zone, map, round;
+    for (zone = 1U; zone <= 2U; ++zone) for (map = 0U; map < 3U; ++map) {
+        assert(presetBuild(&route,(uint8_t)zone,mask(pairs[map][0],pairs[map][1])));
+        assert(presetTurnClear((PresetPose){1200,2080,1},route.regions));
+        assert(!presetTurnClear((PresetPose){1200,400,-1},route.regions));
+        for (round = 0U; round < 2U; ++round) {
+            uint8_t task = round ? 13U : 6U;
+            unsigned first = taskBegin(&route,task);
+            const PresetLeg *leg = &route.legs[first];
+            assert(leg->from.x == 1200 && leg->from.y == 2080 && leg->from.heading == -1);
+            assert(leg->to.x == 1200 && leg->to.y == 400 && leg->to.heading == -1);
+            assert(leg->drive.upMm == -1680 && !leg->drive.rightMm && !leg->arc);
+            assert(leg->drive.departureHeading == -1 && leg->drive.heading == -1);
+            assert(!strcmp(leg->drive.event,round ? "COARSE_2_DROP_PICK" : "COARSE_1_DROP_PICK"));
+            assert(first+1U == route.count || route.legs[first+1U].taskIndex != task);
+        }
+    }
+    /* The departure pivot is still required: region 2 must not be ignored. */
+    memset(&route,0,sizeof(route)); route.regions = mask(2,14);
+    assert(!presetTurnClear((PresetPose){1200,2080,1},route.regions));
+    assert(!presetFixedConnect(&route,(PresetPose){1200,2080,1},presetRawToCoarse,6U,"COARSE",-1));
+    assert(!route.count);
+    /* Keep the original forward centre approach where its arrival turn fits. */
+    memset(&route,0,sizeof(route)); route.regions = mask(7,9);
+    assert(presetFixedConnect(&route,(PresetPose){1200,2080,1},presetRawToCoarse,6U,"COARSE",-1));
+    assert(route.count == 1U && route.legs[0].from.heading == 2);
+}
+
 int main(void)
 {
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); startSharedDetourDistance(); sharedQrDistance(); rawLeftFourPointRoute(); upperArrivalUsesRawBend(); start2ExitAndHome1(); tempThirdDirectRight(); tempFourthViaCoarse(); searchedCorridors(); rawRightDirectArrival(); start1LoopDownBeforeLeft(); recenterEnvelope();
+    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); startSharedDetourDistance(); sharedQrDistance(); rawLeftFourPointRoute(); upperArrivalUsesRawBend(); start2ExitAndHome1(); tempThirdDirectRight(); tempFourthViaCoarse(); searchedCorridors(); rawRightDirectArrival(); start1LoopDownBeforeLeft(); rawCentrePrealigned(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
     assert(!presetBuild(&route,1,0x8001U) && !route.count);

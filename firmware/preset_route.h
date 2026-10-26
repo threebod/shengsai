@@ -629,6 +629,13 @@ static uint8_t presetFixedConnect(PresetRoute *route, PresetPose start,
     for (i = 0U; i < count; ++i) {
         const PresetCandidate *candidate = &candidates[i];
         if (presetTryCandidate(route,start,candidate,taskIndex,event,stationHeading)) return 1U;
+        if (candidates == presetRawToCoarse && i == 0U) {
+            /* Enter COARSE already facing its working direction when the
+             * centre corridor is clear but the arrival pivot cannot fit. */
+            PresetCandidate aligned = *candidate;
+            aligned.steps[0].heading = stationHeading;
+            if (presetTryCandidate(route,start,&aligned,taskIndex,event,stationHeading)) return 1U;
+        }
     }
     return 0U;
 }
