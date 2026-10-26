@@ -63,6 +63,8 @@ static uint8_t rawPickActionsForPosition(MechanismAction *actions, uint8_t slot,
     actions[2].pose = *pickup;
     actions[4].pose = *pickup;
     actions[4].pose.liftDmm = 0U;
+    /* Left upper: retract to the tray while turning, without the -20mm stop. */
+    if (position == 2U) actions[5].pose = actions[6].pose;
     return 1U;
 }
 

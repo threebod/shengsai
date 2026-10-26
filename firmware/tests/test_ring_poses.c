@@ -61,6 +61,8 @@ static void checkUpperLeftExtension(void)
         assert(actions[2].pose.horizontalDmm == 649 && actions[4].pose.horizontalDmm == 649);
         assert(actions[2].pose.turretDdeg == rawPickUpperPoses[0].turretDdeg);
         assert(actions[2].pose.liftDmm == rawPickUpperPoses[0].liftDmm && actions[4].pose.liftDmm == 0U);
+        assert(actions[5].pose.horizontalDmm == -500 && actions[5].pose.liftDmm == 0U);
+        assert(actions[5].pose.turretDdeg == actions[6].pose.turretDdeg);
         assert(rawPickActionsForPosition(actions,slot,3U));
         assert(actions[2].pose.horizontalDmm == 701 && actions[4].pose.horizontalDmm == 701);
     }
