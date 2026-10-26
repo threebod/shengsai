@@ -272,7 +272,7 @@ static uint8_t presetAppend(PresetRoute *route, PresetPose from, PresetPose to, 
     return 1U;
 }
 static uint8_t presetConnect(PresetRoute *route, PresetPose start, PresetPose station,
-                              uint8_t taskIndex, RouteLeg calibrated)
+                              uint8_t taskIndex, RouteLeg calibrated, unsigned span)
 {
     static PresetCost costs[PRESET_STATE_COUNT];
     static int16_t previous[PRESET_STATE_COUNT];
@@ -285,7 +285,6 @@ static uint8_t presetConnect(PresetRoute *route, PresetPose start, PresetPose st
     int startNode = presetNodeAt(start), targetNodes[3], finish = -1;
     unsigned i, count = 0U, targetCount = taskIndex == 19U ? 1U : 3U;
     uint8_t direct = 0U;
-    unsigned span = taskIndex == 3U ? 900U : taskIndex == 19U ? 150U : 800U;
     const PresetCost infinity = {0xFFFFFFFFUL,0xFFFFFFFFUL,0xFFFFFFFFUL};
     PresetCost finishCost = infinity;
     if (startNode < 0 || !presetSegmentClear(start,start,route->regions) ||
@@ -346,7 +345,8 @@ static uint8_t presetConnect(PresetRoute *route, PresetPose start, PresetPose st
             }
         }
         visited[best] = 1U;
-        if (presetTurnClear(p,route->regions)) for (neighbor = 0; neighbor < 4U; ++neighbor) {
+        if (!(taskIndex == 19U && station.heading == 1 && (int)node == startNode) &&
+            presetTurnClear(p,route->regions)) for (neighbor = 0; neighbor < 4U; ++neighbor) {
             unsigned state = node*PRESET_NODE_STATES+neighbor, hint = node*4U+heading;
             PresetCost next = cost;
             uint8_t forwardArrival = (uint8_t)(forwardLength > PRESET_ARC_TRIM+2U);
@@ -411,7 +411,12 @@ static uint8_t presetConnect(PresetRoute *route, PresetPose start, PresetPose st
             presetDirection(last->from,last->to) == presetDirection(selected,station)) {
             /* Preserve one uninterrupted station approach for calibration and
              * observation lead time; never merge across a departure turn. */
-            selected = last->from; --route->count;
+            PresetPose endpoint = last->from;
+            RouteLeg merged = presetStationLeg(calibrated,last->from,station,span);
+            endpoint.x += merged.rightMm; endpoint.y += merged.upMm;
+            if (presetSegmentClear(last->from,endpoint,route->regions)) {
+                selected = last->from; --route->count;
+            }
         }
     }
     calibrated = presetStationLeg(calibrated,selected,station,span);
@@ -627,6 +632,46 @@ static uint8_t presetFixedConnect(PresetRoute *route, PresetPose start,
     }
     return 0U;
 }
+/* Keep tuned candidates first. Search only for a missing corridor, with the
+ * primary's original terminal calibration span and unchanged working heading. */
+static uint8_t presetPlanConnect(PresetRoute *route, PresetPose start,
+                                 const PresetCandidate candidates[], uint8_t taskIndex,
+                                 const char *event, int8_t stationHeading)
+{
+    const PresetCandidate *primary = &candidates[0];
+    unsigned first = route->count, last = primary->count-1U, span;
+    uint8_t home1 = (uint8_t)(candidates == presetTempToHome1);
+    PresetPose station, before = start;
+    RouteLeg calibrated;
+    if (presetFixedConnect(route,start,candidates,taskIndex,event,stationHeading)) return 1U;
+    if (home1) --last; /* Reach x=2250 first, then enter HOME vertically. */
+    station.x = primary->steps[last].x; station.y = primary->steps[last].y;
+    station.heading = stationHeading;
+    if (last) { before.x = primary->steps[last-1U].x; before.y = primary->steps[last-1U].y; }
+    span = (unsigned)(abs(station.x-before.x)+abs(station.y-before.y));
+    calibrated.upMm = primary->steps[last].upMm; calibrated.rightMm = primary->steps[last].rightMm;
+    calibrated.event = home1 ? 0 : event;
+    calibrated.departureHeading = calibrated.heading = stationHeading;
+    if (candidates == presetStart2ToQr && (route->regions & (1U << 11))) {
+        PresetPose rise = {2250,300,0}, exit = {2100,300,0};
+        RouteLeg up = {150,0,0,0,0}, left = {0,-150,0,0,0};
+        if (!presetAppend(route,start,rise,0U,&up) ||
+            !presetAppend(route,rise,exit,taskIndex,&left)) goto fail;
+        start = exit;
+    }
+    if (!presetConnect(route,start,station,taskIndex,calibrated,span)) goto fail;
+    if (home1) {
+        PresetPose home = {primary->steps[last+1U].x,primary->steps[last+1U].y,stationHeading};
+        calibrated.upMm = primary->steps[last+1U].upMm;
+        calibrated.rightMm = primary->steps[last+1U].rightMm; calibrated.event = event;
+        if (!presetAppend(route,station,home,taskIndex,&calibrated)) goto fail;
+    }
+    presetSelectArcs(route,1U,first,0U);
+    if (taskIndex == 1U && first == 0U) route->legs[first].taskIndex = 0U;
+    return 1U;
+fail:
+    route->count = (uint16_t)first; return 0U;
+}
 static uint8_t presetBuild(PresetRoute *route, uint8_t zone, uint16_t regions)
 {
     /* Select fixed groups in priority order. Zone 2 keeps its home search. */
@@ -642,7 +687,7 @@ static uint8_t presetBuild(PresetRoute *route, uint8_t zone, uint16_t regions)
     if ((zone != 1U && zone != 2U) || !ss_obstacle_regions_valid(regions)) return 0U;
     route->regions = regions;
     if (zone == 2U) current.y = 150;
-    if (!presetFixedConnect(route,current,zone == 2U ? presetStart2ToQr : presetStart1ToQr,
+    if (!presetPlanConnect(route,current,zone == 2U ? presetStart2ToQr : presetStart1ToQr,
                             1U,"QR",qr.heading)) goto fail;
     current = qr;
     for (stage = 0; stage < 7U; ++stage) {
@@ -652,17 +697,17 @@ static uint8_t presetBuild(PresetRoute *route, uint8_t zone, uint16_t regions)
         uint8_t task = events[stage+1U];
         calibrated = routeDistanceLeg(task,zone);
         if (stage == 6U && zone == 1U) {
-            if (!presetFixedConnect(route,current,presetTempToHome1,task,calibrated.event,station.heading)) goto fail;
+            if (!presetPlanConnect(route,current,presetTempToHome1,task,calibrated.event,station.heading)) goto fail;
         } else if (stage == 6U) {
             unsigned first = route->count;
-            if (!presetConnect(route,current,station,task,calibrated)) goto fail;
+            if (!presetConnect(route,current,station,task,calibrated,150U)) goto fail;
             presetSelectArcs(route,zone,first,1U);
         } else {
             const PresetCandidate *candidates = stage == 0U ?
                 (zone == 2U ? presetQr2ToRaw : presetQr1ToRaw) :
                 stage == 3U ? presetTempToRaw :
                 (stage == 1U || stage == 4U) ? presetRawToCoarse : presetCoarseToTemp;
-            if (!presetFixedConnect(route,current,candidates,task,calibrated.event,station.heading)) goto fail;
+            if (!presetPlanConnect(route,current,candidates,task,calibrated.event,station.heading)) goto fail;
         }
         current = station;
     }

@@ -152,6 +152,15 @@ static void checkRoute(uint8_t zone)
         RouteLeg active;
         route.index = (uint16_t)i; active = presetActiveLeg(&route);
         assert(presetSegmentClear(leg->from,leg->to,route.regions));
+        {
+            PresetPose endpoint = leg->from;
+            endpoint.x += leg->drive.rightMm; endpoint.y += leg->drive.upMm;
+            assert(presetSegmentClear(leg->from,endpoint,route.regions));
+            if (!leg->arc && leg->from.heading != leg->to.heading) {
+                assert(presetTurnClear(leg->to,route.regions));
+                assert(presetTurnClear(endpoint,route.regions));
+            }
+        }
         assert(previous.x == leg->from.x && previous.y == leg->from.y);
         if (previous.heading != leg->from.heading && !(i && route.legs[i-1U].arc))
             assert(presetTurnClear(leg->from,route.regions));
@@ -425,8 +434,7 @@ static void fixedCandidatePriorities(void)
             assert(!presetFixedConnect(&route,qr,qrRoutes,3U,"RAW_1",1));
             assert(route.count == 1U && !memcmp(&prefix,&route.legs[0],sizeof(prefix)));
         }
-        assert(!presetBuild(&route,(uint8_t)zone,zone == 1U ? mask(6,9) : mask(12,9)));
-        assert(!route.count && !route.index);
+        assert(presetBuild(&route,(uint8_t)zone,zone == 1U ? mask(6,9) : mask(12,9)));
     }
     candidateCase(presetCoarseToTemp,coarse,mask(7,9),8U,2,2,400,400);
     assert(route.legs[0].drive.rightMm == -860 && route.legs[1].drive.upMm == 850);
@@ -630,8 +638,8 @@ static void start2ExitAndHome1(void)
     assert(!presetTurnClear((PresetPose){1200,2080,1},route.regions));
     assert(!presetFixedConnect(&route,(PresetPose){400,1200,2},presetTempToRaw,10U,"RAW_2",1));
     for (i = 1U; i <= 2U; ++i) {
-        assert(!presetBuild(&route,(uint8_t)i,mask(7,14)) && !route.count);
-        assert(!presetBuild(&route,(uint8_t)i,mask(2,7)) && !route.count);
+        assert(presetBuild(&route,(uint8_t)i,mask(7,14)));
+        assert(presetBuild(&route,(uint8_t)i,mask(2,7)));
     }
 }
 
@@ -655,8 +663,10 @@ static void tempThirdDirectRight(void)
         assert(route.legs[first+1U].drive.upMm == 880);
         assert(route.legs[first+2U].drive.rightMm == -900);
         assert(!strcmp(route.legs[first+2U].drive.event,"RAW_2"));
-        /* Without the former 50mm exit, region 4 blocks the departure pivot. */
-        assert(!presetBuild(&route,(uint8_t)zone,mask(4,5)) && !route.count);
+        /* The direct candidate remains blocked; search finds another departure. */
+        memset(&route,0,sizeof(route)); route.regions = mask(4,5);
+        assert(!presetTryCandidate(&route,(PresetPose){400,1200,2},&presetTempToRaw[2],10U,"RAW_2",1));
+        assert(presetBuild(&route,(uint8_t)zone,mask(4,5)));
     }
     assert(presetBuild(&route,1U,mask(1,5)));
     first = taskBegin(&route,19U);
@@ -704,12 +714,65 @@ static void tempFourthViaCoarse(void)
     }
 }
 
+static void searchedCorridors(void)
+{
+    static PresetRoute fixed;
+    struct FixedCase {
+        const PresetCandidate *candidates;
+        PresetPose start;
+        uint8_t task;
+        int8_t heading;
+    } cases[] = {
+        {presetStart1ToQr,{2250,2250,0},1U,0},
+        {presetStart2ToQr,{2250,150,0},1U,0},
+        {presetQr1ToRaw,{2100,1200,0},3U,1},
+        {presetQr2ToRaw,{2100,1200,0},3U,1},
+        {presetRawToCoarse,{1200,2080,1},6U,-1},
+        {presetCoarseToTemp,{1200,400,-1},8U,2},
+        {presetTempToRaw,{400,1200,2},10U,1},
+        {presetTempToHome1,{400,1200,2},19U,1}
+    };
+    unsigned a, b, c, i;
+    for (a = 1U; a <= 15U; ++a) for (b = a+1U; b <= 15U; ++b)
+        for (c = 0U; c < sizeof(cases)/sizeof(cases[0]); ++c) {
+            const struct FixedCase *test = &cases[c];
+            memset(&fixed,0,sizeof(fixed)); fixed.regions = mask(a,b);
+            if (!presetFixedConnect(&fixed,test->start,test->candidates,test->task,"TEST",test->heading)) continue;
+            memset(&route,0,sizeof(route)); route.regions = mask(a,b);
+            assert(presetPlanConnect(&route,test->start,test->candidates,test->task,"TEST",test->heading));
+            assert(route.count == fixed.count);
+            for (i = 0U; i < route.count; ++i) {
+                const PresetLeg *x = &route.legs[i], *y = &fixed.legs[i];
+                assert(x->from.x == y->from.x && x->from.y == y->from.y && x->from.heading == y->from.heading);
+                assert(x->to.x == y->to.x && x->to.y == y->to.y && x->to.heading == y->to.heading);
+                assert(x->drive.upMm == y->drive.upMm && x->drive.rightMm == y->drive.rightMm);
+                assert(x->drive.departureHeading == y->drive.departureHeading && x->drive.heading == y->drive.heading);
+                assert(x->drive.event == y->drive.event && x->taskIndex == y->taskIndex && x->arc == y->arc);
+            }
+        }
+    /* A long merged RAW approach would overshoot into region 2. Retain the
+     * short final approach instead of rejecting an otherwise clear corridor. */
+    memset(&route,0,sizeof(route)); route.regions = mask(2,8);
+    assert(presetPlanConnect(&route,(PresetPose){400,1200,2},presetTempToRaw,10U,"RAW_2",1));
+    assert(route.legs[route.count-1U].from.x == 1300);
+    assert(route.legs[route.count-1U].drive.rightMm == -106);
+    /* A failed search must preserve the already-built prefix. */
+    memset(&route,0,sizeof(route)); route.regions = mask(3,6);
+    {
+        const RouteLeg prefix = {0,150,"PREFIX",0,0};
+        assert(presetAppend(&route,(PresetPose){2100,2250,0},(PresetPose){2250,2250,0},0U,&prefix));
+        assert(!presetPlanConnect(&route,(PresetPose){2250,2250,0},presetStart1ToQr,1U,"QR",0));
+        assert(route.count == 1U && route.legs[0].drive.rightMm == 150);
+        assert(!strcmp(route.legs[0].drive.event,"PREFIX"));
+    }
+}
+
 int main(void)
 {
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); startSharedDetourDistance(); sharedQrDistance(); rawLeftFourPointRoute(); upperArrivalUsesRawBend(); start2ExitAndHome1(); tempThirdDirectRight(); tempFourthViaCoarse(); recenterEnvelope();
+    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); startSharedDetourDistance(); sharedQrDistance(); rawLeftFourPointRoute(); upperArrivalUsesRawBend(); start2ExitAndHome1(); tempThirdDirectRight(); tempFourthViaCoarse(); searchedCorridors(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
     assert(!presetBuild(&route,1,0x8001U) && !route.count);
@@ -720,9 +783,14 @@ int main(void)
             sameTask(&route,6U,&route,13U); sameTask(&route,8U,&route,15U);
             for (i = 0U; i < route.count; ++i) arcs += !!route.legs[i].arc;
             if (route.count > 20U) ++detours;
-        } else { ++rejected[zone-1U]; assert(!route.count && !route.index); }
+        } else {
+            ++rejected[zone-1U]; assert(!route.count && !route.index);
+            assert((zone == 1U && a == 3U && b == 6U) ||
+                   (zone == 2U && a == 12U && b == 15U));
+        }
     }
-    assert(feasible[0] && feasible[1] && rejected[0] && rejected[1] && arcs && detours);
+    assert(feasible[0] == 104U && feasible[1] == 104U);
+    assert(rejected[0] == 1U && rejected[1] == 1U && arcs && detours);
     assert(presetBuild(&route,1U,mask(6,5))); /* Long start and QR->RAW detours. */
     assert(presetBuild(&route,2U,mask(12,11))); /* Mirror long start detour. */
     for (a = 1U; a <= 15U; ++a) for (b = a+1U; b <= 15U; ++b) {
