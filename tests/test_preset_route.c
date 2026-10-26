@@ -517,7 +517,7 @@ static void experimental713Arrival(void)
 
 static void startUpperDetourDistance(void)
 {
-    static const unsigned otherRegions[] = {1,4,7,10,11,12,13};
+    static const unsigned otherRegions[] = {1,4,10,11,12,13};
     unsigned zone, i;
     for (zone = 1U; zone <= 2U; ++zone) {
         assert(presetBuild(&route,(uint8_t)zone,mask(6,11)));
@@ -557,12 +557,48 @@ static void fixedStartDetours(void)
     assert(route.legs[i].from.x == 1200 && route.legs[i].to.x == 2100);
 }
 
+static void start67AndSharedQrDistance(void)
+{
+    static const int up[] = {-250,0,-800,0}, right[] = {0,-1000,0,900};
+    static const int x[] = {2250,1200,1200,2100}, y[] = {2000,2000,1200,1200};
+    unsigned i, zone, a, b, secondCandidates = 0U;
+    assert(presetBuild(&route,1U,mask(6,7)));
+    for (i = 0U; i < 4U; ++i) {
+        const PresetLeg *leg = &route.legs[i];
+        RouteLeg active;
+        route.index = (uint16_t)i; active = presetActiveLeg(&route);
+        assert(active.upMm == up[i] && active.rightMm == right[i]);
+        assert(leg->to.x == x[i] && leg->to.y == y[i]);
+        assert(leg->taskIndex == (i ? 1U : 0U) && !leg->arc);
+        assert(leg->from.heading == 0 && leg->to.heading == 0);
+        assert(!!leg->drive.event == (i == 3U));
+    }
+    assert(!strcmp(route.legs[3].drive.event,"QR"));
+    assert(presetBuild(&route,2U,mask(6,7)));
+    assert(route.legs[0].drive.rightMm == -150 && !route.legs[0].drive.upMm);
+    for (zone = 1U; zone <= 2U; ++zone) for (a = 1U; a <= 15U; ++a)
+        for (b = a+1U; b <= 15U; ++b) {
+            const PresetCandidate *candidates = zone == 1U ? presetQr1ToRaw : presetQr2ToRaw;
+            memset(&route,0,sizeof(route)); route.regions = mask(a,b);
+            if (!presetFixedConnect(&route,(PresetPose){2100,1200,0},candidates,3U,"RAW_1",1)) continue;
+            if (route.legs[0].to.x != 1200 || route.legs[0].to.y != 1200) continue;
+            ++secondCandidates;
+            assert(route.count == 2U && route.legs[0].drive.rightMm == -900);
+            assert(!route.legs[0].arc && !route.legs[1].arc);
+            route.index = 1U;
+            assert(presetActiveLeg(&route).upMm == 800);
+            assert(route.legs[1].to.x == 1200 && route.legs[1].to.y == 2080);
+            assert(route.legs[1].drive.event && route.legs[1].to.heading == 1);
+        }
+    assert(secondCandidates);
+}
+
 int main(void)
 {
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); startUpperDetourDistance(); rawLeftFourPointRoute(); experimental713Arrival(); recenterEnvelope();
+    selection(); geometry(); coarseArcPreserved(); fourPointObstacleSelection(); tempReturnArcPreserved(); remainingArcsPreserved(); fixedCandidatePriorities(); fixedStartDetours(); startUpperDetourDistance(); start67AndSharedQrDistance(); rawLeftFourPointRoute(); experimental713Arrival(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
     assert(!presetBuild(&route,1,0x8001U) && !route.count);
