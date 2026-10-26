@@ -190,7 +190,8 @@ static void checkRoute(uint8_t zone)
         }
         if (leg->arc) {
             if (leg->arc == PRESET_ARC_FOUR_POINT)
-                assert(((leg->taskIndex == 8U || leg->taskIndex == 15U) && leg->drive.rightMm == -860) ||
+                assert(((leg->taskIndex == 8U || leg->taskIndex == 15U) &&
+                        leg->drive.rightMm == (leg->to.y == 2080 ? -910 : -860)) ||
                        ((leg->taskIndex == 10U || leg->taskIndex == 19U) && leg->drive.upMm == 880) ||
                        ((leg->taskIndex == 10U || leg->taskIndex == 19U) &&
                         (leg->drive.upMm == -850 || leg->drive.rightMm == 860)) ||
@@ -511,7 +512,7 @@ static void upperArrivalUsesRawBend(void)
                 ++legs;
             }
             assert(legs == 3U && route.legs[first].arc == 1U);
-            assert(bend->arc == PRESET_ARC_FOUR_POINT && bend->drive.rightMm == -860);
+            assert(bend->arc == PRESET_ARC_FOUR_POINT && bend->drive.rightMm == -910);
             /* Same anchor, headings and arc rule as RAW->COARSE's upper-left bend. */
             assert(bend->to.x == presetRawToCoarse[1].steps[0].x);
             assert(bend->to.y == presetRawToCoarse[1].steps[0].y);
@@ -519,7 +520,7 @@ static void upperArrivalUsesRawBend(void)
             assert(route.legs[first+2U].from.heading == presetRawToCoarse[1].steps[1].heading);
             assert(presetArcClear(bend,&route.legs[first+2U],route.regions));
             assert(referenceArcClear(bend,&route.legs[first+2U],route.regions));
-            route.index = (uint16_t)(first+1U); assert(presetActiveLeg(&route).rightMm == -362);
+            route.index = (uint16_t)(first+1U); assert(presetActiveLeg(&route).rightMm == -412);
             route.index = (uint16_t)(first+2U); assert(presetActiveLeg(&route).upMm == -637);
             assert(route.legs[first+2U].to.x == 400 && route.legs[first+2U].to.y == 1200);
             assert(route.legs[first+2U].drive.event && !route.legs[first+2U].drive.rightMm);
@@ -527,7 +528,7 @@ static void upperArrivalUsesRawBend(void)
     }
     memset(&route,0,sizeof(route)); route.regions = mask(7,9);
     assert(presetTryCandidate(&route,(PresetPose){1200,400,-1},&presetCoarseToTemp[2],8U,"TEMP",2));
-    assert(route.count == 3U && route.legs[1].drive.rightMm == -860);
+    assert(route.count == 3U && route.legs[1].drive.rightMm == -910);
 }
 
 static void startSharedDetourDistance(void)

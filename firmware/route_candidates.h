@@ -27,7 +27,7 @@ static const PresetCandidate presetCoarseToTemp[3] = {
     /* Four-point version: left 611, original arc, up 601. No extra moves. */
     {2, {{400,400,0,-860,-1}, {400,1200,850,0,2}}},
     {2, {{1200,1200,800,0,2}, {400,1200,0,-800,2}}},
-    {3, {{1200,2080,1680,0,0}, {400,2080,0,-860,1}, {400,1200,-886,0,2}}}
+    {3, {{1200,2080,1680,0,0}, {400,2080,0,-910,1}, {400,1200,-886,0,2}}}
 };
 /* Up then right; right then up; right outside; down via COARSE then up. */
 static const PresetCandidate presetTempToRaw[4] = {
