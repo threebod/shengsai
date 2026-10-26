@@ -356,10 +356,12 @@ static VisionEvent vision_layout_observe(VisionSession *session,
         (du >= -10 && du <= 10 && dv >= -10 && dv <= 10)) {
         if (!session->layoutPositioned) {
             session->layoutPositioned = 1U;
-            memset(session->layoutColors, 0, sizeof(session->layoutColors));
-            session->layoutInferred = 0U;
-            session->state = VISION_STATE_WAIT;
-            return VISION_EVENT_NONE;
+            if (single) {
+                memset(session->layoutColors, 0, sizeof(session->layoutColors));
+                session->layoutInferred = 0U;
+                session->state = VISION_STATE_WAIT;
+                return VISION_EVENT_NONE;
+            }
         }
         for (index = 0U; index < 3U; ++index) {
             if (session->layoutColors[index] != (uint8_t)packet->value[5U + index]) wasReady = 0U;

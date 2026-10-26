@@ -100,7 +100,7 @@ class MaterialLayoutDetectorTest(unittest.TestCase):
                     self.assertEqual(accepted, result is not None)
 
     def test_initial_location_retains_all_real_centers_for_display_only(self):
-        for phase in (LAYOUT_LOCATE, LAYOUT_TRACK):
+        for phase in (LAYOUT_TRACK,):
             result = self.detect({1: [self.blob(320, 410)],
                                   4: [self.blob(140, 100)], 3: [self.blob(500, 100)]},
                                  phase=phase)
@@ -108,6 +108,16 @@ class MaterialLayoutDetectorTest(unittest.TestCase):
             self.assertEqual((None, None), result["points"][1:])
             self.assertEqual({(160, 205), (70, 50), (250, 50)},
                              {point[:2] for point in result["visible_points"]})
+
+    def test_initial_location_reports_layout_in_the_same_six_frame_window(self):
+        result = self.detect({1: [self.blob(320, 410)],
+                              4: [self.blob(140, 100)], 3: [self.blob(500, 100)]},
+                             phase=LAYOUT_LOCATE)
+        self.assertEqual((1, 4, 3), result["colors"])
+        window = LayoutWindow()
+        for index in range(6):
+            self.assertEqual(index == 5, window.update(result))
+        self.assertEqual([160, 205], window.center())
 
     def test_each_color_checks_area_after_selecting_largest_blob_like_reference(self):
         result = self.detect({1: [self.blob(200, 300, 6000), self.blob(320, 400)],
@@ -177,32 +187,32 @@ class MaterialLayoutDetectorTest(unittest.TestCase):
             self.assertIsNone(result["points"][0])
             self.assertFalse(result["inferred"])
             window = LayoutWindow()
-            for index in range(10):
-                self.assertEqual(index == 9, window.update(result, 4))
+            for index in range(6):
+                self.assertEqual(index == 5, window.update(result, 4))
             self.assertEqual([70, 50], window.center(4))
 
     def test_recheck_missing_target_or_rotating_slot_resets_window(self):
         result = self.detect({4: [self.blob(140, 100)]}, mask=12, selector=4)
         self.assertEqual((0, 4, 0), result["colors"])
         window = LayoutWindow()
-        for _ in range(10):
+        for _ in range(6):
             window.update(result, 4)
         missing = self.detect({3: [self.blob(500, 100)]}, mask=12, selector=4)
         self.assertFalse(window.update(missing, 4))
         rotated = self.detect({4: [self.blob(500, 100)]}, mask=8, selector=4)
-        for index in range(10):
-            self.assertEqual(index == 9, window.update(rotated, 4))
+        for index in range(6):
+            self.assertEqual(index == 5, window.update(rotated, 4))
         self.assertEqual([250, 50], window.center(4))
 
-    def test_window_needs_ten_frames_and_one_still_material_despite_upper_motion(self):
+    def test_window_needs_six_frames_and_one_still_material_despite_upper_motion(self):
         window = LayoutWindow()
-        for index in range(10):
-            self.assertEqual(index == 9, window.update(layout(missing=2)))
+        for index in range(6):
+            self.assertEqual(index == 5, window.update(layout(missing=2)))
         self.assertEqual([160, 200], window.center())
         moving = layout(missing=2)
         moving["points"] = (moving["points"][0], (80, 50, 80, 40, 40, 4), None)
         self.assertTrue(window.update(moving))
-        for _ in range(10):
+        for _ in range(6):
             window.update(layout())
         self.assertFalse(window.update(layout(colors=(4, 1, 3))))
         self.assertFalse(window.update(None))
@@ -210,44 +220,44 @@ class MaterialLayoutDetectorTest(unittest.TestCase):
     def test_any_visible_slot_can_confirm_while_other_centers_move(self):
         for still_slot in range(3):
             window = LayoutWindow()
-            for index in range(10):
+            for index in range(6):
                 observed = layout()
                 observed["points"] = tuple(
                     (point[0] + (0 if slot == still_slot else index * 3), *point[1:])
                     for slot, point in enumerate(observed["points"]))
-                self.assertEqual(index == 9, window.update(observed))
+                self.assertEqual(index == 5, window.update(observed))
 
     def test_still_requires_both_axes_on_the_same_material_and_revokes_on_motion(self):
         window = LayoutWindow()
-        for _ in range(10):
+        for _ in range(6):
             window.update(layout())
         moving = layout(bottom=(180, 200))
         moving["points"] = (moving["points"][0], (70, 70, 80, 40, 40, 4),
                             (270, 70, 80, 40, 40, 3))
         self.assertFalse(window.update(moving))
-        for index in range(9):
-            self.assertEqual(index == 8, window.update(moving))
+        for index in range(5):
+            self.assertEqual(index == 4, window.update(moving))
 
     def test_gradual_drift_and_new_confirmation_cannot_reuse_old_frames(self):
         window = LayoutWindow()
-        for shift in (0, 1, 2, 3, 4, 4, 5, 6, 7, 8):
+        for shift in range(10):
             observed = layout()
             observed["points"] = tuple((point[0] + shift, *point[1:]) for point in observed["points"])
             self.assertFalse(window.update(observed))
-        for _ in range(10):
+        for _ in range(6):
             window.update(layout())
         window.reset()
-        for _ in range(9):
+        for _ in range(5):
             self.assertFalse(window.update(layout()))
 
     def test_single_target_stability_does_not_transfer_to_color_confirmation(self):
         window = LayoutWindow()
         single = {"points": (layout()["points"][0], None, None),
                   "colors": (1, 0, 0), "inferred": False}
-        for index in range(10):
-            self.assertEqual(index == 9, window.update(single))
-        for index in range(10):
-            self.assertEqual(index == 9, window.update(layout(missing=2)))
+        for index in range(6):
+            self.assertEqual(index == 5, window.update(single))
+        for index in range(6):
+            self.assertEqual(index == 5, window.update(layout(missing=2)))
 
 
 class MaterialLayoutMemoryTest(unittest.TestCase):
@@ -275,8 +285,8 @@ class MaterialLayoutMemoryTest(unittest.TestCase):
         self.assertEqual(1, resolved["reference"])
         self.assertTrue(resolved["inferred"])
         window = LayoutWindow()
-        for index in range(10):
-            self.assertEqual(index == 9, window.update(resolved, 4))
+        for index in range(6):
+            self.assertEqual(index == 5, window.update(resolved, 4))
         self.assertEqual([70, 50], window.center(4))
 
     def test_no_memory_no_visible_reference_and_conflicting_order_cannot_infer(self):
@@ -302,8 +312,8 @@ class MaterialLayoutMemoryTest(unittest.TestCase):
         resolved = memory.resolve(shifted, packet)
         self.assertEqual((4, 3, 0), resolved["colors"])
         window = LayoutWindow()
-        for index in range(10):
-            self.assertEqual(index == 9, window.update(resolved, 4))
+        for index in range(6):
+            self.assertEqual(index == 5, window.update(resolved, 4))
         self.assertEqual([90, 75], window.center(4))
 
     def test_initial_missing_slot_can_later_supply_a_real_stable_reference(self):
@@ -327,8 +337,8 @@ class MaterialLayoutMemoryTest(unittest.TestCase):
             points[slot] = (70 if slot == 1 else 250, 50, 80, 40, 40, 3)
             observed = {"points": tuple(points), "colors": (0, 0, 0), "inferred": False}
             resolved = memory.resolve(observed, packet)
-            for index in range(10):
-                self.assertEqual(index == 9, window.update(resolved, 4))
+            for index in range(6):
+                self.assertEqual(index == 5, window.update(resolved, 4))
         self.assertFalse(window.update(None, 4))
 
 
@@ -339,7 +349,23 @@ class MaterialLayoutStreamTest(unittest.TestCase):
         return [Parser().feed(call.args[0])[0]
                 for call in maix.uart.UART.return_value.write.call_args_list]
 
-    def test_memory_survives_pickup_end_but_new_confirmation_needs_ten_frames(self):
+    def test_location_six_frames_confirm_layout_and_seed_recheck_memory(self):
+        reference = {"points": (None, (70, 50, 80, 40, 40, 3), None),
+                     "colors": (0, 3, 0), "inferred": False}
+        maix = self.run_camera(
+            [request(phase=LAYOUT_LOCATE)] + [b""] * 7 +
+            [request(2, LAYOUT_END), request(3, mask=12, selector=4)] + [b""] * 8,
+            [index * 0.1 for index in range(18)],
+            layout_found=[layout()] * 6 + [reference] * 7)
+        located = [row for row in self.responses(maix) if row["token"] == 1]
+        self.assertFalse(any(row["flags"] & FLAG_STABLE for row in located[:-1]))
+        self.assertTrue(located[-1]["flags"] & FLAG_STABLE)
+        self.assertEqual([1, 4, 3], located[-1]["values"][5:8])
+        rechecked = [row for row in self.responses(maix) if row["token"] == 3]
+        self.assertTrue(rechecked[-1]["flags"] & FLAG_STABLE)
+        self.assertTrue(rechecked[-1]["flags"] & FLAG_LAYOUT_REFERENCE)
+
+    def test_memory_survives_pickup_end_but_new_confirmation_needs_six_frames(self):
         reference = {"points": (None, (90, 75, 80, 40, 40, 3), None),
                      "colors": (0, 3, 0), "inferred": False}
         maix = self.run_camera(
@@ -403,8 +429,8 @@ class MaterialLayoutStreamTest(unittest.TestCase):
 
     def test_tracking_never_triggers_stable_and_confirmation_starts_fresh(self):
         maix = self.run_camera([request(1, LAYOUT_TRACK)] + [b""] * 11 +
-                               [request(2, LAYOUT_CONFIRM)] + [b""] * 8,
-                               [index * 0.04 for index in range(21)], layout_found=layout())
+                               [request(2, LAYOUT_CONFIRM)] + [b""] * 4,
+                               [index * 0.04 for index in range(17)], layout_found=layout())
         self.assertFalse(any(row["flags"] & FLAG_STABLE for row in self.responses(maix)))
         self.assertEqual(2, self.responses(maix)[-1]["token"])
 
@@ -460,8 +486,8 @@ class MaterialLayoutStreamTest(unittest.TestCase):
         single = {"points": (layout()["points"][0], None, None),
                   "colors": (1, 0, 0), "inferred": False}
         maix = self.run_camera([request(1, LAYOUT_LOCATE)] + [b""] * 12 +
-                               [request(2, LAYOUT_CONFIRM)] + [b""] * 8,
-                               [index * 0.04 for index in range(22)],
+                               [request(2, LAYOUT_CONFIRM)] + [b""] * 4,
+                               [index * 0.04 for index in range(18)],
                                layout_found=[single] * 11 + [layout(missing=2)] * 9)
         responses = self.responses(maix)
         self.assertTrue(any(row["token"] == 1 and row["flags"] & FLAG_STABLE for row in responses))

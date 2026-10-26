@@ -184,7 +184,7 @@ def main():
                             detection_started = now_ms
                 target_color = request["selector"]
                 confirmed = layout_window.update(layout, target_color)
-                if confirmed and not target_color and request["values"][7] == LAYOUT_CONFIRM:
+                if confirmed and not target_color and request["values"][7] in (LAYOUT_CONFIRM, LAYOUT_LOCATE):
                     layout_memory.remember(layout)
                 values = [0] * 8
                 flags = FLAG_MATERIAL_LAYOUT

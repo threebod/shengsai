@@ -106,6 +106,25 @@ int main(void)
     }
 
     {
+        VisionSession layout;
+        VisionPacket result;
+        vision_session_init(&layout);
+        vision_session_start(&layout, VISION_MODE_MATERIAL, 0U, 0U, &calibration, 0U);
+        layout.requestFlags = VISION_FLAG_MATERIAL_LAYOUT;
+        layout.materialMask = 13U;
+        layout.layoutPhase = VISION_LAYOUT_CONFIRM;
+        vision_session_make_request(&layout, &calibration, &result, 0U);
+        result.type = VISION_MESSAGE_RESULT;
+        result.flags = VISION_FLAG_MATERIAL_LAYOUT | VISION_FLAG_VALID | VISION_FLAG_STABLE;
+        result.value[0] = 160; result.value[1] = 205;
+        result.value[5] = 1; result.value[6] = 4; result.value[7] = 3;
+        if (!require(vision_layout_observe(&layout, &calibration, &result, 1U) == VISION_EVENT_ALIGNED &&
+                     layout.layoutPositioned && layout.iteration == 0U &&
+                     vision_layout_pick_position(&layout, 4U) == VISION_PICK_POSITION_LEFT_UP,
+                     "initial stable layout required a second confirmation")) return 1;
+    }
+
+    {
         VisionSession recheck;
         VisionPacket result;
         vision_session_init(&recheck);

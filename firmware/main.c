@@ -2108,7 +2108,7 @@ static void serviceMaterialLayout(void)
     }
     wasPositioned = visionSession.layoutPositioned;
     event = vision_layout_observe(&visionSession, &visionMaterialCalibration, &packet, clockMs);
-    if (!wasPositioned && visionSession.layoutPositioned) {
+    if (!wasPositioned && visionSession.layoutPositioned && event != VISION_EVENT_ALIGNED) {
         vision_session_make_request(&visionSession, &visionMaterialCalibration, &packet, clockMs);
         visionUartSend(&packet); /* Fresh token and fresh window for three-slot colors. */
         printRawPickState("WAIT_MATERIAL", rawPickCurrentColor, rawPickCurrentSlot);
