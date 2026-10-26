@@ -48,6 +48,10 @@ static void rawPickActionsForSlot(MechanismAction *actions, uint8_t slot)
 {
     memcpy(actions, rawPickActions, sizeof(rawPickActions));
     actions[0].value = slot;
+    if (slot < 3U) {
+        actions[10].pose.horizontalDmm = rawPickObservePose.horizontalDmm;
+        actions[11].pose = rawPickObservePose;
+    }
     actions[9].value = slot < 3U ? (uint16_t)(slot + 1U) : 3U;
     if (slot == 3U) actions[11].pose = rawPickTravelPose;
 }

@@ -2157,7 +2157,9 @@ static void serviceRawPickRoute(void)
     prepared = finishMissionObservation(routeIndex);
     if (prepared < 0 || prepared == 1) return;
     if (!mechanismState.valid || mechanismState.running ||
-        (mechanismState.current.horizontalDmm != 0 && prepared != 2) ||
+        (mechanismState.current.horizontalDmm != 0 && prepared != 2 &&
+         !(rawPickItemIndex != 0U && mechanismState.current.horizontalDmm ==
+             rawPickObservePose.horizontalDmm)) ||
         mechanismState.current.liftDmm != 0U ||
         (mechanismState.current.turretDdeg != 2600U &&
          !(rawPickItemIndex == 0U &&
@@ -2182,7 +2184,9 @@ static void serviceRawPickRoute(void)
     if (!visionSession.materialMask) { failVision("PICK_REQUIRES_THREE_COLORS"); return; }
     visionSession.state = VISION_STATE_PREP;
     servoSetTarget(2U, rawPickInitial.gripperOpenDeg, rawPickInitial.gripperDps10);
-    if (prepared != 2) {
+    if (prepared != 2 &&
+        (mechanismState.current.horizontalDmm != rawPickObservePose.horizontalDmm ||
+         mechanismState.current.turretDdeg != rawPickObservePose.turretDdeg)) {
         startMechanismPose(&rawPickObservePose);
         if (!mechanismState.running) failVision("PICK_PREP_FAILED");
     }
