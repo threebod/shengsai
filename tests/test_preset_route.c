@@ -598,8 +598,9 @@ static void qrSimplification(void)
     assert(!presetTemplates[12].count && !presetTemplates[13].count && !presetTemplates[15].count);
     for (group = PRESET_GROUP_Q1; group <= PRESET_GROUP_Q2; ++group) {
         const PresetGroup *g = &presetGroups[group];
-        assert(g->count == 4U && g->templates[1] == templateId("Q-2") &&
-               g->templates[2] == templateId("Q-3") && g->templates[3] == templateId("Q-B3"));
+        assert(g->count == 5U && g->templates[1] == templateId("Q-2") &&
+               g->templates[2] == templateId("Q-3") && g->templates[3] == templateId("Q-4") &&
+               g->templates[4] == templateId("Q-B3"));
         memset(&route,0,sizeof(route)); route.regions = mask(5,8);
         assert(presetTryTemplate(&route,g,(uint16_t)templateId("Q-B3"),3U,"RAW_1"));
         assert(route.count == 4U);
@@ -619,12 +620,50 @@ static void qrSimplification(void)
     }
 }
 
+static void qrCentreLowerDetour(void)
+{
+    static const unsigned pairs[][2] = {{3,9},{6,9}};
+    static PresetRoute reference;
+    unsigned zone, map, i;
+    for (map = 0U; map < 2U; ++map) for (zone = 1U; zone <= 2U; ++zone) {
+        unsigned first;
+        assert(presetBuild(&route,(uint8_t)zone,mask(pairs[map][0],pairs[map][1])));
+        first = taskBegin(&route,3U);
+        for (i = 0U; i < 3U; ++i) {
+            RouteLeg active;
+            const PresetLeg *leg = &route.legs[first+i];
+            assert(leg->templateId == templateId("Q-4"));
+            assert(leg->arc == (i == 0U));
+            route.index = (uint16_t)(first+i); active = presetActiveLeg(&route);
+            assert(active.upMm == (i == 0U ? -571 : i == 2U ? 1700 : 0));
+            assert(active.rightMm == (i == 1U ? -651 : 0));
+            assert(!!active.event == (i == 2U));
+        }
+        assert(referenceArcClear(&route.legs[first],&route.legs[first+1U],route.regions));
+        assert(route.legs[first].to.x == 2100 && route.legs[first].to.y == 380);
+        assert(route.legs[first+1U].to.x == 1200 && route.legs[first+1U].to.y == 380);
+        assert(route.legs[first+2U].from.heading == 0 && route.legs[first+2U].to.heading == 1);
+        assert(!strcmp(route.legs[first+2U].drive.event,"RAW_1"));
+        if (zone == 1U) reference = route;
+        else sameTask(&reference,3U,&route,3U);
+    }
+    for (i = 0U; i < 3U; ++i) {
+        static const unsigned blocked[] = {5,8,11};
+        memset(&route,0,sizeof(route)); route.regions = mask(blocked[i],9);
+        assert(!presetTryTemplate(&route,&presetGroups[PRESET_GROUP_Q1],
+                                  (uint16_t)templateId("Q-4"),3U,"RAW_1"));
+        assert(!route.count);
+    }
+    assert(presetBuild(&route,1U,mask(6,8)));
+    assert(route.legs[taskBegin(&route,3U)].templateId == templateId("Q-B3"));
+}
+
 int main(void)
 {
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fixedDistances(); rawThreeRoutes(); noPivotClearance(); qrSimplification(); frozenTemplates();
+    selection(); geometry(); coarseArcPreserved(); fixedDistances(); rawThreeRoutes(); noPivotClearance(); qrSimplification(); qrCentreLowerDetour(); frozenTemplates();
     wholeTemplatePriority(); homeAndStartExits(); rawRightDirectArrival(); start1LoopDownBeforeLeft(); start1CentreLowerDetour(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);

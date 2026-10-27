@@ -312,6 +312,14 @@ static const PresetStep presetSteps50[] = {
     {2100,1200,843,0,0,0,0,0},
 };
 
+/* Q-4: lower-right arc into the shared y=380 corridor, then the centre
+ * channel to RAW. Upper arrival keeps the workstation's left-facing pose. */
+static const PresetStep presetSteps51[] = {
+    {2100,380,-820,0,2,2,1,1},
+    {1200,380,0,-900,1,1,1,0},
+    {1200,2080,1700,0,0,1,1,0},
+};
+
 /* IDs are stable, one-based catalog indices; zero means no template. */
 static const PresetCandidate presetTemplates[] = {
     {0,0,0},
@@ -365,14 +373,15 @@ static const PresetCandidate presetTemplates[] = {
     {"H2-B4",presetSteps48,6},
     {"H2-B5",presetSteps49,5},
     {"S1-B2",presetSteps50,5},
+    {"Q-4",presetSteps51,3},
 };
 #define PRESET_TEMPLATE_COUNT ((unsigned)(sizeof(presetTemplates)/sizeof(presetTemplates[0])-1U))
 
 enum { PRESET_GROUP_S1, PRESET_GROUP_S2, PRESET_GROUP_Q1, PRESET_GROUP_Q2, PRESET_GROUP_RC, PRESET_GROUP_CT, PRESET_GROUP_TR, PRESET_GROUP_H1, PRESET_GROUP_H2, PRESET_GROUP_COUNT };
 static const uint8_t presetOrderS1[] = {1,2,50,3,4};
 static const uint8_t presetOrderS2[] = {5,6,7,8};
-static const uint8_t presetOrderQ1[] = {9,10,11,14};
-static const uint8_t presetOrderQ2[] = {16,10,11,14};
+static const uint8_t presetOrderQ1[] = {9,10,11,51,14};
+static const uint8_t presetOrderQ2[] = {16,10,11,51,14};
 static const uint8_t presetOrderRC[] = {17,19,20};
 static const uint8_t presetOrderCT[] = {26,27,28,29,30,31};
 static const uint8_t presetOrderTR[] = {32,33,34,35,36,37,38};
@@ -381,8 +390,8 @@ static const uint8_t presetOrderH2[] = {45,46,47,48,49};
 static const PresetGroup presetGroups[PRESET_GROUP_COUNT] = {
     {{2250,2250,0},{2100,1200,0},presetOrderS1,5}, /* S1 */
     {{2250,150,0},{2100,1200,0},presetOrderS2,4}, /* S2 */
-    {{2100,1200,0},{1200,2080,1},presetOrderQ1,4}, /* Q1 */
-    {{2100,1200,0},{1200,2080,1},presetOrderQ2,4}, /* Q2 */
+    {{2100,1200,0},{1200,2080,1},presetOrderQ1,5}, /* Q1 */
+    {{2100,1200,0},{1200,2080,1},presetOrderQ2,5}, /* Q2 */
     {{1200,2080,1},{1200,400,-1},presetOrderRC,3}, /* RC */
     {{1200,400,-1},{400,1200,2},presetOrderCT,6}, /* CT */
     {{400,1200,2},{1200,2080,1},presetOrderTR,7}, /* TR */
