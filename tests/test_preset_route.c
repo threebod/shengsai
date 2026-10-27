@@ -254,7 +254,7 @@ static unsigned templateId(const char *code)
 {
     unsigned i;
     for (i = 1U; i <= PRESET_TEMPLATE_COUNT; ++i)
-        if (!strcmp(presetTemplates[i].code,code)) return i;
+        if (presetTemplates[i].code && !strcmp(presetTemplates[i].code,code)) return i;
     assert(!"unknown template code"); return 0U;
 }
 
@@ -319,6 +319,16 @@ static void fixedDistances(void)
     }
 }
 
+static void sameMotion(const PresetLeg *x, const PresetLeg *y)
+{
+    assert(x->templateId == y->templateId);
+    assert(x->from.x == y->from.x && x->from.y == y->from.y && x->from.heading == y->from.heading);
+    assert(x->to.x == y->to.x && x->to.y == y->to.y && x->to.heading == y->to.heading);
+    assert(x->drive.upMm == y->drive.upMm && x->drive.rightMm == y->drive.rightMm);
+    assert(x->drive.departureHeading == y->drive.departureHeading && x->drive.heading == y->drive.heading);
+    assert(x->arc == y->arc && !!x->drive.event == !!y->drive.event);
+}
+
 /* Compare complete realized segments for each ID across all obstacle pairs,
  * zones and rounds. This catches any new hidden per-mask adjustment. */
 static void frozenTemplates(void)
@@ -326,7 +336,7 @@ static void frozenTemplates(void)
     static PresetLeg observed[PRESET_TEMPLATE_COUNT+1U][8];
     unsigned lengths[PRESET_TEMPLATE_COUNT+1U] = {0};
     unsigned uses[PRESET_TEMPLATE_COUNT+1U] = {0};
-    unsigned zone, a, b, id;
+    unsigned zone, a, b, id, group, templates = 0U;
     for (zone = 1U; zone <= 2U; ++zone) for (a = 1U; a <= 15U; ++a) for (b = a+1U; b <= 15U; ++b) {
         unsigned first = 0U;
         if (!presetBuild(&route,(uint8_t)zone,mask(a,b))) continue;
@@ -343,23 +353,39 @@ static void frozenTemplates(void)
             assert(lengths[id] == last-first+1U);
             for (i = 0U; i < lengths[id]; ++i) {
                 const PresetLeg *x = &observed[id][i], *y = &route.legs[first+i];
-                assert(y->templateId == id);
-                assert(x->from.x == y->from.x && x->from.y == y->from.y && x->from.heading == y->from.heading);
-                assert(x->to.x == y->to.x && x->to.y == y->to.y && x->to.heading == y->to.heading);
-                assert(x->drive.upMm == y->drive.upMm && x->drive.rightMm == y->drive.rightMm);
-                assert(x->drive.departureHeading == y->drive.departureHeading && x->drive.heading == y->drive.heading);
-                assert(x->arc == y->arc && !!x->drive.event == !!y->drive.event);
+                sameMotion(x,y);
             }
             ++uses[id]; first = last+1U;
         }
     }
+    /* Pruning QR alternatives can make another valid segment unavailable in a
+     * full mission. Check each retained candidate independently as well. */
+    for (group = 0U; group < PRESET_GROUP_COUNT; ++group)
+        for (a = 1U; a <= 15U; ++a) for (b = a+1U; b <= 15U; ++b) {
+            unsigned candidate;
+            for (candidate = 0U; candidate < presetGroups[group].count; ++candidate) {
+                unsigned i;
+                id = presetGroups[group].templates[candidate];
+                memset(&route,0,sizeof(route)); route.regions = mask(a,b);
+                if (!presetTryTemplate(&route,&presetGroups[group],(uint16_t)id,3U,"TEST")) continue;
+                if (!uses[id]) {
+                    lengths[id] = route.count;
+                    memcpy(observed[id],route.legs,route.count*sizeof(PresetLeg));
+                }
+                assert(lengths[id] == route.count);
+                for (i = 0U; i < route.count; ++i) sameMotion(&observed[id][i],&route.legs[i]);
+                ++uses[id];
+            }
+        }
     for (id = 1U; id <= PRESET_TEMPLATE_COUNT; ++id) {
         unsigned other;
+        if (!presetTemplates[id].count) { assert(!presetTemplates[id].code); continue; }
+        ++templates;
         assert(uses[id]);
         for (other = id+1U; other <= PRESET_TEMPLATE_COUNT; ++other)
-            assert(strcmp(presetTemplates[id].code,presetTemplates[other].code));
+            if (presetTemplates[other].count) assert(strcmp(presetTemplates[id].code,presetTemplates[other].code));
     }
-    printf("PASS %u fixed templates: identical full motions across all selections\n",PRESET_TEMPLATE_COUNT);
+    printf("PASS %u fixed templates: identical full motions across all selections\n",templates);
 }
 
 static void wholeTemplatePriority(void)
@@ -457,7 +483,8 @@ static void start1LoopDownBeforeLeft(void)
     unsigned map, i;
     for (map = 0U; map < sizeof(pairs)/sizeof(pairs[0]); ++map) {
         unsigned qr, arcs = 0U;
-        assert(presetBuild(&route,1U,mask(pairs[map][0],pairs[map][1])));
+        memset(&route,0,sizeof(route)); route.regions = mask(pairs[map][0],pairs[map][1]);
+        assert(presetGroupConnect(&route,PRESET_GROUP_S1,1U,"QR"));
         assert(route.legs[0].taskIndex == 0U && !route.legs[0].arc);
         assert(route.legs[0].from.x == 2250 && route.legs[0].from.y == 2250);
         assert(route.legs[0].to.x == 2250 && route.legs[0].to.y == 2100);
@@ -485,7 +512,8 @@ static void start1CentreLowerDetour(void)
     static const int16_t x[] = {2250,2100,1200,1200,2100,2100};
     static const int16_t y[] = {2100,2100,2100,380,380,1200};
     unsigned i, first;
-    assert(presetBuild(&route,1U,mask(6,9)));
+    memset(&route,0,sizeof(route)); route.regions = mask(6,9);
+    assert(presetGroupConnect(&route,PRESET_GROUP_S1,1U,"QR"));
     for (i = 0U; i < 6U; ++i) {
         RouteLeg active;
         const PresetLeg *leg = &route.legs[i];
@@ -511,10 +539,46 @@ static void start1CentreLowerDetour(void)
     assert(!presetTryTemplate(&route,&presetGroups[PRESET_GROUP_S1],
                               (uint16_t)templateId("S1-B2"),1U,"QR"));
     assert(!route.count);
-    assert(presetBuild(&route,1U,mask(6,8)));
+    assert(presetGroupConnect(&route,PRESET_GROUP_S1,1U,"QR"));
     first = taskBegin(&route,1U);
     assert(route.legs[first].templateId == templateId("S1-B1"));
     assert(presetOrderS1[2] == templateId("S1-B2"));
+}
+
+static uint8_t qrPrunedPair(unsigned a, unsigned b)
+{
+    static const uint8_t pairs[][2] = {
+        {1,3},{2,3},{2,6},{3,4},{3,7},{3,8},{3,9},{3,10},{6,8},{6,9}
+    };
+    unsigned i;
+    for (i = 0U; i < sizeof(pairs)/sizeof(pairs[0]); ++i)
+        if (a == pairs[i][0] && b == pairs[i][1]) return 1U;
+    return 0U;
+}
+
+static void qrSimplification(void)
+{
+    unsigned group, i;
+    assert(!presetTemplates[12].count && !presetTemplates[13].count && !presetTemplates[15].count);
+    for (group = PRESET_GROUP_Q1; group <= PRESET_GROUP_Q2; ++group) {
+        const PresetGroup *g = &presetGroups[group];
+        assert(g->count == 4U && g->templates[1] == templateId("Q-2") &&
+               g->templates[2] == templateId("Q-3") && g->templates[3] == templateId("Q-B3"));
+        memset(&route,0,sizeof(route)); route.regions = mask(5,8);
+        assert(presetTryTemplate(&route,g,(uint16_t)templateId("Q-B3"),3U,"RAW_1"));
+        assert(route.count == 4U);
+        for (i = 0U; i < 3U; ++i) {
+            assert(route.legs[i].arc == 1U);
+            assert(referenceArcClear(&route.legs[i],&route.legs[i+1U],route.regions));
+        }
+        assert(route.legs[3].from.x == 300 && route.legs[3].to.x == 1200);
+        assert(route.legs[3].drive.rightMm == 897 && !route.legs[3].drive.upMm);
+        assert(route.legs[3].drive.departureHeading == -1 && route.legs[3].drive.heading == 1);
+        assert(!route.legs[3].arc && !strcmp(route.legs[3].drive.event,"RAW_1"));
+        route.index = 3U; assert(presetActiveLeg(&route).rightMm == 648);
+        memset(&route,0,sizeof(route)); route.regions = mask(3,8);
+        assert(!presetGroupConnect(&route,group,3U,"RAW_1"));
+    }
 }
 
 int main(void)
@@ -522,7 +586,7 @@ int main(void)
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fixedDistances(); frozenTemplates();
+    selection(); geometry(); coarseArcPreserved(); fixedDistances(); qrSimplification(); frozenTemplates();
     wholeTemplatePriority(); homeAndStartExits(); rawRightDirectArrival(); start1LoopDownBeforeLeft(); start1CentreLowerDetour(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
@@ -536,12 +600,12 @@ int main(void)
             if (route.count > 20U) ++detours;
         } else {
             ++rejected[zone-1U]; assert(!route.count && !route.index);
-            assert((zone == 1U && a == 3U && b == 6U) ||
+            assert(qrPrunedPair(a,b) || (zone == 1U && a == 3U && b == 6U) ||
                    (zone == 2U && a == 12U && b == 15U));
         }
     }
-    assert(feasible[0] == 104U && feasible[1] == 104U);
-    assert(rejected[0] == 1U && rejected[1] == 1U && arcs && detours);
+    assert(feasible[0] == 94U && feasible[1] == 94U);
+    assert(rejected[0] == 11U && rejected[1] == 11U && arcs && detours);
     assert(presetBuild(&route,1U,mask(6,5))); /* Long start and QR->RAW detours. */
     assert(presetBuild(&route,2U,mask(12,11))); /* Mirror long start detour. */
     for (a = 1U; a <= 15U; ++a) for (b = a+1U; b <= 15U; ++b) {

@@ -99,35 +99,12 @@ static const PresetStep presetSteps11[] = {
     {300,2080,780,0,2,2,1,1},
     {1200,2080,0,870,1,1,1,0},
 };
-/* Q-B1 */
-static const PresetStep presetSteps12[] = {
-    {2100,1250,50,0,0,0,0,0},
-    {1200,1250,0,-900,1,1,1,0},
-    {1200,2080,830,0,1,1,1,0},
-};
-/* Q-B2 */
-static const PresetStep presetSteps13[] = {
-    {2100,1150,-50,0,0,0,0,0},
-    {2100,300,-850,0,2,2,1,1},
-    {300,300,0,-1800,1,1,0,1},
-    {300,2080,1780,0,0,0,-1,1},
-    {1200,2080,0,870,-1,1,1,0},
-};
 /* Q-B3 */
 static const PresetStep presetSteps14[] = {
     {2100,300,-900,0,2,2,1,1},
     {300,300,0,-1800,1,1,0,1},
     {300,2080,1780,0,0,0,-1,1},
-    {1100,2080,0,800,-1,-1,-1,0},
-    {1200,2080,0,97,1,1,1,0},
-};
-/* Q-B4 */
-static const PresetStep presetSteps15[] = {
-    {2100,1150,-50,0,0,0,0,0},
-    {1200,1150,0,-900,1,1,1,0},
-    {1200,2080,930,0,0,0,0,0},
-    {1300,2080,0,100,0,0,0,0},
-    {1200,2080,0,-97,1,1,1,0},
+    {1200,2080,0,897,-1,1,1,0},
 };
 /* Q2-1 */
 static const PresetStep presetSteps16[] = {
@@ -387,10 +364,10 @@ static const PresetCandidate presetTemplates[] = {
     {"Q1-1",presetSteps9,2},
     {"Q-2",presetSteps10,2},
     {"Q-3",presetSteps11,6},
-    {"Q-B1",presetSteps12,3},
-    {"Q-B2",presetSteps13,5},
-    {"Q-B3",presetSteps14,5},
-    {"Q-B4",presetSteps15,5},
+    {0,0,0}, /* Retired ID 12; keep other template IDs stable. */
+    {0,0,0}, /* Retired ID 13. */
+    {"Q-B3",presetSteps14,4},
+    {0,0,0}, /* Retired ID 15. */
     {"Q2-1",presetSteps16,2},
     {"RC-1A",presetSteps17,1},
     {"RC-1B",presetSteps18,1},
@@ -432,8 +409,8 @@ static const PresetCandidate presetTemplates[] = {
 enum { PRESET_GROUP_S1, PRESET_GROUP_S2, PRESET_GROUP_Q1, PRESET_GROUP_Q2, PRESET_GROUP_RC, PRESET_GROUP_CT, PRESET_GROUP_TR, PRESET_GROUP_H1, PRESET_GROUP_H2, PRESET_GROUP_COUNT };
 static const uint8_t presetOrderS1[] = {1,2,50,3,4};
 static const uint8_t presetOrderS2[] = {5,6,7,8};
-static const uint8_t presetOrderQ1[] = {9,10,11,12,13,14,15};
-static const uint8_t presetOrderQ2[] = {16,10,11,12,13,14,15};
+static const uint8_t presetOrderQ1[] = {9,10,11,14};
+static const uint8_t presetOrderQ2[] = {16,10,11,14};
 static const uint8_t presetOrderRC[] = {17,18,19,20,21,22,23,24,25};
 static const uint8_t presetOrderCT[] = {26,27,28,29,30,31};
 static const uint8_t presetOrderTR[] = {32,33,34,35,36,37,38};
@@ -442,8 +419,8 @@ static const uint8_t presetOrderH2[] = {45,46,47,48,49};
 static const PresetGroup presetGroups[PRESET_GROUP_COUNT] = {
     {{2250,2250,0},{2100,1200,0},presetOrderS1,5}, /* S1 */
     {{2250,150,0},{2100,1200,0},presetOrderS2,4}, /* S2 */
-    {{2100,1200,0},{1200,2080,1},presetOrderQ1,7}, /* Q1 */
-    {{2100,1200,0},{1200,2080,1},presetOrderQ2,7}, /* Q2 */
+    {{2100,1200,0},{1200,2080,1},presetOrderQ1,4}, /* Q1 */
+    {{2100,1200,0},{1200,2080,1},presetOrderQ2,4}, /* Q2 */
     {{1200,2080,1},{1200,400,-1},presetOrderRC,9}, /* RC */
     {{1200,400,-1},{400,1200,2},presetOrderCT,6}, /* CT */
     {{400,1200,2},{1200,2080,1},presetOrderTR,7}, /* TR */
