@@ -109,7 +109,7 @@ static const PresetStep presetSteps14[] = {
 /* Q2-1 */
 static const PresetStep presetSteps16[] = {
     {2100,2080,855,0,0,0,1,1},
-    {1200,2080,0,-870,1,1,1,0},
+    {1200,2080,0,-900,1,1,1,0},
 };
 /* RC-1 */
 static const PresetStep presetSteps17[] = {

@@ -534,3 +534,9 @@ CT-3最终按用户追加要求固定为：起步地图左移50mm，上1680到(1
 210组生产导出逐字段对比只有两区3/9、6/9共4组的任务3改变，其他航段和全部可行性不变，208/210。验证记录build/qr-centre-lower/verification.json，回放源码摘要56895ac51080。新增测试核对两区选用相同模板、距离、事件、工作朝向、独立圆弧积分和中间阻塞回退；42份有效模板跨选区一致性通过。
 
 Windows完整构建CTest25/25；Keil日志firmware/build-qr-centre-lower.log为0错误、2条原有第三方警告，Code89876、RO7676、RW836、ZI59340。现有Playwright/Edge确认两区6/9显示Q-4和1个圆弧，6/8仍Q-B3；无脚本异常，截图build/qr-centre-lower/output/playwright/qr-centre-6-9.png。未烧录或实车验证、打包、推送。
+
+## 2026-10-27 启停区2扫码到取料首选左移900mm
+
+按用户指定，仅将Q2-1末段地图左移指令从870改为900mm；原圆弧裁切249mm后，执行直线从621变为651mm。上移855、名义站点、工作朝向、既定圆弧和事件不变，Q1-1及共用其他扫码候选不变。
+
+210组导出逐字段核对，仅启停区2选用Q2-1的77组任务3的right字段从-621改为-651，其他全部字段与区1均不变，可规划仍208/210。记录build/zone2-qr-left900/verification.json，快照f6ace63d3b32。完整Windows构建CTest25/25；Keil日志firmware/build-zone2-qr-left900.log为0错误、2条原有第三方警告，Code89860、RO7688、RW836、ZI59340。未烧录或实车验证、打包、推送。
