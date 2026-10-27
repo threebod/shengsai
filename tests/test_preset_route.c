@@ -68,14 +68,11 @@ static void selection(void)
 
 static void geometry(void)
 {
-    PresetPose a = {1200,1200,0}, b = {1200,2080,0}, corner = {400,400,0};
+    PresetPose a = {1200,1200,0}, b = {1200,2080,0};
     PresetLeg before = {{0}, {2100,1200,0}, {2100,2080,0}, 3, 0, 0};
     PresetLeg after = {{0}, {2100,2080,1}, {1200,2080,1}, 3, 0, 0};
     assert(!presetSegmentClear(a,b,mask(5,12)));
     assert(presetSegmentClear(a,b,mask(2,12)));
-    assert(!presetTurnClear(b,mask(2,12)));
-    assert(presetTurnClear(corner,mask(5,12)));
-    corner.x = 2250; assert(!presetTurnClear(corner,0U));
     assert(presetArcClear(&before,&after,mask(5,12)));
     assert(!presetArcClear(&before,&after,mask(3,12)));
     before.from = (PresetPose){1200,300,-1}; before.to = (PresetPose){300,300,-1};
@@ -130,14 +127,8 @@ static void checkRoute(uint8_t zone)
             PresetPose endpoint = leg->from;
             endpoint.x += leg->drive.rightMm; endpoint.y += leg->drive.upMm;
             assert(presetSegmentClear(leg->from,endpoint,route.regions));
-            if (!leg->arc && leg->from.heading != leg->to.heading) {
-                assert(presetTurnClear(leg->to,route.regions));
-                assert(presetTurnClear(endpoint,route.regions));
-            }
         }
         assert(previous.x == leg->from.x && previous.y == leg->from.y);
-        if (previous.heading != leg->from.heading && !(i && route.legs[i-1U].arc))
-            assert(presetTurnClear(leg->from,route.regions));
         assert((active.upMm == 0) != (active.rightMm == 0));
         if (leg->drive.event) {
             RouteLeg calibrated;
@@ -153,7 +144,6 @@ static void checkRoute(uint8_t zone)
             assert(leg->to.x == station.x && leg->to.y == station.y);
             assert(leg->to.heading == station.heading);
             assert(leg->drive.departureHeading == leg->from.heading && leg->drive.heading == station.heading);
-            if (leg->from.heading != station.heading) assert(presetTurnClear(station,route.regions));
             assert(!strcmp(leg->drive.event,calibrated.event));
             nominal = leg->drive.upMm ? leg->to.y-leg->from.y : leg->to.x-leg->from.x;
             commanded = leg->drive.upMm ? leg->drive.upMm : leg->drive.rightMm;
@@ -267,7 +257,7 @@ static void fixedDistances(void)
         int16_t up[3], right[3];
     } cases[] = {
         {7,9,6,1,"RC-1A",{-1680},{0}},
-        {7,14,6,1,"RC-1B",{-1680},{0}},
+        {7,14,6,1,"RC-1A",{-1680},{0}},
         {8,9,6,3,"RC-2",{0,-1242,0},{-581,0,661}},
         {4,8,6,3,"RC-3",{0,-1431,0},{651,0,-900}},
         {8,14,6,3,"RC-3",{0,-1431,0},{651,0,-900}},
@@ -414,8 +404,8 @@ static void wholeTemplatePriority(void)
             assert(!memcmp(route.legs,expected.legs,route.count*sizeof(PresetLeg)));
         } else assert(route.count == 1U);
     }
-    /* A blocked required arc rejects its whole template; it cannot become a stop turn. */
-    memset(&route,0,sizeof(route)); route.regions = mask(4,5);
+    /* A blocked corridor rejects its whole template without editing its arcs. */
+    memset(&route,0,sizeof(route)); route.regions = mask(5,7);
     assert(!presetTryTemplate(&route,&presetGroups[PRESET_GROUP_TR],(uint16_t)templateId("TR-3"),10U,"RAW_2"));
     assert(!route.count);
     assert(presetGroupConnect(&route,PRESET_GROUP_TR,10U,"RAW_2"));
@@ -530,8 +520,6 @@ static void start1CentreLowerDetour(void)
     assert(route.legs[3].from.x == 1200 && route.legs[3].drive.upMm == -1720);
     assert(route.legs[5].drive.upMm == 843);
     /* Upper and centre-bottom are parking pivots; only the right-bottom blends. */
-    assert(presetTurnClear(route.legs[2].to,route.regions));
-    assert(presetTurnClear(route.legs[3].to,route.regions));
     assert(route.legs[2].to.heading == 1 && route.legs[3].from.heading == 2);
     assert(route.legs[3].to.heading == 2 && route.legs[4].from.heading == -1);
     /* Region 8 blocks this entire fixed template: retain the outside loop. */
@@ -545,15 +533,38 @@ static void start1CentreLowerDetour(void)
     assert(presetOrderS1[2] == templateId("S1-B2"));
 }
 
-static uint8_t qrPrunedPair(unsigned a, unsigned b)
+static void noPivotClearance(void)
 {
     static const uint8_t pairs[][2] = {
         {1,3},{2,3},{2,6},{3,4},{3,7},{3,8},{3,9},{3,10},{6,8},{6,9}
     };
-    unsigned i;
-    for (i = 0U; i < sizeof(pairs)/sizeof(pairs[0]); ++i)
-        if (a == pairs[i][0] && b == pairs[i][1]) return 1U;
-    return 0U;
+    unsigned zone, i, first;
+    for (zone = 1U; zone <= 2U; ++zone)
+        for (i = 0U; i < sizeof(pairs)/sizeof(pairs[0]); ++i)
+            assert(presetBuild(&route,(uint8_t)zone,mask(pairs[i][0],pairs[i][1])));
+    /* Keep the original centre arrival and working heading, without moving
+     * its station pivot or adding a clearance offset. */
+    assert(presetBuild(&route,1U,mask(7,14)));
+    first = taskBegin(&route,6U);
+    assert(route.legs[first].templateId == templateId("RC-1A"));
+    assert(route.legs[first].drive.upMm == -1680 && !route.legs[first].drive.rightMm);
+    assert(route.legs[first].from.heading == 2 && route.legs[first].to.heading == -1);
+    assert(route.legs[first].to.x == 1200 && route.legs[first].to.y == 400);
+    /* At QR, region 6 used to reject the departure pivot of the outside
+     * route. Its first translation remains the unmodified -900mm step. */
+    assert(presetBuild(&route,1U,mask(6,8)));
+    first = taskBegin(&route,3U);
+    assert(route.legs[first].templateId == templateId("Q-B3"));
+    assert(route.legs[first].from.x == 2100 && route.legs[first].from.y == 1200);
+    assert(route.legs[first].drive.upMm == -900 && route.legs[first].from.heading == 2);
+    /* Region 4 used to reject TEMP's parking turn. Keep the direct right
+     * route, with no 50mm clearance moves added around the centre lane. */
+    assert(presetBuild(&route,1U,mask(4,5)));
+    first = taskBegin(&route,10U);
+    assert(route.legs[first].templateId == templateId("TR-3"));
+    assert(route.legs[first].drive.rightMm == 1700 && !route.legs[first].drive.upMm);
+    assert(route.legs[first].from.y == 1200 && route.legs[first].to.y == 1200);
+    assert(route.legs[first].arc == 1U && route.legs[first+1U].arc == 1U);
 }
 
 static void qrSimplification(void)
@@ -577,7 +588,9 @@ static void qrSimplification(void)
         assert(!route.legs[3].arc && !strcmp(route.legs[3].drive.event,"RAW_1"));
         route.index = 3U; assert(presetActiveLeg(&route).rightMm == 648);
         memset(&route,0,sizeof(route)); route.regions = mask(3,8);
-        assert(!presetGroupConnect(&route,group,3U,"RAW_1"));
+        assert(presetGroupConnect(&route,group,3U,"RAW_1"));
+        assert(route.count == 4U && route.legs[0].templateId == templateId("Q-B3"));
+        assert(route.legs[3].drive.rightMm == 897 && route.legs[3].drive.heading == 1);
     }
 }
 
@@ -586,7 +599,7 @@ int main(void)
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fixedDistances(); qrSimplification(); frozenTemplates();
+    selection(); geometry(); coarseArcPreserved(); fixedDistances(); noPivotClearance(); qrSimplification(); frozenTemplates();
     wholeTemplatePriority(); homeAndStartExits(); rawRightDirectArrival(); start1LoopDownBeforeLeft(); start1CentreLowerDetour(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
@@ -600,12 +613,12 @@ int main(void)
             if (route.count > 20U) ++detours;
         } else {
             ++rejected[zone-1U]; assert(!route.count && !route.index);
-            assert(qrPrunedPair(a,b) || (zone == 1U && a == 3U && b == 6U) ||
+            assert((zone == 1U && a == 3U && b == 6U) ||
                    (zone == 2U && a == 12U && b == 15U));
         }
     }
-    assert(feasible[0] == 94U && feasible[1] == 94U);
-    assert(rejected[0] == 11U && rejected[1] == 11U && arcs && detours);
+    assert(feasible[0] == 104U && feasible[1] == 104U);
+    assert(rejected[0] == 1U && rejected[1] == 1U && arcs && detours);
     assert(presetBuild(&route,1U,mask(6,5))); /* Long start and QR->RAW detours. */
     assert(presetBuild(&route,2U,mask(12,11))); /* Mirror long start detour. */
     for (a = 1U; a <= 15U; ++a) for (b = a+1U; b <= 15U; ++b) {

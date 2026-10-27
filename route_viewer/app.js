@@ -61,7 +61,7 @@
             const d = change(pose[2], target);
             if (!d) return;
             add('turn', [[...pose], [pose[0], pose[1], pose[2] + d]], Math.abs(d) * .85, i,
-                `原地${d > 0 ? '左' : '右'}转 ${Math.abs(d) * 90}°`, `车头朝${headingName(target)} · 已通过固件转向检查`);
+                `原地${d > 0 ? '左' : '右'}转 ${Math.abs(d) * 90}°`, `车头朝${headingName(target)}`);
             pose[2] = target;
         }
         legs.forEach((leg, i) => {

@@ -74,22 +74,6 @@ static uint8_t presetRecenterClear(const PresetRoute *route, float forward, floa
     return presetRectangleClear(x0+(dx < 0 ? dx : 0), y0+(dy < 0 ? dy : 0),
                                 x1+(dx > 0 ? dx : 0), y1+(dy > 0 ? dy : 0), route->regions);
 }
-static uint8_t presetCircleHits(PresetPose p, const SsObstacleRegion *r)
-{
-    int32_t dx = p.x < r->x0 ? r->x0-p.x : p.x > r->x1 ? p.x-r->x1 : 0;
-    int32_t dy = p.y < r->y0 ? r->y0-p.y : p.y > r->y1 ? p.y-r->y1 : 0;
-    return (uint8_t)(dx*dx + dy*dy < 45000L);
-}
-static uint8_t presetTurnClear(PresetPose p, uint16_t regions)
-{
-    unsigned i;
-    if (p.x < 213 || p.x > 2187 || p.y < 213 || p.y > 2187) return 0U;
-    for (i = 0; i < sizeof(presetFixed)/sizeof(presetFixed[0]); ++i)
-        if (presetCircleHits(p, &presetFixed[i])) return 0U;
-    for (i = 0; i < SS_OBSTACLE_REGION_COUNT; ++i)
-        if ((regions & (1U << i)) && presetCircleHits(p, &ssObstacleRegions[i])) return 0U;
-    return 1U;
-}
 /* Separating-axis test for the complete rotated square, rather than its centre. */
 static uint8_t presetBodyHits(float x, float y, float s, float c, float half, const SsObstacleRegion *r)
 {
@@ -209,7 +193,6 @@ static uint8_t presetTryTemplate(PresetRoute *route, const PresetGroup *group,
     for (i = first; i < first+candidate->count; ++i) {
         const PresetLeg *leg = &route->legs[i];
         PresetPose endpoint = leg->from;
-        int8_t previous = i == first ? group->start.heading : route->legs[i-1U].to.heading;
         int dx = leg->to.x-leg->from.x, dy = leg->to.y-leg->from.y;
         int available = abs(leg->drive.upMm)+abs(leg->drive.rightMm);
         int trim = (leg->arc ? PRESET_ARC_TRIM : 0) +
@@ -219,8 +202,8 @@ static uint8_t presetTryTemplate(PresetRoute *route, const PresetGroup *group,
             (dy && (!leg->drive.upMm || leg->drive.rightMm || dy*leg->drive.upMm <= 0)) ||
             available <= trim || !presetSegmentClear(leg->from,leg->to,route->regions) ||
             !presetSegmentClear(leg->from,endpoint,route->regions)) return 0U;
-        if (previous != leg->from.heading && !(i > first && route->legs[i-1U].arc) &&
-            !presetTurnClear(leg->from,route->regions)) return 0U;
+        /* Station alignment and the fixed template define parking turns.
+         * Do not reject or alter them using a rotational-clearance model. */
         if (leg->arc) {
             const PresetLeg *after;
             if (leg->arc > PRESET_ARC_FOUR_POINT || i+1U == first+candidate->count || leg->drive.event) return 0U;
@@ -232,8 +215,6 @@ static uint8_t presetTryTemplate(PresetRoute *route, const PresetGroup *group,
                 !presetArcClear(leg,after,route->regions)) return 0U;
         } else {
             if (leg->drive.heading != leg->to.heading) return 0U;
-            if (leg->from.heading != leg->to.heading &&
-                (!presetTurnClear(leg->to,route->regions) || !presetTurnClear(endpoint,route->regions))) return 0U;
         }
     }
     route->count = (uint16_t)(first+candidate->count);
