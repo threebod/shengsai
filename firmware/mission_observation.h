@@ -45,17 +45,19 @@ static void serviceMissionObservation(const RouteLeg *leg, float remaining,
                                       uint16_t cruiseRpm, uint8_t lateral)
 {
     const MechanismPose *target;
-    uint8_t task;
+    uint8_t task, coarseCentre;
     float scale;
     if (!missionActive || !presetRouteActive || !routeActive || routeWaiting ||
         routeRotating || missionArcActive || motionMode || !leg->event ||
         presetRoute.index >= presetRoute.count || presetRoute.legs[presetRoute.index].arc)
         return;
     task = presetRoute.legs[presetRoute.index].taskIndex;
+    coarseCentre = (uint8_t)((task == 6U || task == 13U) &&
+                             leg->upMm < 0 && !leg->rightMm && leg->heading == -1);
     target = missionObservationPose(task);
     if (!target || missionObservationTask ||
         (leg->departureHeading != 4 && leg->departureHeading != routeHeading) ||
-        (leg->heading != 4 && leg->heading != routeHeading)) return;
+        (!coarseCentre && leg->heading != 4 && leg->heading != routeHeading)) return;
     if (!imuValid || clockMs - imuStamp > 250U || motionInterrupted() || hostEStop) {
         missionAbort("observation_fault");
         return;

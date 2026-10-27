@@ -191,9 +191,41 @@ static void arrivalAndCancellation(void)
     }
 }
 
+static void coarseCentreBeforeArrivalTurn(void)
+{
+    unsigned round;
+    for (round = 0U; round < 2U; ++round) {
+        uint8_t task = round ? 13U : 6U;
+        float lead;
+        reset(task);
+        routeHeading = leg.departureHeading = 2;
+        leg.heading = -1; leg.upMm = -1680; leg.rightMm = 0;
+        lead = missionObservationLeadDistance(missionObservationLeadMs(&missionRingObservePose),
+                                               150U,routeForwardScale);
+        serviceMissionObservation(&leg,lead+1.0f,150U,0U); assert(!starts);
+        serviceMissionObservation(&leg,lead-1.0f,150U,0U);
+        assert(starts == 1U && missionObservationTask == task);
+        assert(mechanismState.target.horizontalDmm == -770 && mechanismState.target.liftDmm == 0U);
+        assert(mechanismState.target.turretDdeg == missionRingObservePose.turretDdeg);
+        /* Finished while driving still cannot start station vision. */
+        finishPose(); assert(finishMissionObservation((uint8_t)(task+1U)) == 1);
+        routeHeading = -1; routeWaiting = 1U;
+        assert(finishMissionObservation((uint8_t)(task+1U)) == 2);
+    }
+    reset(6U); leg.upMm = 1680; leg.rightMm = 0; leg.heading = -1;
+    serviceMissionObservation(&leg,1,100,0); assert(!starts);
+    reset(6U); leg.heading = -1; /* Side arrivals retain the original heading guard. */
+    serviceMissionObservation(&leg,1,100,0); assert(!starts);
+    reset(6U); leg.upMm = -1680; leg.rightMm = 0; leg.heading = 0;
+    serviceMissionObservation(&leg,1,100,0); assert(!starts);
+    reset(6U); routeHeading = leg.departureHeading = 2;
+    leg.upMm = -1680; leg.rightMm = 0; leg.heading = -1; fault = 1U;
+    serviceMissionObservation(&leg,1,100,0); assert(!starts && aborts == 1U);
+}
+
 int main(void)
 {
-    eligibility(); timing(); arrivalAndCancellation();
+    eligibility(); timing(); arrivalAndCancellation(); coarseCentreBeforeArrivalTurn();
     puts("PASS mission observation: six stations, dynamic lead, no concurrent actions, feedback arrival and cancellation");
     return 0;
 }
