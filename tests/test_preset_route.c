@@ -123,16 +123,11 @@ static void checkRoute(uint8_t zone)
         RouteLeg active;
         route.index = (uint16_t)i; active = presetActiveLeg(&route);
         assert(presetSegmentClear(leg->from,leg->to,route.regions));
-        {
-            PresetPose endpoint = leg->from;
-            endpoint.x += leg->drive.rightMm; endpoint.y += leg->drive.upMm;
-            assert(presetSegmentClear(leg->from,endpoint,route.regions));
-        }
         assert(previous.x == leg->from.x && previous.y == leg->from.y);
         assert((active.upMm == 0) != (active.rightMm == 0));
         if (leg->drive.event) {
             RouteLeg calibrated;
-            PresetPose station, endpoint;
+            PresetPose station;
             int nominal, commanded;
             assert(event < 8U && leg->taskIndex == events[event]);
             calibrated = routeDistanceLeg(events[event],zone);
@@ -148,8 +143,6 @@ static void checkRoute(uint8_t zone)
             nominal = leg->drive.upMm ? leg->to.y-leg->from.y : leg->to.x-leg->from.x;
             commanded = leg->drive.upMm ? leg->drive.upMm : leg->drive.rightMm;
             assert(nominal*commanded > 0);
-            endpoint = leg->from; endpoint.x += leg->drive.rightMm; endpoint.y += leg->drive.upMm;
-            assert(presetSegmentClear(leg->from,endpoint,route.regions));
             ++event;
         }
         if (leg->arc) {
@@ -256,8 +249,8 @@ static void fixedDistances(void)
         const char *code;
         int16_t up[3], right[3];
     } cases[] = {
-        {7,9,6,1,"RC-1A",{-1680},{0}},
-        {7,14,6,1,"RC-1A",{-1680},{0}},
+        {7,9,6,1,"RC-1",{-1680},{0}},
+        {7,14,6,1,"RC-1",{-1680},{0}},
         {8,9,6,3,"RC-2",{0,-1242,0},{-581,0,661}},
         {4,8,6,3,"RC-3",{0,-1431,0},{651,0,-900}},
         {8,14,6,3,"RC-3",{0,-1431,0},{651,0,-900}},
@@ -533,6 +526,38 @@ static void start1CentreLowerDetour(void)
     assert(presetOrderS1[2] == templateId("S1-B2"));
 }
 
+static void rawThreeRoutes(void)
+{
+    static const unsigned pairs[][2] = {{5,15},{8,15},{11,15}};
+    const PresetGroup *group = &presetGroups[PRESET_GROUP_RC];
+    unsigned zone, pair, round;
+    assert(group->count == 3U);
+    assert(group->templates[0] == templateId("RC-1") &&
+           group->templates[1] == templateId("RC-2") &&
+           group->templates[2] == templateId("RC-3"));
+    for (zone = 1U; zone <= 2U; ++zone)
+        for (pair = 0U; pair < sizeof(pairs)/sizeof(pairs[0]); ++pair) {
+            assert(presetBuild(&route,(uint8_t)zone,mask(pairs[pair][0],pairs[pair][1])));
+            for (round = 0U; round < 2U; ++round) {
+                unsigned first = taskBegin(&route,round ? 13U : 6U);
+                const PresetLeg *last = &route.legs[first+2U];
+                PresetPose projected = last->from;
+                assert(route.legs[first].templateId == templateId("RC-2"));
+                assert(route.legs[first].drive.rightMm == -830);
+                assert(route.legs[first+1U].drive.upMm == -1740);
+                assert(last->drive.rightMm == 910 && last->drive.event);
+                assert(last->to.x == 1200 && last->to.y == 400);
+                assert(presetSegmentClear(last->from,last->to,route.regions));
+                /* The 910mm command is tuned for this corridor. Its naive
+                 * x=1310 projection must not replace the x=1200 map endpoint. */
+                projected.x += last->drive.rightMm;
+                assert(projected.x == 1310 && !presetSegmentClear(last->from,projected,route.regions));
+                route.index = (uint16_t)(first+2U);
+                assert(presetActiveLeg(&route).rightMm == 661);
+            }
+        }
+}
+
 static void noPivotClearance(void)
 {
     static const uint8_t pairs[][2] = {
@@ -546,7 +571,7 @@ static void noPivotClearance(void)
      * its station pivot or adding a clearance offset. */
     assert(presetBuild(&route,1U,mask(7,14)));
     first = taskBegin(&route,6U);
-    assert(route.legs[first].templateId == templateId("RC-1A"));
+    assert(route.legs[first].templateId == templateId("RC-1"));
     assert(route.legs[first].drive.upMm == -1680 && !route.legs[first].drive.rightMm);
     assert(route.legs[first].from.heading == 2 && route.legs[first].to.heading == -1);
     assert(route.legs[first].to.x == 1200 && route.legs[first].to.y == 400);
@@ -599,7 +624,7 @@ int main(void)
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fixedDistances(); noPivotClearance(); qrSimplification(); frozenTemplates();
+    selection(); geometry(); coarseArcPreserved(); fixedDistances(); rawThreeRoutes(); noPivotClearance(); qrSimplification(); frozenTemplates();
     wholeTemplatePriority(); homeAndStartExits(); rawRightDirectArrival(); start1LoopDownBeforeLeft(); start1CentreLowerDetour(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);
@@ -609,7 +634,14 @@ int main(void)
             unsigned i;
             ++feasible[zone-1U]; checkRoute((uint8_t)zone);
             sameTask(&route,6U,&route,13U); sameTask(&route,8U,&route,15U);
-            for (i = 0U; i < route.count; ++i) arcs += !!route.legs[i].arc;
+            for (i = 0U; i < route.count; ++i) {
+                const PresetLeg *leg = &route.legs[i];
+                if (leg->taskIndex == 6U || leg->taskIndex == 13U)
+                    assert(leg->templateId == templateId("RC-1") ||
+                           leg->templateId == templateId("RC-2") ||
+                           leg->templateId == templateId("RC-3"));
+                arcs += !!leg->arc;
+            }
             if (route.count > 20U) ++detours;
         } else {
             ++rejected[zone-1U]; assert(!route.count && !route.index);

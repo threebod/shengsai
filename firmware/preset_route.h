@@ -192,16 +192,15 @@ static uint8_t presetTryTemplate(PresetRoute *route, const PresetGroup *group,
         current.heading != group->goal.heading) return 0U;
     for (i = first; i < first+candidate->count; ++i) {
         const PresetLeg *leg = &route->legs[i];
-        PresetPose endpoint = leg->from;
         int dx = leg->to.x-leg->from.x, dy = leg->to.y-leg->from.y;
         int available = abs(leg->drive.upMm)+abs(leg->drive.rightMm);
         int trim = (leg->arc ? PRESET_ARC_TRIM : 0) +
                    (i > first && route->legs[i-1U].arc ? PRESET_ARC_TRIM : 0);
-        endpoint.x += leg->drive.rightMm; endpoint.y += leg->drive.upMm;
         if ((!dx && !dy) || (dx && (!leg->drive.rightMm || leg->drive.upMm || dx*leg->drive.rightMm <= 0)) ||
             (dy && (!leg->drive.upMm || leg->drive.rightMm || dy*leg->drive.upMm <= 0)) ||
-            available <= trim || !presetSegmentClear(leg->from,leg->to,route->regions) ||
-            !presetSegmentClear(leg->from,endpoint,route->regions)) return 0U;
+            available <= trim || !presetSegmentClear(leg->from,leg->to,route->regions)) return 0U;
+        /* Calibrated motor commands are not nominal map displacements.
+         * Select corridors by map endpoints; keep station alignment unchanged. */
         /* Station alignment and the fixed template define parking turns.
          * Do not reject or alter them using a rotational-clearance model. */
         if (leg->arc) {
