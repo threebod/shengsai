@@ -247,7 +247,7 @@ static void fixedDistances(void)
         unsigned a, b;
         uint8_t task, count;
         const char *code;
-        int16_t up[3], right[3];
+        int16_t up[4], right[4];
     } cases[] = {
         {7,9,6,1,"RC-1",{-1680},{0}},
         {7,14,6,1,"RC-1",{-1680},{0}},
@@ -255,7 +255,7 @@ static void fixedDistances(void)
         {4,8,6,3,"RC-3",{0,-1431,0},{651,0,-900}},
         {8,14,6,3,"RC-3",{0,-1431,0},{651,0,-900}},
         {7,9,8,2,"CT-1",{0,601},{-611,0}},
-        {7,13,8,3,"CT-3",{1431,0,-637},{0,-412,0}},
+        {7,13,8,4,"CT-3",{0,1680,0,-637},{-50,0,-661,0}},
         {7,9,10,2,"TR-1",{631,0},{0,601}},
         {1,5,10,3,"TR-3",{0,382,0},{1451,0,-651}},
         {1,7,10,3,"TR-4",{-601,0,1431},{0,362,0}},
@@ -295,10 +295,10 @@ static void fixedDistances(void)
     {
         const PresetStep *raw = presetTemplates[templateId("RC-2")].steps;
         const PresetStep *coarse = presetTemplates[templateId("CT-3")].steps;
-        assert(raw[0].x == coarse[1].x && raw[0].y == coarse[1].y);
-        assert(raw[0].departureHeading == coarse[1].departureHeading);
-        assert(raw[0].commandHeading == coarse[1].commandHeading);
-        assert(raw[0].arc == coarse[1].arc && raw[0].arc == PRESET_ARC_FOUR_POINT);
+        assert(raw[0].x == coarse[2].x && raw[0].y == coarse[2].y);
+        assert(raw[0].departureHeading == coarse[2].departureHeading);
+        assert(raw[0].commandHeading == coarse[2].commandHeading);
+        assert(raw[0].arc == coarse[2].arc && raw[0].arc == PRESET_ARC_FOUR_POINT);
     }
 }
 
@@ -658,12 +658,38 @@ static void qrCentreLowerDetour(void)
     assert(route.legs[taskBegin(&route,3U)].templateId == templateId("Q-B3"));
 }
 
+static void upperDepartureCorrection(void)
+{
+    unsigned zone, round;
+    for (zone = 1U; zone <= 2U; ++zone) {
+        assert(presetBuild(&route,(uint8_t)zone,mask(7,13)));
+        for (round = 0U; round < 2U; ++round) {
+            unsigned first = taskBegin(&route,round ? 15U : 8U);
+            assert(route.legs[first].templateId == templateId("CT-3"));
+            assert(route.legs[first].drive.rightMm == -50 && !route.legs[first].drive.upMm);
+            assert(route.legs[first].from.x == 1200 && route.legs[first].to.x == 1150);
+            assert(route.legs[first+1U].drive.upMm == 1680 && !route.legs[first+1U].arc);
+            assert(route.legs[first+2U].drive.rightMm == -910 && route.legs[first+2U].arc == PRESET_ARC_FOUR_POINT);
+            assert(route.legs[first+3U].drive.upMm == -886 && route.legs[first+3U].drive.event);
+            assert(route.legs[first+1U].drive.heading == 0 && route.legs[first+2U].drive.departureHeading == 1);
+            assert(referenceArcClear(&route.legs[first+2U],&route.legs[first+3U],route.regions));
+            route.index = (uint16_t)(first+1U); assert(presetActiveLeg(&route).upMm == 1680);
+            route.index = (uint16_t)(first+2U); assert(presetActiveLeg(&route).rightMm == -661);
+            route.index = (uint16_t)(first+3U); assert(presetActiveLeg(&route).upMm == -637);
+        }
+    }
+    memset(&route,0,sizeof(route)); route.regions = mask(2,7);
+    assert(!presetTryTemplate(&route,&presetGroups[PRESET_GROUP_CT],
+                              (uint16_t)templateId("CT-3"),8U,"TEMP"));
+    assert(!route.count); /* The fixed upper route still checks selected regions. */
+}
+
 int main(void)
 {
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
-    selection(); geometry(); coarseArcPreserved(); fixedDistances(); rawThreeRoutes(); noPivotClearance(); qrSimplification(); qrCentreLowerDetour(); frozenTemplates();
+    selection(); geometry(); coarseArcPreserved(); fixedDistances(); upperDepartureCorrection(); rawThreeRoutes(); noPivotClearance(); qrSimplification(); qrCentreLowerDetour(); frozenTemplates();
     wholeTemplatePriority(); homeAndStartExits(); rawRightDirectArrival(); start1LoopDownBeforeLeft(); start1CentreLowerDetour(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
     assert(!presetBuild(&route,1,0U) && !route.count);

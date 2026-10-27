@@ -139,7 +139,8 @@ static const PresetStep presetSteps27[] = {
 };
 /* CT-3 */
 static const PresetStep presetSteps28[] = {
-    {1200,2080,1680,0,0,0,1,1},
+    {1150,400,0,-50,-1,-1,-1,0},
+    {1150,2080,1680,0,0,0,0,0},
     {400,2080,0,-910,1,1,2,2},
     {400,1200,-886,0,2,2,2,0},
 };
@@ -350,7 +351,7 @@ static const PresetCandidate presetTemplates[] = {
     {0,0,0}, /* Retired ID 25. */
     {"CT-1",presetSteps26,2},
     {"CT-2",presetSteps27,2},
-    {"CT-3",presetSteps28,3},
+    {"CT-3",presetSteps28,4},
     {"CT-B1",presetSteps29,4},
     {"CT-B2",presetSteps30,8},
     {"CT-B3",presetSteps31,3},
