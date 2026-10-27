@@ -343,8 +343,7 @@ static const PresetStep presetSteps49[] = {
  * the lower-right bend is a fixed arc. QR calibration: round(820*1080/1050)=843. */
 static const PresetStep presetSteps50[] = {
     {2250,2100,-150,0,0,0,0,0},
-    {2100,2100,0,-150,0,0,0,0},
-    {1200,2100,0,-900,1,1,1,0},
+    {1200,2100,0,-1050,1,1,1,0},
     {1200,380,-1720,0,2,2,2,0},
     {2100,380,0,900,-1,-1,0,1},
     {2100,1200,843,0,0,0,0,0},
@@ -402,7 +401,7 @@ static const PresetCandidate presetTemplates[] = {
     {"H2-B3",presetSteps47,6},
     {"H2-B4",presetSteps48,6},
     {"H2-B5",presetSteps49,5},
-    {"S1-B2",presetSteps50,6},
+    {"S1-B2",presetSteps50,5},
 };
 #define PRESET_TEMPLATE_COUNT ((unsigned)(sizeof(presetTemplates)/sizeof(presetTemplates[0])-1U))
 
