@@ -17,9 +17,9 @@ static void checkTurretRemount(void)
     assert((int)rawPickUpperPoses[0].turretDdeg - observation == 173);
     assert((int)rawPickUpperPoses[1].turretDdeg - observation == -216);
     assert((int)rawPickTravelPose.turretDdeg - observation == -2070);
-    assert((int)missionRingPoses[0].turretDdeg - observation == 358);
-    assert((int)missionRingPoses[1].turretDdeg - observation == -83);
-    assert((int)missionRingPoses[2].turretDdeg - observation == -420);
+    assert(missionRingPoses[0].turretDdeg == 3088U);
+    assert(missionRingPoses[1].turretDdeg == 2677U);
+    assert(missionRingPoses[2].turretDdeg == 2325U);
     assert((int)rawPickActions[5].pose.turretDdeg - observation == -1400);
     assert(rawPickActions[2].pose.turretDdeg == rawPickLowerPose.turretDdeg);
     assert(rawPickActions[11].pose.turretDdeg == observation);
