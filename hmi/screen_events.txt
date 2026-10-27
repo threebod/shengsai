@@ -614,16 +614,18 @@ covx sys0,selA.txt,0,0
 covx sys1,selB.txt,0,0
 
 confirm 弹起事件:
-if(sys2==2)
-{
 msg.txt="等待主控确认，可重试"
 printh A5 5A 4F
 prints sys0,1
 prints sys1,1
 sys2=sys0+sys1+79
 prints sys2,1
-sys2=2
-}else
+sys2=0
+if(sys0>0)
 {
-msg.txt="请先选中两个区域"
+sys2++
+}
+if(sys1>0)
+{
+sys2++
 }

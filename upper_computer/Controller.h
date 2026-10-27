@@ -89,6 +89,7 @@ signals:
     void requestAccepted(int command);
 private:
     friend class ControllerTest;
+    friend class LayoutTest;
     struct Pending {int command; qint64 sent;};
     int request(int command,const QByteArray &data={});
     void opened();void ingest();void handle(const SsFrame &frame);

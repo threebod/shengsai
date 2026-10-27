@@ -196,7 +196,7 @@ ApplicationWindow {
                             Label { text: "启停区"; color: "#656570" }
                             Choice { id: zone; model: ["1号启停区", "2号启停区"] }
                             Label { text: "障碍位置"; color: "#656570" }
-                            Hint { objectName: "obstacleSelectionHint"; text: "请选择两个不同区域 · 已选 " + app.obstacleCount + "/2；再次点击可取消" }
+                            Hint { objectName: "obstacleSelectionHint"; text: "可选0～2个区域 · 已选 " + app.obstacleCount + "/2；再次点击可取消" }
                             Item {
                                 id: obstacleMap; objectName: "obstacleMap"
                                 Layout.fillWidth: true; implicitHeight: Math.max(width, 320)
@@ -255,15 +255,15 @@ ApplicationWindow {
                             heading: "当前任务"; Layout.alignment: Qt.AlignTop
                             Label { text: controller.task; color: app.blue; font.pixelSize: 20; wrapMode: Text.Wrap; Layout.fillWidth: true }
                             Hint { text: "扫码 → 取料 → 粗加工 → 暂存 · 共两轮" }
-                            ActionButton { objectName: "missionStartButton"; text: "开始比赛"; primary: true; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy && app.obstacleCount === 2; onClicked: controller.run(1, zone.currentIndex + 1, app.obstacleMask) }
-                            ActionButton { objectName: "missionPrepareButton"; text: "离线按钮启动准备"; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy && app.obstacleCount === 2; onClicked: controller.run(0, zone.currentIndex + 1, app.obstacleMask) }
+                            ActionButton { objectName: "missionStartButton"; text: "开始比赛"; primary: true; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy && app.obstacleCount <= 2; onClicked: controller.run(1, zone.currentIndex + 1, app.obstacleMask) }
+                            ActionButton { objectName: "missionPrepareButton"; text: "离线按钮启动准备"; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy && app.obstacleCount <= 2; onClicked: controller.run(0, zone.currentIndex + 1, app.obstacleMask) }
                             Hint { text: "离线准备后，PC9 短按选择启停区1，长按选择启停区2。" }
                         }
                         Card {
                             heading: "单项执行"; Layout.columnSpan: app.mobile ? 1 : 2
                             Flow {
                                 Layout.fillWidth: true; spacing: 10
-                                ActionButton { objectName: "routeStartButton"; text: "仅跑图"; enabled: app.motionReady && !controller.busy && app.obstacleCount === 2; onClicked: controller.run(2, zone.currentIndex+1, app.obstacleMask) }
+                                ActionButton { objectName: "routeStartButton"; text: "仅跑图"; enabled: app.motionReady && !controller.busy && app.obstacleCount <= 2; onClicked: controller.run(2, zone.currentIndex+1, app.obstacleMask) }
                                 ActionButton { text: "取料动作组"; enabled: app.motionReady && !controller.busy; onClicked: controller.runAction(0) }
                                 ActionButton { text: "粗加工动作组"; enabled: app.motionReady && !controller.busy; onClicked: controller.runAction(1) }
                                 ActionButton { text: "暂存动作组"; enabled: app.motionReady && !controller.busy; onClicked: controller.runAction(2) }

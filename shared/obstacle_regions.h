@@ -15,8 +15,8 @@ static const SsObstacleRegion ssObstacleRegions[SS_OBSTACLE_REGION_COUNT] = {
 static uint8_t ss_obstacle_regions_valid(uint16_t regions)
 {
     uint16_t rest;
-    if (!regions || (regions & 0x8000U)) return 0U;
+    if (regions & 0x8000U) return 0U;
     rest = (uint16_t)(regions & (regions - 1U));
-    return (uint8_t)(rest && !(rest & (rest - 1U)));
+    return (uint8_t)(!(rest & (rest - 1U)));
 }
 #endif

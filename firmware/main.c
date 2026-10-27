@@ -206,6 +206,7 @@ static QrScanParser qrParser;
 static ObstacleStopParser obstacleParser;
 static TjcObstacleParser tjcObstacleParser;
 static volatile uint16_t tjcObstaclePending;
+static volatile uint8_t tjcObstacleReceived;
 static uint8_t obstacleTurretPending, obstacleTurretReady;
 static uint8_t prepareObstacleTurret(void);
 static volatile uint8_t obstacleStopPending;
@@ -471,8 +472,10 @@ void USART6_IRQHandler(void)
     uint8_t byte;
     if (USART_GetITStatus(USART6, USART_IT_RXNE) == RESET) return;
     byte = (uint8_t)USART_ReceiveData(USART6);
-    regions = tjc_obstacles_feed(&tjcObstacleParser, byte);
-    if (regions != 0U) tjcObstaclePending = regions;
+    if (tjc_obstacles_feed(&tjcObstacleParser, byte, &regions)) {
+        tjcObstaclePending = regions;
+        tjcObstacleReceived = 1U;
+    }
     USART_ClearITPendingBit(USART6, USART_IT_RXNE);
 }
 
@@ -512,12 +515,11 @@ static void serviceTjcObstacles(void)
 {
     static const uint8_t showTask[] = "page page0\xFF\xFF\xFF";
     uint16_t regions;
-    if (tjcObstaclePending == 0U) return;
+    if (!tjcObstacleReceived) return;
     __disable_irq();
     regions = tjcObstaclePending;
-    tjcObstaclePending = 0U;
+    tjcObstacleReceived = 0U;
     __enable_irq();
-    if (regions == 0U) return;
     if (!prepareObstacleTurret()) {
         serialSendString("HMI OBSTACLES rejected: busy or stopped; resend selection\r\n");
         return;
@@ -2769,7 +2771,7 @@ static void startButtonMission(uint8_t zone)
         return;
     }
     if (!ss_obstacle_regions_valid(routeObstacleRegions)) {
-        serialSendString("BUTTON ERROR select two obstacle regions first\r\n");
+        serialSendString("BUTTON ERROR invalid obstacle regions\r\n");
         return;
     }
     if (!servoChannelEnabled[0]) {

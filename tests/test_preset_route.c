@@ -43,13 +43,14 @@ static void selection(void)
 {
     unsigned value, valid = 0U, a, b;
     for (value = 0U; value <= 65535U; ++value) valid += ss_obstacle_regions_valid((uint16_t)value);
-    assert(valid == 105U);
+    assert(valid == 121U);
     for (a = 1U; a <= 15U; ++a) for (b = a+1U; b <= 15U; ++b) {
         TjcObstacleParser parser = {{0},0};
+        uint16_t regions = 0U;
         const uint8_t bytes[6] = {0xA5,0x5A,0x4F,(uint8_t)a,(uint8_t)b,(uint8_t)(0x4F+a+b)};
         unsigned i;
-        for (i = 0U; i < 5U; ++i) assert(!tjc_obstacles_feed(&parser,bytes[i]));
-        assert(tjc_obstacles_feed(&parser,bytes[5]) == mask(a,b));
+        for (i = 0U; i < 5U; ++i) assert(!tjc_obstacles_feed(&parser,bytes[i],&regions));
+        assert(tjc_obstacles_feed(&parser,bytes[5],&regions) && regions == mask(a,b));
     }
     assert(ssObstacleRegions[0].y0 == 1850 && ssObstacleRegions[12].y1 == 550);
     assert(ssObstacleRegions[1].x0 == 550 && ssObstacleRegions[2].x0 == 1400);
@@ -60,7 +61,9 @@ static void selection(void)
         assert(!ss_route_request_valid(request,4U));
         assert(!ss_route_request_valid(request,6U));
         request[0] = 0; assert(!ss_route_request_valid(request,5U)); request[0] = 1;
-        request[1] = 1; request[2] = 0; assert(!ss_route_request_valid(request,5U));
+        request[1] = 1; request[2] = 0; assert(ss_route_request_valid(request,5U));
+        request[1] = 0; assert(ss_route_request_valid(request,5U));
+        request[1] = 7; assert(!ss_route_request_valid(request,5U));
         request[1] = 3; request[3] = 9; assert(!ss_route_request_valid(request,5U));
         request[3] = 251; assert(!ss_route_request_valid(request,5U));
     }
@@ -692,8 +695,15 @@ int main(void)
     selection(); geometry(); coarseArcPreserved(); fixedDistances(); upperDepartureCorrection(); rawThreeRoutes(); noPivotClearance(); qrSimplification(); qrCentreLowerDetour(); frozenTemplates();
     wholeTemplatePriority(); homeAndStartExits(); rawRightDirectArrival(); start1LoopDownBeforeLeft(); start1CentreLowerDetour(); recenterEnvelope();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);
-    assert(!presetBuild(&route,1,0U) && !route.count);
+    for (zone = 1U; zone <= 2U; ++zone) {
+        assert(presetBuild(&route,(uint8_t)zone,0U));
+        checkRoute((uint8_t)zone);
+    }
     assert(!presetBuild(&route,1,0x8001U) && !route.count);
+    for (zone = 1U; zone <= 2U; ++zone) for (a = 1U; a <= 15U; ++a) {
+        assert(presetBuild(&route,(uint8_t)zone,(uint16_t)(1U << (a-1U))));
+        checkRoute((uint8_t)zone);
+    }
     for (zone = 1U; zone <= 2U; ++zone) for (a = 1U; a <= 15U; ++a) for (b = a+1U; b <= 15U; ++b) {
         if (presetBuild(&route,(uint8_t)zone,mask(a,b))) {
             unsigned i;

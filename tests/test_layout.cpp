@@ -71,6 +71,25 @@ private slots:
                     return nullptr;
                 };
                 QCOMPARE(window->property("obstacleCount").toInt(),0);
+                controller.connected_ = controller.confirmed_ = true;
+                emit controller.changed();
+                auto checkButtons = [&](bool enabled) {
+                    for (const char *name : {"missionStartButton","missionPrepareButton","routeStartButton"}) {
+                        auto *button = window->findChild<QQuickItem *>(name);
+                        QVERIFY(button);
+                        QCOMPARE(button->isEnabled(),enabled);
+                    }
+                };
+                checkButtons(true);
+                auto *region1 = findRegion(1);
+                QVERIFY(region1 && QMetaObject::invokeMethod(region1,"clicked"));
+                QCOMPARE(window->property("obstacleCount").toInt(),1);
+                checkButtons(true);
+                controller.busy_ = true; emit controller.changed();
+                checkButtons(false);
+                controller.busy_ = false; emit controller.changed();
+                QVERIFY(QMetaObject::invokeMethod(region1,"clicked"));
+                checkButtons(true);
                 for (int n : {5,12,15}) {
                     auto *region = findRegion(n);
                     QVERIFY(region && region->height() >= 44);
@@ -78,11 +97,16 @@ private slots:
                 }
                 QCOMPARE(window->property("obstacleMask").toInt(),0x0810);
                 QCOMPARE(window->property("obstacleCount").toInt(),2);
+                checkButtons(true);
                 auto *region5 = findRegion(5);
                 auto *region15 = findRegion(15);
                 QVERIFY(QMetaObject::invokeMethod(region5,"clicked"));
+                QCOMPARE(window->property("obstacleCount").toInt(),1);
+                checkButtons(true);
                 QVERIFY(QMetaObject::invokeMethod(region15,"clicked"));
                 QCOMPARE(window->property("obstacleMask").toInt(),0x4800);
+                controller.connected_ = controller.confirmed_ = false;
+                emit controller.changed();
                 for (const char *name : {"missionStartButton","missionPrepareButton","routeStartButton"}) {
                     auto *button = window->findChild<QQuickItem *>(name);
                     QVERIFY(button && !button->isEnabled());

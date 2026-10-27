@@ -106,14 +106,14 @@ private slots:
     }
     void regionRunValidatesAndSendsFiveBytes(){
         Wire wire;Controller c;c.device_=&wire;c.connected_=c.confirmed_=true;
-        for(int type=0;type<3;++type){
-            c.run(type,2,0x0810,240);auto q=wire.last();
+        for(int type=0;type<3;++type)for(int regions:{0,1,0x4000,0x0810}){
+            c.run(type,2,regions,240);auto q=wire.last();
             QCOMPARE(int(q.command),int(SS_PREPARE)+type);QCOMPARE(int(q.length),5);
-            QCOMPARE(int(q.data[0]),2);QCOMPARE(ss_get16(q.data+1),quint16(0x0810));QCOMPARE(ss_get16(q.data+3),quint16(240));
+            QCOMPARE(int(q.data[0]),2);QCOMPARE(ss_get16(q.data+1),quint16(regions));QCOMPARE(ss_get16(q.data+3),quint16(240));
             c.run(type,2,0x0810);QVERIFY(wire.written.isEmpty());
             SsFrame r{};r.flags=SS_RESPONSE;r.sequence=q.sequence;r.command=q.command;r.length=1;c.handle(r);
         }
-        for(int invalid:{-1,0,1,7,0x8001,0x10003}){c.run(1,1,invalid);QVERIFY(wire.written.isEmpty());}
+        for(int invalid:{-1,7,0x8001,0x10003}){c.run(1,1,invalid);QVERIFY(wire.written.isEmpty());}
         c.run(-1,1,0x0810);c.run(3,1,0x0810);c.run(1,0,0x0810);c.run(1,3,0x0810);
         c.run(1,1,0x0810,9);c.run(1,1,0x0810,251);QVERIFY(wire.written.isEmpty());
         c.busy_=true;c.run(1,1,0x0810);QVERIFY(wire.written.isEmpty());
