@@ -17,9 +17,9 @@ static void checkTurretRemount(void)
     assert((int)rawPickUpperPoses[0].turretDdeg - observation == 173);
     assert((int)rawPickUpperPoses[1].turretDdeg - observation == -216);
     assert((int)rawPickTravelPose.turretDdeg - observation == -2070);
-    assert(missionRingPoses[0].turretDdeg == 3088U);
-    assert(missionRingPoses[1].turretDdeg == 2677U);
-    assert(missionRingPoses[2].turretDdeg == 2325U);
+    assert(missionRingPoses[0].horizontalDmm == 100 && missionRingPoses[0].turretDdeg == 3080U);
+    assert(missionRingPoses[1].horizontalDmm == -200 && missionRingPoses[1].turretDdeg == 2677U);
+    assert(missionRingPoses[2].horizontalDmm == 500 && missionRingPoses[2].turretDdeg == 2335U);
     assert((int)rawPickActions[5].pose.turretDdeg - observation == -1400);
     assert(rawPickActions[2].pose.turretDdeg == rawPickLowerPose.turretDdeg);
     assert(rawPickActions[11].pose.turretDdeg == observation);
@@ -108,9 +108,17 @@ int main(void)
                     {
                         unsigned down = land[item] - coarse;
                         const MechanismPose *turn = &after[down - 1U].pose;
-                        assert(turn->horizontalDmm == (layer == 2U ? changed[ring].horizontalDmm :
+                        assert(turn->horizontalDmm == (layer == 2U || ring == 2U ? changed[ring].horizontalDmm :
                                                        after[down - 2U].pose.horizontalDmm));
                         assert(turn->liftDmm == 0U && turn->turretDdeg == after[down].pose.turretDdeg);
+                        if (ring == 2U) {
+                            /* Raise, then turn/extend together, then lower only. */
+                            assert(turn->horizontalDmm == after[down].pose.horizontalDmm);
+                            if (item == 2U) {
+                                assert(after[down - 2U].pose.horizontalDmm == after[down - 3U].pose.horizontalDmm);
+                                assert(after[down - 2U].pose.turretDdeg == after[down - 3U].pose.turretDdeg);
+                            }
+                        }
                         assert(after[down + 1U].type == MECHANISM_ACTION_GRIPPER && after[down + 1U].value == 1U);
                         if (!coarse || item < 2U) {
                             assert(after[down + 2U].pose.horizontalDmm == changed[ring].horizontalDmm);
@@ -129,6 +137,16 @@ int main(void)
             assert(pose->horizontalDmm == changed[orders[order][item] - 1U].horizontalDmm);
             assert(pose->turretDdeg == changed[orders[order][item] - 1U].turretDdeg);
             assert(pose->liftDmm == 1250U);
+            {
+                const MechanismPose *raised = &after[6U + item * 11U].pose;
+                const MechanismPose *turn = &after[7U + item * 11U].pose;
+                const MechanismPose *tray = &after[8U + item * 11U].pose;
+                assert(raised->horizontalDmm == pose->horizontalDmm && raised->liftDmm == 0U);
+                assert(raised->turretDdeg == pose->turretDdeg);
+                assert(turn->liftDmm == 0U && turn->turretDdeg == 1200U);
+                assert(turn->horizontalDmm == (orders[order][item] == 1U ? -450 : pose->horizontalDmm));
+                assert(tray->horizontalDmm == -450 && tray->liftDmm == 0U && tray->turretDdeg == 1200U);
+            }
         }
     }
     for (layer = 1U; layer <= 2U; ++layer) {
@@ -138,9 +156,13 @@ int main(void)
         missionBuildStoragePlace(after, layer);
         checkUnchanged(before, after, MISSION_PLACE_COUNT);
         for (item = 0U; item < 3U; ++item) {
-            assert(after[land[item] - 1U].pose.horizontalDmm == (layer == 2U ?
+            assert(after[land[item] - 1U].pose.horizontalDmm == (layer == 2U || item == 1U ?
                    after[land[item]].pose.horizontalDmm : after[land[item] - 2U].pose.horizontalDmm));
             assert(after[land[item] - 1U].pose.liftDmm == 0U);
+            if (layer == 2U && item == 2U) {
+                assert(after[26].pose.turretDdeg == after[25].pose.turretDdeg);
+                assert(after[26].pose.horizontalDmm == after[25].pose.horizontalDmm);
+            }
             assert(after[land[item] + 2U].pose.horizontalDmm == after[land[item]].pose.horizontalDmm);
             assert(after[land[item] + 2U].pose.liftDmm == 0U);
         }

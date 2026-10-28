@@ -86,6 +86,12 @@ int main(void)
     dispatchMechanismPose();
     assert(positions[0]==1 && positions[1]==1 && syncs==1 && syncId==0);
     assert(mechanismState.running && mechanismState.current.horizontalDmm==0 && mechanismState.current.liftDmm==0);
+    /* Ring transfers start horizontal motion and turret together with lift held raised. */
+    reset();target=origin;target.horizontalDmm=-450;target.turretDdeg=1350;
+    startMechanismPose(&target);dispatchMechanismPose();
+    assert(mechanismAxes==2 && !positions[0] && positions[1]==1 && servos==1 && syncs==1);
+    assert(targetAngleMdeg[2]==135000 && mechanismState.target.liftDmm==0);
+    assert(mechanismState.running && mechanismState.current.turretDdeg==origin.turretDdeg);
     /* A failed enable cannot be cached or followed by motion commands. */
     reset();failEnable=1;target=origin;target.horizontalDmm=50;startMechanismPose(&target);
     assert(stops==1 && !mechanismState.valid && !mechanismEnabledAxes && !positions[0] && !positions[1] && !syncs);

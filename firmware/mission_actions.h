@@ -5,7 +5,7 @@
 #include "ring_pose.h"
 
 /* User-specified ring defaults; stored poses take precedence. */
-static RingPose missionRingPoses[3] = {{-45, 3088}, {-320, 2677}, {430, 2325}};
+static RingPose missionRingPoses[3] = {{100, 3080}, {-200, 2677}, {500, 2335}};
 
 /* 动作组/放置.json: three tray slots to three rings. Lift coordinates grow
  * downward; the second storage layer keeps its fixed 570 dmm depth. */
@@ -27,28 +27,28 @@ static const MechanismAction missionCoarsePlaceActions[] = {
     MECH_POSE(-500, 300, 1200, 1000, 200, 2000, 240, 2200, 0),
     MECH_GRIPPER_CLOSE(200),
     MECH_POSE(-500, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(-320, 0, 2677, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(-320, 1250, 2677, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(-200, 0, 2677, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(-200, 1250, 2677, 1000, 200, 2000, 240, 2200, 0),
     MECH_GRIPPER_OPEN(0),
-    MECH_POSE(-320, 0, 2677, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(-200, 0, 2677, 1000, 200, 2000, 240, 2200, 0),
     MECH_PLATFORM(2, 0),
     MECH_POSE(-500, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
     MECH_POSE(-500, 300, 1200, 1000, 200, 2000, 240, 2200, 0),
     MECH_GRIPPER_CLOSE(200),
     MECH_POSE(-500, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(430, 0, 2325, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(430, 1250, 2325, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(500, 0, 2335, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(500, 1250, 2335, 1000, 200, 2000, 240, 2200, 0),
     MECH_GRIPPER_OPEN(0),
-    MECH_POSE(430, 0, 2325, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(500, 0, 2335, 1000, 200, 2000, 240, 2200, 0),
     MECH_PLATFORM(3, 0),
     MECH_POSE(-500, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
     MECH_POSE(-500, 300, 1200, 1000, 200, 2000, 240, 2200, 0),
     MECH_POSE(-500, 300, 1200, 1000, 200, 2000, 240, 2200, 0),
     MECH_GRIPPER_CLOSE(200),
     MECH_POSE(-500, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(-500, 0, 3088, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(-45, 0, 3088, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(-45, 1250, 3088, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(-500, 0, 3080, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(100, 0, 3080, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(100, 1250, 3080, 1000, 200, 2000, 240, 2200, 0),
     MECH_GRIPPER_OPEN(0)
 };
 
@@ -63,30 +63,30 @@ static const MechanismAction missionPlaceActions[] = {
     MECH_POSE(-500, 300, 1200, 1000, 200, 2000, 240, 2200, 0),
     MECH_GRIPPER_CLOSE(200),
     MECH_POSE(-500, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(-320, 0, 2677, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(-320, 1250, 2677, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(-200, 0, 2677, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(-200, 1250, 2677, 1000, 200, 2000, 240, 2200, 0),
     MECH_GRIPPER_OPEN(0),
-    MECH_POSE(-320, 0, 2677, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(-200, 0, 2677, 1000, 200, 2000, 240, 2200, 0),
     MECH_PLATFORM(2, 0),
     MECH_POSE(-500, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
     MECH_POSE(-500, 300, 1200, 1000, 200, 2000, 240, 2200, 0),
     MECH_GRIPPER_CLOSE(200),
     MECH_POSE(-500, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(430, 0, 2325, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(430, 1250, 2325, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(500, 0, 2335, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(500, 1250, 2335, 1000, 200, 2000, 240, 2200, 0),
     MECH_GRIPPER_OPEN(0),
-    MECH_POSE(430, 0, 2325, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(500, 0, 2335, 1000, 200, 2000, 240, 2200, 0),
     MECH_PLATFORM(3, 0),
     MECH_POSE(-500, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
     MECH_POSE(-500, 300, 1200, 1000, 200, 2000, 240, 2200, 0),
     MECH_POSE(-500, 300, 1200, 1000, 200, 2000, 240, 2200, 0),
     MECH_GRIPPER_CLOSE(200),
     MECH_POSE(-500, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(-500, 0, 3088, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(-45, 0, 3088, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(-45, 1250, 3088, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(-500, 0, 3080, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(100, 0, 3080, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(100, 1250, 3080, 1000, 200, 2000, 240, 2200, 0),
     MECH_GRIPPER_OPEN(0),
-    MECH_POSE(-45, 0, 3088, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(100, 0, 3080, 1000, 200, 2000, 240, 2200, 0),
     MECH_POSE(0, 0, 2600, 1000, 200, 2000, 240, 2200, 0)
 };
 
@@ -119,11 +119,13 @@ static inline uint16_t missionBuildTaskPlace(MechanismAction *actions,
     }
     actions[26].pose.turretDdeg = missionRingPoses[rings[2] - 1U].turretDdeg;
     if (!coarse) actions[30].pose = actions[27].pose;
-    /* First layer: turn while retracted, then extend and lower together. */
+    /* Ring 3 turns/extends while raised; other first-layer rings keep their approach. */
+    if (rings[2] == 3U) actions[26].pose = actions[25].pose;
     if (layer != 2U)
         for (item = 0U; item < 3U; ++item)
-            actions[ringPoses[item][0]].pose.horizontalDmm =
-                actions[ringPoses[item][0] - 1U].pose.horizontalDmm;
+            if (rings[item] != 3U)
+                actions[ringPoses[item][0]].pose.horizontalDmm =
+                    actions[ringPoses[item][0] - 1U].pose.horizontalDmm;
     if (!coarse) return MISSION_PLACE_COUNT;
     /* Go from observation straight to tray pickup, without returning to h=0. */
     memmove(actions + 1, actions + 2, (MISSION_COARSE_PLACE_COUNT - 2U) * sizeof(*actions));
@@ -147,7 +149,7 @@ static void missionBuildTaskPickBack(MechanismAction *actions,
         actions[i++] = (MechanismAction)MECH_POSE(missionRingPoses[ring].horizontalDmm, 1250, missionRingPoses[ring].turretDdeg, 1000, 200, 2000, 240, 2200, 0);
         actions[i++] = (MechanismAction)MECH_GRIPPER_CLOSE(200);
         actions[i++] = (MechanismAction)MECH_POSE(missionRingPoses[ring].horizontalDmm, 0, missionRingPoses[ring].turretDdeg, 1000, 200, 2000, 240, 2200, 0);
-        actions[i++] = (MechanismAction)MECH_POSE(missionRingPoses[ring].horizontalDmm, 0, 1200, 1000, 200, 2000, 240, 2200, 0);
+        actions[i++] = (MechanismAction)MECH_POSE(ring == 0U ? trayHorizontalDmm : missionRingPoses[ring].horizontalDmm, 0, 1200, 1000, 200, 2000, 240, 2200, 0);
         actions[i++] = (MechanismAction)MECH_POSE(trayHorizontalDmm, 0, 1200, 1000, 200, 2000, 240, 2200, 0);
         actions[i++] = (MechanismAction)MECH_POSE(trayHorizontalDmm, 150, 1200, 1000, 200, 2000, 240, 2200, 0);
         actions[i++] = (MechanismAction)MECH_GRIPPER_OPEN(0);
@@ -191,13 +193,15 @@ static void missionBuildStoragePlace(MechanismAction *actions, uint8_t layer)
         }
     }
     actions[26].pose.turretDdeg = missionRingPoses[layer == 2U ? 2U : 0U].turretDdeg;
+    if (layer == 2U) actions[26].pose = actions[25].pose;
     if (layer != 2U)
         for (item = 0U; item < 3U; ++item)
-            actions[poses[item][0]].pose.horizontalDmm =
-                actions[poses[item][0] - 1U].pose.horizontalDmm;
+            if (item != 1U) /* First-layer order is rings 2, 3, 1. */
+                actions[poses[item][0]].pose.horizontalDmm =
+                    actions[poses[item][0] - 1U].pose.horizontalDmm;
 }
 
-/* 动作组/10_粗加工回收xiugai.json: turn at the raised ring position, then retract. */
+/* Ring 1 returns to the tray with simultaneous turn/retract after raising. */
 static void missionBuildPickBack(MechanismAction *actions)
 {
     static const uint8_t rings[3] = {2U, 3U, 1U};
