@@ -29,6 +29,7 @@
 #include "axis6_test.h"
 #include "task_log.h"
 #include "route_heading_log.h"
+#include "route_pid_log.h"
 
 #define COMMAND_BAUD_RATE  115200U
 
@@ -78,6 +79,7 @@ static uint8_t hostEStop;
 static void hostLogChar(char c);
 static TaskLog taskLog;
 static RouteHeadingLog routeHeadingLog;
+static RoutePidLog routePidLog;
 static uint8_t armed;
 static uint8_t servoTimerReady;
 static volatile uint8_t servoChannelEnabled[3];
@@ -1425,6 +1427,21 @@ static void recordRouteHeading(float target, float actual, uint32_t sample, uint
                           routeIndex, segment, templateId, phase, target, actual);
 }
 
+static void recordRoutePid(float target, float actual, uint32_t sample,
+                           uint32_t dt, float raw, float scale)
+{
+    RoutePidSample s;
+    if (!routeSentValid || motionInterrupted() || missionArcExit || arcRoutePhase) return;
+    s.now = clockMs; s.sample = sample; s.dt = (uint16_t)dt;
+    s.step = routeIndex; s.sub = presetExecutionStep;
+    s.segment = presetRouteActive ? presetRoute.index : routeIndex;
+    s.templateId = presetRouteActive ? presetRoute.legs[presetRoute.index].templateId : 0U;
+    s.yawSign = yawSign;
+    memcpy(s.wheels, routeSent, sizeof(s.wheels));
+    s.target = target; s.actual = actual; s.raw = raw; s.scale = scale;
+    routePidLogRecord(&taskLog, &routePidLog, &s, &routeHeadingGains, &routeHeadingPid);
+}
+
 static void printArcBlendState(const char *event)
 {
     serialSendString(event);
@@ -1544,7 +1561,7 @@ static void serviceRoute(void)
     RouteLeg leg;
     float yaw, error, dx, dy, remaining, turnEntry, turnExit, correctionAccel, brakeRemaining;
     int16_t speed, turn, bodyForward, bodyRight;
-    float pidTurn;
+    float pidTurn, rawPidTurn;
     uint16_t cruiseRpm;
     uint8_t lateral, bodyLateral;
     if (!routeActive || missionArcActive || motionInterrupted()) return;
@@ -1787,6 +1804,7 @@ static void serviceRoute(void)
     routeForward = lateral ? 0 : (dy > 0 ? speed : -speed);
     pidTurn = routeHeadingPidStep(&routeHeadingPid, &routeHeadingGains, error,
                                   yaw, sampleMs, dt, yawSign);
+    rawPidTurn = pidTurn;
     /* A slow arc exit still needs yaw damping. Scaling by the requested
      * 250 RPM cruise would almost disable it at the live 10..36 RPM speed. */
     if (arcRoutePhase == 4U || missionArcExit) {
@@ -1798,6 +1816,7 @@ static void serviceRoute(void)
     turn = routeRound(routeCorrection);
     routeBody(routeForward, routeRight, routeHeading, &bodyForward, &bodyRight);
     sendRouteSpeeds(bodyForward, bodyRight, turn);
+    recordRoutePid(routeYaw, yaw, sampleMs, dt, rawPidTurn, (float)speed / cruiseRpm);
 }
 
 static uint8_t processRouteCommand(const char *command)

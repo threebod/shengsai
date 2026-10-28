@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include "../firmware/route_heading_log.h"
+#include "../firmware/route_pid_log.h"
 
 static TaskLog logBuffer={1U};
 static SsFrame readLog(uint32_t task,uint32_t offset,uint32_t end) {
@@ -59,6 +60,49 @@ static void checkHeadingLog(void) {
     assert(logBuffer.end && logBuffer.end<128U && logBuffer.bytes[logBuffer.end-1U]=='\n');
 }
 
+static void checkPidLog(void) {
+    RoutePidLog state={0};
+    RoutePidSample s={0};
+    RouteHeadingPid pid={0};
+    const RouteHeadingPidGains gains={2.0f,0.25f,0.12f};
+    uint32_t end;
+    s.now=1010;s.sample=1000;s.dt=20;s.step=6;s.segment=8;s.sub=2;s.templateId=17;
+    s.target=179;s.actual=-179;s.raw=2.25f;s.scale=0.5f;s.yawSign=1;
+    s.wheels[0]=s.wheels[3]=102;s.wheels[1]=s.wheels[2]=98;
+    pid.integral=0.5f;pid.filteredRate=-1.25f;
+    taskLogReset(&logBuffer);
+    routePidLogRecord(&logBuffer,&state,&s,&gains,&pid);
+    logBuffer.bytes[logBuffer.end]=0;
+    assert(strstr((const char *)logBuffer.bytes,"PIDCFG span=1 kp_m=2000 ki_m=250 kd_m=120 limit_m=12000 integral_m=12000\n"));
+    assert(strstr((const char *)logBuffer.bytes,"PID 1010,1000,1,6,8,2,17,17900,-17900,400,0,8,8,225,500,-125,500,20,1\n"));
+    end=logBuffer.end;
+    s.now=s.sample=1030;s.wheels[0]=s.wheels[3]=104;s.wheels[1]=s.wheels[2]=96;
+    routePidLogRecord(&logBuffer,&state,&s,&gains,&pid);assert(logBuffer.end==end);
+    s.now=s.sample=1070;s.wheels[0]=s.wheels[3]=106;s.wheels[1]=s.wheels[2]=94;
+    routePidLogRecord(&logBuffer,&state,&s,&gains,&pid);assert(logBuffer.end==end);
+    s.now=s.sample=1110;s.wheels[0]=s.wheels[3]=108;s.wheels[1]=s.wheels[2]=92;
+    routePidLogRecord(&logBuffer,&state,&s,&gains,&pid);
+    logBuffer.bytes[logBuffer.end]=0;
+    /* Exact preceding-command weighting: (8*20+16*40+24*40)/100 = 17.6. */
+    assert(strstr((const char *)logBuffer.bytes,"PID 1110,1110,1,6,8,2,17,17900,-17900,400,0,32,18,225,500,-125,500,20,1\n"));
+    end=logBuffer.end;
+    s.now=1210;routePidLogRecord(&logBuffer,&state,&s,&gains,&pid);
+    assert(logBuffer.end==end); /* Repeated IMU frames cannot become new measurements. */
+    s.now=s.sample=1230;routePidLogRecord(&logBuffer,&state,&s,&gains,&pid);
+    assert(logBuffer.end>end && state.at==1230);
+    s.sub=1;s.now=1231;routePidLogRecord(&logBuffer,&state,&s,&gains,&pid);
+    assert(state.span==2 && !state.elapsed && !state.turnArea);
+    s.now=s.sample=1532;routePidLogRecord(&logBuffer,&state,&s,&gains,&pid);
+    assert(state.span==3); /* Pauses split the response instead of averaging through station work. */
+    taskLogReset(&logBuffer);routePidLogRecord(&logBuffer,&state,&s,&gains,&pid);
+    assert(state.span==4 && state.task==logBuffer.task);
+    taskLogReset(&logBuffer);s.now=s.sample=UINT32_MAX-50U;
+    routePidLogRecord(&logBuffer,&state,&s,&gains,&pid);
+    end=logBuffer.end;s.now=s.sample=49;
+    routePidLogRecord(&logBuffer,&state,&s,&gains,&pid);
+    assert(logBuffer.end>end && state.at==49 && !state.elapsed);
+}
+
 int main(void) {
     SsFrame r,q={0};uint32_t task,next,end;unsigned i,total;
     uint8_t line[128],collected[TASK_LOG_CAPACITY];
@@ -99,5 +143,6 @@ int main(void) {
     r=readLog(0,0,0);assert(!r.data[0] && !r.data[13] && ss_get32(r.data+9)==0);
     assert(ss_get32(r.data+1)!=task);
     checkHeadingLog();
-    puts("task log and route heading recording ok");return 0;
+    checkPidLog();
+    puts("task log, heading and PID command recording ok");return 0;
 }
