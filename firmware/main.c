@@ -1582,9 +1582,9 @@ static void serviceRoute(void)
                 "ERR TURN: timeout; aborted\r\n");
             return;
         }
-        /* Station work requires 1deg; ordinary turns retain their hysteresis. */
-        turnEntry = routeStationAlignment == 1U ? 1.0f : 2.0f;
-        turnExit = routeStationAlignment == 1U ? 1.0f : 3.5f;
+        /* Transit turns must stay within 0.5deg before starting a straight leg. */
+        turnEntry = routeStationAlignment == 1U ? 1.0f : 0.5f;
+        turnExit = routeStationAlignment == 1U ? 1.0f : 0.5f;
         if (!routeTurnInBand && routeAbs(error) <= turnEntry) routeTurnInBand = 1U;
         if (routeTurnInBand && routeAbs(error) > turnExit) routeTurnInBand = 0U;
         pidTurn = routeTurnPidStep(&routeTurnPid, error, sampleMs,
@@ -1595,8 +1595,7 @@ static void serviceRoute(void)
         if (routeTurnInBand && routeRound(routeTurnRpm) == 0) {
             if (routeTurnInBand == 1U) { routeTurnStable = now; routeTurnInBand = 2U; }
             if (now - routeTurnStable >= 200U &&
-                (routeStationAlignment != 1U ||
-                 (int32_t)(sampleMs - routeTurnStable) >= 200)) {
+                (int32_t)(sampleMs - routeTurnStable) >= 200) {
                 routeRotating = routeTurnInBand = 0U;
                 routeHeading = routeNextHeading;
                 routeLegStart = now;
