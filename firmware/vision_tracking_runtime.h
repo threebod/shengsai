@@ -153,7 +153,7 @@ static void receiveVisionTracking(void)
 static void serviceVisionTrackingMotion(void)
 {
     uint32_t now = clockMs, dt = now-visionTrackingTick, stamp;
-    uint8_t id;
+    uint8_t id, wasHolding;
     float forward, right, yaw, error;
     int16_t sentForward, sentRight, turn, peak, limit, available;
     if (!visionTrackingOpen) return;
@@ -174,6 +174,7 @@ static void serviceVisionTrackingMotion(void)
         missionOffsetForward += routeEstimateScaled(visionTrackingForward,dt,routeForwardScale);
         missionOffsetRight += routeEstimateScaled(visionTrackingRight,dt,routeLateralScale);
     }
+    wasHolding = (uint8_t)(visionTracking.state == VISION_TRACK_HOLD);
     vision_tracking_tick(&visionTracking,now,routeForwardScale,routeLateralScale,&forward,&right);
     if (visionTracking.state == VISION_TRACK_FAILED) {
         failVision(visionTracking.reason ? visionTracking.reason : "TRACKING_FAILED"); return;
@@ -181,7 +182,15 @@ static void serviceVisionTrackingMotion(void)
     if (visionTracking.state == VISION_TRACK_DONE) {
         finishVisionTracking(); return;
     }
-    if (visionTracking.state != VISION_TRACK_RUN) return;
+    if (visionTracking.state == VISION_TRACK_HOLD && !wasHolding) {
+        stopDriveMotors();
+        routeSentValid = 0U;
+        visionTrackingForward = visionTrackingRight = 0;
+        routeHeadingPidReset(&visionTrackingHeadingPid);
+        serialSendString("VISION WAIT: tracking frame timeout; waiting for fresh frame\r\n");
+        if (motionInterrupted()) { failVision("TRACKING_STOP_FAILED"); return; }
+    }
+    if (visionTracking.state != VISION_TRACK_RUN && visionTracking.state != VISION_TRACK_HOLD) return;
     if (!visionTrackingStarted) {
         setAllMotorsEnabled(true);
         if (motionInterrupted()) { failVision("TRACKING_ENABLE_FAILED"); return; }
@@ -196,6 +205,7 @@ static void serviceVisionTrackingMotion(void)
         jogCanExpectDriveStatus(visionMotionQueryId);
         Emm_V5_Read_Sys_Params(visionMotionQueryId,S_FLAG);
     }
+    if (visionTracking.state == VISION_TRACK_HOLD) return;
     sentForward = routeRound(forward); sentRight = routeRound(right);
     turn = routeRound(routeHeadingPidStep(&visionTrackingHeadingPid,&routeHeadingGains,
                                          error,yaw,stamp,dt,yawSign));

@@ -84,16 +84,16 @@ static void frameValidation(void)
     packet.value[7]=218; receive(1U,100U);
     assert(tracking.state==VISION_TRACK_RUN && tracking.lastFrameAt==100U-250U);
     assert(tick(100U)==VISION_TRACK_RUN);
-    assert(tick(101U)==VISION_TRACK_FAILED);
+    assert(tick(101U)==VISION_TRACK_HOLD && forward==0 && right==0);
     begin(30U,1200U,80.0f); receive(1U,100U);
     packet.value[7]=200;
     vision_tracking_observe(&tracking,&calibration,&packet,100U,120U);
     assert(tracking.state==VISION_TRACK_RUN); /* Duplicate never refreshes age. */
     packet.value[6]=2;
     vision_tracking_observe(&tracking,&calibration,&packet,100U,120U);
-    assert(tracking.state==VISION_TRACK_FAILED); /* 200+32+20 > 250. */
+    assert(tracking.state==VISION_TRACK_RUN && tracking.sequence==1U); /* Reject stale data without ending the session. */
     begin(30U,1200U,80.0f); receive(1U,100U);
-    receive(2U,319U); assert(tracking.state==VISION_TRACK_FAILED); /* Late new frame cannot restart. */
+    receive(2U,319U); assert(tracking.state==VISION_TRACK_RUN); /* A new fresh frame can refresh the running session. */
     begin(30U,1200U,80.0f); receive(1U,100U);
     packet.flags=VISION_FLAG_TRACKING; receive(2U,120U);
     assert(tracking.state==VISION_TRACK_FAILED); /* Explicit target loss stops immediately. */
@@ -113,12 +113,57 @@ static void sequenceFreshness(void)
     receive(1U,200U); assert(tracking.sequence==1U && tracking.lastFrameAt==68U);
     receive(0U,220U); assert(tracking.sequence==1U && tracking.lastFrameAt==68U);
     assert(tick(318U)==VISION_TRACK_RUN);
-    assert(tick(319U)==VISION_TRACK_FAILED);
+    assert(tick(319U)==VISION_TRACK_HOLD && forward==0 && right==0);
     begin(30U,1200U,80.0f); receive(65535U,100U);
     receive(0U,120U); assert(tracking.sequence==0U && tracking.lastFrameAt==88U);
     receive(30U,140U); assert(tracking.sequence==30U && tracking.lastFrameAt==108U);
     receive(29U,160U); assert(tracking.sequence==30U && tracking.lastFrameAt==108U);
     receive(31U,180U); assert(tracking.sequence==31U && tracking.lastFrameAt==148U);
+}
+
+static void frameRecovery(void)
+{
+    unsigned mode;
+    for(mode=VISION_MODE_MATERIAL;mode<=VISION_MODE_RING;++mode) {
+        float stoppedDistance;
+        uint32_t heldAt, deadline;
+        begin(15U,1200U,500.0f);
+        if(mode==VISION_MODE_MATERIAL) {
+            tracking.mode=packet.mode=VISION_MODE_MATERIAL;
+            tracking.selector=packet.selector=3U;packet.value[5]=3;
+        }
+        receive(1U,100U);tick(120U);
+        assert(forward>0 && right>0);
+        stoppedDistance=(forward+right)*ROUTE_MM_PER_REV/60000.0f*(319U-120U);
+        assert(tick(319U)==VISION_TRACK_HOLD && forward==0 && right==0);
+        assert(fabsf(tracking.travelledMm-stoppedDistance)<0.001f);
+        stoppedDistance=tracking.travelledMm;heldAt=tracking.controlAt;deadline=tracking.deadlineMs;
+        assert(tick(10000U)==VISION_TRACK_HOLD && tracking.travelledMm==stoppedDistance);
+        packet.value[7]=219;receive(2U,10000U); /* Stale packet cannot resume. */
+        assert(tracking.state==VISION_TRACK_HOLD && tracking.sequence==1U);
+        packet.value[7]=0;receive(1U,10000U); /* Duplicate cannot resume. */
+        assert(tracking.state==VISION_TRACK_HOLD);
+        packet.token++;receive(2U,10000U);assert(tracking.state==VISION_TRACK_HOLD);
+        packet.token--;receive(2U,10000U);
+        assert(tracking.state==VISION_TRACK_RUN && tracking.token==50U);
+        assert(tracking.deadlineMs==deadline+10000U-heldAt);
+        assert(tick(10000U)==VISION_TRACK_RUN && forward==0 && right==0);
+        assert(tracking.travelledMm==stoppedDistance);
+        assert(tick(10020U)==VISION_TRACK_RUN && forward>0 && right>0);
+        assert(forward+right<=15.0f);
+        vision_tracking_cancel(&tracking);receive(3U,10040U);
+        assert(tracking.state==VISION_TRACK_IDLE && tick(10040U)==VISION_TRACK_IDLE);
+    }
+    /* A lost stream breaks the two-consecutive-frame alignment confirmation. */
+    begin(15U,1200U,500.0f);packet.value[0]=160;packet.value[1]=120;receive(1U,100U);
+    assert(tracking.confirmations==1U);
+    assert(tick(319U)==VISION_TRACK_HOLD && !tracking.confirmations);
+    receive(2U,1000U);assert(tracking.state==VISION_TRACK_RUN && tracking.confirmations==1U);
+    receive(3U,1020U);assert(tracking.state==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_IN_RANGE"));
+    /* A fresh frame just before the next control tick cannot reuse an expired confirmation. */
+    begin(15U,1200U,500.0f);packet.value[0]=160;packet.value[1]=120;receive(1U,100U);
+    receive(2U,319U);assert(tracking.state==VISION_TRACK_RUN && tracking.confirmations==1U);
+    receive(3U,339U);assert(tracking.state==VISION_TRACK_DONE);
 }
 
 static void thirteenFpsCamera(void)
@@ -258,7 +303,7 @@ static void pixelTolerance(void)
 
 int main(void)
 {
-    handshakeAndIdentity(); frameValidation(); sequenceFreshness(); thirteenFpsCamera();
+    handshakeAndIdentity(); frameValidation(); sequenceFreshness(); frameRecovery(); thirteenFpsCamera();
     speedAndDirection(); completionAndBudget(); pixelTolerance();
     puts("PASS vision tracking: explicit ACK, strict frames, bounded fresh velocity, reversal stop, deadline/budget and cancellation");
     return 0;

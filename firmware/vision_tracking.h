@@ -13,7 +13,7 @@
 
 typedef enum {
     VISION_TRACK_WAIT = 0, VISION_TRACK_RUN, VISION_TRACK_DONE,
-    VISION_TRACK_FAILED, VISION_TRACK_IDLE
+    VISION_TRACK_FAILED, VISION_TRACK_IDLE, VISION_TRACK_HOLD
 } VisionTrackingState;
 
 typedef struct {
@@ -82,12 +82,11 @@ static VisionTrackingState vision_tracking_observe(VisionTracking *tracking,
     uint16_t sequence, advance;
     uint32_t age;
     int16_t du, dv;
-    if (tracking->state != VISION_TRACK_WAIT && tracking->state != VISION_TRACK_RUN)
+    if (tracking->state != VISION_TRACK_WAIT && tracking->state != VISION_TRACK_RUN &&
+        tracking->state != VISION_TRACK_HOLD)
         return tracking->state;
     if (tracking->state == VISION_TRACK_WAIT && now - tracking->requestAt >= VISION_TRACK_ACK_MS)
         return vision_tracking_stop(tracking, VISION_TRACK_FAILED, "TRACK_ACK_TIMEOUT");
-    if (tracking->state == VISION_TRACK_RUN && now - tracking->lastFrameAt > VISION_TRACK_FRESH_MS)
-        return vision_tracking_stop(tracking, VISION_TRACK_FAILED, "TRACK_FRAME_TIMEOUT");
     if (packet->type != VISION_MESSAGE_RESULT || packet->token != tracking->token ||
         packet->mode != tracking->mode || packet->selector != tracking->selector ||
         packet->target != tracking->target || !(packet->flags & VISION_FLAG_TRACKING))
@@ -98,8 +97,6 @@ static VisionTrackingState vision_tracking_observe(VisionTracking *tracking,
     age = (uint16_t)packet->value[7] + VISION_TRACK_WIRE_MS;
     if (now - rxStamp > VISION_TRACK_FRESH_MS ||
         age > VISION_TRACK_FRESH_MS - (now - rxStamp)) {
-        if (tracking->state == VISION_TRACK_RUN)
-            return vision_tracking_stop(tracking, VISION_TRACK_FAILED, "TRACK_FRAME_STALE");
         return tracking->state;
     }
     age += now - rxStamp;
@@ -116,6 +113,15 @@ static VisionTrackingState vision_tracking_observe(VisionTracking *tracking,
     vision_map_error(calibration, du, dv, &tracking->forwardMm, &tracking->rightMm);
     if (!vision_tracking_finite(tracking->forwardMm) || !vision_tracking_finite(tracking->rightMm))
         return vision_tracking_stop(tracking, VISION_TRACK_FAILED, "TRACK_CALIBRATION_INVALID");
+    if (tracking->state == VISION_TRACK_RUN && now - tracking->lastFrameAt > VISION_TRACK_FRESH_MS)
+        tracking->confirmations = 0U;
+    if (tracking->state == VISION_TRACK_HOLD) {
+        /* Waiting consumes neither the material motion duration nor its travel budget. */
+        tracking->deadlineMs += now - tracking->controlAt;
+        tracking->updatedAt = tracking->controlAt = now;
+        tracking->state = VISION_TRACK_RUN;
+        tracking->reason = "NONE";
+    }
     tracking->sequence = sequence; tracking->sequenceValid = 1U;
     tracking->lastFrameAt = now - age;
     if (du >= -VISION_ALIGN_TOLERANCE_PX && du <= VISION_ALIGN_TOLERANCE_PX &&
@@ -156,9 +162,8 @@ static VisionTrackingState vision_tracking_tick(VisionTracking *tracking, uint32
             return vision_tracking_stop(tracking, VISION_TRACK_FAILED, "TRACK_ACK_TIMEOUT");
         return tracking->state;
     }
-    if (tracking->state != VISION_TRACK_RUN) return tracking->state;
-    if (now - tracking->lastFrameAt > VISION_TRACK_FRESH_MS)
-        return vision_tracking_stop(tracking, VISION_TRACK_FAILED, "TRACK_FRAME_TIMEOUT");
+    if (tracking->state != VISION_TRACK_RUN && tracking->state != VISION_TRACK_HOLD)
+        return tracking->state;
     if (!vision_tracking_finite(forwardScale) || !vision_tracking_finite(lateralScale) ||
         forwardScale <= 0.0f || lateralScale <= 0.0f)
         return vision_tracking_stop(tracking, VISION_TRACK_FAILED, "TRACK_SCALE_INVALID");
@@ -166,6 +171,12 @@ static VisionTrackingState vision_tracking_tick(VisionTracking *tracking, uint32
     tracking->travelledMm += (fabsf(tracking->driveForwardRpm) * forwardScale +
         fabsf(tracking->driveRightRpm) * lateralScale) * (ROUTE_MM_PER_REV / 60000.0f) * dt;
     tracking->updatedAt = now;
+    if (tracking->state == VISION_TRACK_HOLD) return tracking->state;
+    if (now - tracking->lastFrameAt > VISION_TRACK_FRESH_MS) {
+        tracking->controlAt = now;
+        tracking->confirmations = 0U;
+        return vision_tracking_stop(tracking, VISION_TRACK_HOLD, "TRACK_FRAME_TIMEOUT");
+    }
     if (tracking->mode != VISION_MODE_RING && (int32_t)(now - tracking->deadlineMs) >= 0)
         return vision_tracking_stop(tracking, VISION_TRACK_DONE, "TRACK_DEADLINE");
     remaining = tracking->budgetMm - tracking->travelledMm;
