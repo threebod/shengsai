@@ -28,6 +28,7 @@
 #include "axis_feedback.h"
 #include "axis6_test.h"
 #include "task_log.h"
+#include "route_heading_log.h"
 
 #define COMMAND_BAUD_RATE  115200U
 
@@ -76,6 +77,7 @@ static volatile uint8_t emergencyStop;
 static uint8_t hostEStop;
 static void hostLogChar(char c);
 static TaskLog taskLog;
+static RouteHeadingLog routeHeadingLog;
 static uint8_t armed;
 static uint8_t servoTimerReady;
 static volatile uint8_t servoChannelEnabled[3];
@@ -1409,6 +1411,18 @@ static RoutePoint activeRoutePoint(void)
     return result;
 }
 
+static void recordRouteHeading(float target, float actual, uint32_t sample, uint8_t phase)
+{
+    uint16_t segment = routeIndex, templateId = 0U;
+    if (!imuValid) return;
+    if (presetRouteActive && presetRoute.index < presetRoute.count) {
+        segment = presetRoute.index;
+        templateId = presetRoute.legs[segment].templateId;
+    }
+    routeHeadingLogRecord(&taskLog, &routeHeadingLog, clockMs, sample,
+                          routeIndex, segment, templateId, phase, target, actual);
+}
+
 static void printArcBlendState(const char *event)
 {
     serialSendString(event);
@@ -1540,6 +1554,7 @@ static void serviceRoute(void)
     yaw = imuYaw; sampleMs = imuStamp; age = clockMs - sampleMs;
     __enable_irq();
     error = headingError(routeYaw, yaw);
+    recordRouteHeading(routeYaw, yaw, sampleMs, routeRotating ? 'T' : 'D');
     if (!imuValid || age > 250U || (!routeRotating && routeAbs(error) > 20.0f) || dt > 150U ||
         now - routeLegStart > 45000U) {
         uint8_t wasNavigation = navRunning;
@@ -1662,6 +1677,7 @@ static void serviceRoute(void)
             routeTurnStart = routeLegStart = clockMs;
             return;
         }
+        recordRouteHeading(routeYaw, yaw, sampleMs, 'A');
         if (navRunning) {
             if (routeIndex + 1U == navPathCount) {
                 finishNavigation();
@@ -1954,6 +1970,8 @@ static void serviceArcRoute(void)
                                                           routeForwardScale));
         arcBlendShape(arcBlend.distance, &heading, &curvature);
         error = headingError(arcBlend.startYaw + heading * yawSign * arcBlend.direction, yaw);
+        recordRouteHeading(arcBlend.startYaw + heading * yawSign * arcBlend.direction,
+                           yaw, stamp, 'C');
         if (routeAbs(error) > 20.0f) {
             stopAllMotors();
             serialSendString("ERR ROUTE ARC: curve heading deviation; stopped\r\n");
