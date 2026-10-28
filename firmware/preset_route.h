@@ -13,7 +13,7 @@
 #define PRESET_ARC_FOUR_POINT 2U
 /* RAW table projects about 80mm into the field; clear it by 100mm before turning. */
 #define PRESET_RAW_CLEAR_MM 100
-#define PRESET_RAW_LEFT_MM 50
+#define PRESET_RAW_RIGHT_MM 50
 
 typedef struct {
     RouteLeg drive;
@@ -202,11 +202,11 @@ static uint8_t presetTryTemplate(PresetRoute *route, const PresetGroup *group,
         if ((!dx && !dy) || (dx && (!leg->drive.rightMm || leg->drive.upMm || dx*leg->drive.rightMm <= 0)) ||
             (dy && (!leg->drive.upMm || leg->drive.rightMm || dy*leg->drive.upMm <= 0)) ||
             available <= trim || !presetSegmentClear(leg->from,leg->to,route->regions)) return 0U;
-        /* RC-1 shifts left by 50mm and keeps the full 1680mm final down leg.
+        /* RC-1 shifts right by 50mm and keeps the full 1680mm final down leg.
          * Include the extra 100mm departure in the complete movement envelope. */
         if (templateId == 17U &&
-            !presetRectangleClear(leg->from.x - PRESET_RAW_LEFT_MM,
-                                  leg->to.y - PRESET_RAW_CLEAR_MM, leg->from.x,
+            !presetRectangleClear(leg->from.x, leg->to.y - PRESET_RAW_CLEAR_MM,
+                                  leg->from.x + PRESET_RAW_RIGHT_MM,
                                   leg->from.y, route->regions)) return 0U;
         /* Calibrated motor commands are not nominal map displacements.
          * Select corridors by map endpoints; keep station alignment unchanged. */
@@ -270,14 +270,14 @@ static RouteLeg presetActiveLeg(const PresetRoute *route)
     return leg;
 }
 /* RC-1 executes this fixed departure profile from the visual alignment pose.
- * The map leg retains station anchors; the local 50mm left shift is not undone. */
+ * The map leg retains station anchors; the local 50mm right shift is not undone. */
 static RouteLeg presetExecutionLeg(const PresetRoute *route, uint8_t step)
 {
     RouteLeg leg = presetActiveLeg(route);
     if (route->legs[route->index].templateId != 17U) return leg;
     if (step < 2U) {
         leg.upMm = step == 0U ? -PRESET_RAW_CLEAR_MM : 0;
-        leg.rightMm = step == 1U ? -PRESET_RAW_LEFT_MM : 0;
+        leg.rightMm = step == 1U ? PRESET_RAW_RIGHT_MM : 0;
         leg.departureHeading = leg.heading = 1;
         leg.event = 0;
     }
