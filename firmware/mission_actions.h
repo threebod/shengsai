@@ -5,7 +5,7 @@
 #include "ring_pose.h"
 
 /* User-specified ring defaults; stored poses take precedence. */
-static RingPose missionRingPoses[3] = {{100, 3080}, {-200, 2677}, {500, 2335}};
+static RingPose missionRingPoses[3] = {{130, 3080}, {-200, 2677}, {500, 2335}};
 
 /* 动作组/放置.json: three tray slots to three rings. Lift coordinates grow
  * downward; the second storage layer keeps its fixed 570 dmm depth. */
@@ -47,8 +47,8 @@ static const MechanismAction missionCoarsePlaceActions[] = {
     MECH_GRIPPER_CLOSE(200),
     MECH_POSE(-500, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
     MECH_POSE(-500, 0, 3080, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(100, 0, 3080, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(100, 1250, 3080, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(130, 0, 3080, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(130, 1250, 3080, 1000, 200, 2000, 240, 2200, 0),
     MECH_GRIPPER_OPEN(0)
 };
 
@@ -83,10 +83,10 @@ static const MechanismAction missionPlaceActions[] = {
     MECH_GRIPPER_CLOSE(200),
     MECH_POSE(-500, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
     MECH_POSE(-500, 0, 3080, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(100, 0, 3080, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(100, 1250, 3080, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(130, 0, 3080, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(130, 1250, 3080, 1000, 200, 2000, 240, 2200, 0),
     MECH_GRIPPER_OPEN(0),
-    MECH_POSE(100, 0, 3080, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(130, 0, 3080, 1000, 200, 2000, 240, 2200, 0),
     MECH_POSE(0, 0, 2600, 1000, 200, 2000, 240, 2200, 0)
 };
 
