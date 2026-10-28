@@ -121,6 +121,7 @@ static uint8_t routeObstaclePosition = ROUTE_OBSTACLE_UP;
 static uint16_t routeObstacleRegions;
 static PresetRoute presetRoute;
 static uint8_t presetRouteActive;
+static uint8_t presetExecutionStep;
 static int16_t routeForward, routeRight;
 static uint32_t routeTick, routeLegStart, routeSettle;
 static uint8_t routeAuto, routeRotating, routeOnlyTurn, routeTurnInBand;
@@ -643,6 +644,7 @@ static void stopAllMotors(void)
     mechanismActionActive = 0U;
     motionMode = 0U;
     routeRawDownCorrection = 0;
+    presetExecutionStep = 0U;
     arcRoutePhase = 0U;
     missionArcActive = missionArcExit = 0U;
     routeActive = 0U;
@@ -1494,7 +1496,7 @@ static void beginArcBlend(void)
 static RouteLeg activeDistanceLeg(void)
 {
     RouteLeg leg = routeObstacleLeg(routeIndex, routeStartZone, routeObstaclePosition);
-    if (presetRouteActive) return presetActiveLeg(&presetRoute);
+    if (presetRouteActive) return presetExecutionLeg(&presetRoute, presetExecutionStep);
     if (arcRoutePhase) {
         if (routeIndex == 2U) { leg.upMm -= 249; leg.heading = 4; }
         if (routeIndex == 3U) leg.rightMm += 249;
@@ -1690,7 +1692,7 @@ static void serviceRoute(void)
         }
         missionArcExit = 0U;
         if (presetRouteActive) {
-            uint8_t next = presetAdvance(&presetRoute, &routeIndex);
+            uint8_t next = presetAdvanceExecution(&presetRoute, &routeIndex, &presetExecutionStep);
             routeStationAlignment = 0U;
             routeLegProgress = 0.0f;
             routeSettle = routeLegStart = clockMs;
@@ -1899,6 +1901,7 @@ static uint8_t processRouteCommand(const char *command)
     routeStartZone = start; routeStep = 0U; routeIndex = 0U;
     routeRawLeftCorrection = 0;
     routeRawDownCorrection = 0;
+    presetExecutionStep = 0U;
     routeLegProgress = 0.0f;
     routeBaseYaw = routeYaw = imuYaw;
     routeForward = routeRight = 0;
@@ -2423,6 +2426,7 @@ static void missionBeginStation(uint8_t nextIndex)
     } else if (nextIndex == 4U || nextIndex == 11U) {
         routeRawLeftCorrection = 0;
         routeRawDownCorrection = 0;
+        presetExecutionStep = 0U;
         missionPhase = MISSION_RAW_PICK;
         rawPickAtStation = 1U;
         rawPickItemIndex = rawPickMissingReported = 0U;
@@ -2461,7 +2465,7 @@ static void serviceMission(void)
     if (missionPhase == MISSION_RAW_PICK) {
         if (rawPickItemIndex == 3U && !visionPickActive &&
             !mechanismActionActive) {
-            /* Preserve the alignment offset so pickup can return to its baseline. */
+            /* Validate the retracted travel pose before leaving from visual alignment. */
             missionPhase = MISSION_RECENTER;
         }
         return;
@@ -2606,57 +2610,13 @@ static void serviceMission(void)
         missionAbort("unsafe_recenter_pose");
         return;
     }
-    if (presetRouteActive && (routeIndex == 4U || routeIndex == 11U)) {
-        if (routeAbs(missionOffsetForward) <= 1.0f && routeAbs(missionOffsetRight) <= 1.0f) {
-            missionContinue();
-            return;
-        }
-        if (!presetRecenterClear(&presetRoute,missionOffsetForward,missionOffsetRight)) {
-            missionAbort("raw_return_blocked");
-            return;
-        }
-        if (!startVisionMotion(-missionOffsetForward,-missionOffsetRight,40U,0U)) {
-            missionAbort("raw_exit_failed");
-            return;
-        }
-        missionPhase = MISSION_RAW_EXIT;
-
+    if (routeIndex == 4U || routeIndex == 11U) {
+        /* The aligned RAW pose is the departure reference for every selected route. */
+        routeRawLeftCorrection = routeRawDownCorrection = 0;
+        missionContinue();
         return;
     }
-    if (!presetRouteActive && (routeIndex == 4U || routeIndex == 11U)) {
-        if (routeObstaclePosition == ROUTE_OBSTACLE_LEFT ||
-            routeObstaclePosition == ROUTE_OBSTACLE_RIGHT) {
-            /* Facing left: body forward is map left, body right is map up.
-             * Restore map X now; carry map Y into the following down leg. */
-            routeRawLeftCorrection = 0;
-            routeRawDownCorrection = routeRound(missionOffsetRight);
-            if (routeAbs(missionOffsetForward) <= 1.0f) {
-                missionContinue();
-                return;
-            }
-            if (!startVisionMotion(-missionOffsetForward, 0.0f, 40U, 0U)) {
-                missionAbort("raw_exit_failed");
-                return;
-            }
-            missionPhase = MISSION_RAW_EXIT;
 
-            return;
-        }
-        /* Both pickups face left: body right is map up; body forward is map left.
-         * Restore map Y now and merge map X compensation into the left leg. */
-        routeRawLeftCorrection = routeRound(missionOffsetForward);
-        if (routeAbs(missionOffsetRight) <= 1.0f) {
-            missionContinue();
-            return;
-        }
-        if (!startVisionMotion(0.0f, -missionOffsetRight, 40U, 0U)) {
-            missionAbort("raw_exit_failed");
-            return;
-        }
-        missionPhase = MISSION_RAW_EXIT;
-
-        return;
-    }
     if (routeAbs(missionOffsetForward) <= 1.0f &&
         routeAbs(missionOffsetRight) <= 1.0f) {
         missionContinue();

@@ -11,6 +11,9 @@
 #define PRESET_ARC_TRIM 249
 /* Original four-point bends retain their selected-obstacle/boundary scope. */
 #define PRESET_ARC_FOUR_POINT 2U
+/* RAW table projects about 80mm into the field; clear it by 100mm before turning. */
+#define PRESET_RAW_CLEAR_MM 100
+#define PRESET_RAW_RIGHT_MM 30
 
 typedef struct {
     RouteLeg drive;
@@ -199,6 +202,12 @@ static uint8_t presetTryTemplate(PresetRoute *route, const PresetGroup *group,
         if ((!dx && !dy) || (dx && (!leg->drive.rightMm || leg->drive.upMm || dx*leg->drive.rightMm <= 0)) ||
             (dy && (!leg->drive.upMm || leg->drive.rightMm || dy*leg->drive.upMm <= 0)) ||
             available <= trim || !presetSegmentClear(leg->from,leg->to,route->regions)) return 0U;
+        /* RC-1 shifts the following down leg right by 30mm after clearing RAW.
+         * Station anchors remain nominal; check the complete shifted envelope. */
+        if (templateId == 17U &&
+            !presetRectangleClear(leg->from.x, leg->to.y,
+                                  leg->from.x + PRESET_RAW_RIGHT_MM,
+                                  leg->from.y, route->regions)) return 0U;
         /* Calibrated motor commands are not nominal map displacements.
          * Select corridors by map endpoints; keep station alignment unchanged. */
         /* Station alignment and the fixed template define parking turns.
@@ -260,6 +269,22 @@ static RouteLeg presetActiveLeg(const PresetRoute *route)
     else leg.rightMm += leg.rightMm > 0 ? -trim : trim;
     return leg;
 }
+/* RC-1 executes this fixed departure profile from the visual alignment pose.
+ * The map leg retains station anchors; the local 30mm shift is not undone. */
+static RouteLeg presetExecutionLeg(const PresetRoute *route, uint8_t step)
+{
+    RouteLeg leg = presetActiveLeg(route);
+    if (route->legs[route->index].templateId != 17U) return leg;
+    if (step < 2U) {
+        leg.upMm = step == 0U ? -PRESET_RAW_CLEAR_MM : 0;
+        leg.rightMm = step == 1U ? PRESET_RAW_RIGHT_MM : 0;
+        leg.departureHeading = leg.heading = 1;
+        leg.event = 0;
+    } else {
+        leg.upMm += PRESET_RAW_CLEAR_MM;
+    }
+    return leg;
+}
 /* 0 finished, 1 transit, 2 station. Task indices never count detour nodes. */
 static uint8_t presetAdvance(PresetRoute *route, uint8_t *taskIndex)
 {
@@ -267,5 +292,16 @@ static uint8_t presetAdvance(PresetRoute *route, uint8_t *taskIndex)
     if (route->index >= route->count) return 0U;
     if (leg->drive.event) { *taskIndex = (uint8_t)(leg->taskIndex+1U); return 2U; }
     *taskIndex = route->legs[route->index].taskIndex; return 1U;
+}
+static uint8_t presetAdvanceExecution(PresetRoute *route, uint8_t *taskIndex,
+                                      uint8_t *step)
+{
+    if (route->legs[route->index].templateId == 17U && *step < 2U) {
+        ++*step;
+        *taskIndex = route->legs[route->index].taskIndex;
+        return 1U;
+    }
+    *step = 0U;
+    return presetAdvance(route, taskIndex);
 }
 #endif
