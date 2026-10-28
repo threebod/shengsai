@@ -111,7 +111,7 @@ static const PresetStep presetSteps16[] = {
     {2100,2080,855,0,0,0,1,1},
     {1200,2080,0,-900,1,1,1,0},
 };
-/* RC-1 nominal corridor; presetExecutionLeg supplies the fixed 100/30/1580 departure. */
+/* RC-1 nominal corridor; presetExecutionLeg supplies the fixed 100/50/1680 departure. */
 static const PresetStep presetSteps17[] = {
     {1200,400,-1680,0,2,-1,-1,0},
 };

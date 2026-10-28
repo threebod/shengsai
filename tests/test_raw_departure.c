@@ -30,12 +30,12 @@ int main(void)
                             routeBody(leg.upMm, leg.rightMm, 1, &forward, &right);
                             assert(forward == 0 && right == -100);
                         } else if (step == 1U) {
-                            assert(leg.upMm == 0 && leg.rightMm == 30 && !leg.event);
+                            assert(leg.upMm == 0 && leg.rightMm == -50 && !leg.event);
                             assert(leg.departureHeading == 1 && leg.heading == 1);
                             routeBody(leg.upMm, leg.rightMm, 1, &forward, &right);
-                            assert(forward == -30 && right == 0);
+                            assert(forward == 50 && right == 0);
                         } else {
-                            assert(step == 2U && leg.upMm == -1580 && leg.rightMm == 0 && leg.event);
+                            assert(step == 2U && leg.upMm == -1680 && leg.rightMm == 0 && leg.event);
                             assert(leg.departureHeading == 2 && leg.heading == -1);
                         }
                     } else {
@@ -59,9 +59,9 @@ int main(void)
                 assert(stations == 8U && step == 0U);
             }
     assert(planned == 208U && middle == 260U);
-    /* The complete 30mm right-biased corridor fits; larger bias reaches fixed blocks. */
-    assert(presetRectangleClear(1200, 400, 1230, 2080, 0U));
-    assert(!presetRectangleClear(1200, 400, 1260, 2080, 0U));
-    puts("PASS RAW departure: down100/right30/down1580, headings, station events, two rounds/zones and unchanged other routes");
+    /* A 50mm left bias touches the nominal boundary; one more mm hits fixed blocks. */
+    assert(presetRectangleClear(1150, 300, 1200, 2080, 0U));
+    assert(!presetRectangleClear(1149, 300, 1200, 2080, 0U));
+    puts("PASS RAW departure: down100/left50/down1680, headings, station events, two rounds/zones and unchanged other routes");
     return 0;
 }
