@@ -22,10 +22,8 @@ static HostCached hostCache[16];static uint8_t hostCacheIndex;
 
 #include "obstacle_turret.h"
 
-static void hostSend(const SsFrame *f) {
-    uint8_t bytes[SS_MAX_FRAME];unsigned i,n=ss_encode(f,bytes);
-    for(i=0;i<n;++i) { while(USART_GetFlagStatus(UART5,USART_FLAG_TXE)==RESET) {} USART_SendData(UART5,bytes[i]); }
-}
+#define HOST_TX_BARRIER() __DMB()
+#include "host_tx.h"
 static void hostLogChar(char c) {
     SsFrame f;
     if(c=='\r') return;
@@ -36,7 +34,7 @@ static void hostLogChar(char c) {
                (hostLogLength>=12 && memcmp(hostLog,"BUTTON ERROR",12)==0)) { hostError=1;hostOperationFailed=1; }
             f.flags=SS_EVENT;f.command=SS_LOG;f.sequence=0;f.length=hostLogLength;
             taskLogAppend(&taskLog,hostLog,hostLogLength);
-            memcpy(f.data,hostLog,hostLogLength);hostSend(&f);hostLogLength=0;
+            memcpy(f.data,hostLog,hostLogLength);hostSendOptional(&f);hostLogLength=0;
         }
     }
     if(c!='\n') hostLog[hostLogLength++]=(uint8_t)c;
@@ -194,44 +192,5 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
     armed=1;hostExecuting=1;processCommand(command);hostExecuting=0;
     if(hostError || jogCanFault) r->data[0]=4;
 }
-static void hostService(void) {
-    static uint8_t operationActive,operationSequence,operationCommand;
-    SsFrame q,r;unsigned i;
-    if(hostOverflow) {
-        hostOperationFailed=1;
-        __disable_irq();hostTail=hostHead;hostOverflow=0;__enable_irq();hostParser.count=0;
-        stopServoMotion();stopAllMotors();hostDriveActive=0;
-    }
-    if(hostDriveActive && (!motionMode || clockMs-hostDriveAt>300)) {
-        hostOperationFailed=1;
-        stopServoMotion();stopAllMotors();hostDriveActive=0;
-    }
-    while(hostTail!=hostHead) {
-        uint8_t b=hostRx[hostTail];hostTail=(uint16_t)((hostTail+1)%sizeof(hostRx));
-        if(!ss_feed(&hostParser,b,&q) || q.flags!=SS_REQUEST) continue;
-        for(i=0;i<16;++i) if(q.command!=SS_STOP && q.command!=SS_ESTOP && hostCache[i].valid &&
-            clockMs-hostCache[i].at<=10000 && hostCache[i].request.sequence==q.sequence &&
-            hostCache[i].request.command==q.command && hostCache[i].request.length==q.length &&
-            !memcmp(hostCache[i].request.data,q.data,q.length)) break;
-        if(i<16) {hostSend(&hostCache[i].response);continue;}
-        hostExecute(&q,&r);if(r.data[0]) r.flags|=SS_ERROR;
-        if(q.command!=SS_HEARTBEAT && q.command!=SS_STATUS && q.command!=SS_STOP && q.command!=SS_ESTOP) {
-            hostCache[hostCacheIndex].request=q;hostCache[hostCacheIndex].response=r;
-            hostCache[hostCacheIndex].valid=1;hostCache[hostCacheIndex].at=clockMs;
-            hostCacheIndex=(uint8_t)((hostCacheIndex+1)%16);
-        }
-        hostSend(&r);
-        if(!r.data[0] && q.command>=SS_SERVO && q.command<=SS_ALIGN && hostBusy()) {
-            hostOperationFailed=0;operationActive=1;operationSequence=q.sequence;operationCommand=q.command;
-        }
-    }
-    serviceObstacleHostStart();
-    if(clockMs-hostStateAt>=200) {
-        hostStateAt=clockMs;r.flags=SS_EVENT;r.sequence=0;r.command=SS_STATE;r.data[0]=0;hostSnapshot(&r);hostSend(&r);
-    }
-    if(operationActive && !hostBusy()) {
-        r.flags=SS_EVENT;r.sequence=operationSequence;r.command=operationCommand;r.length=1;
-        r.data[0]=(hostEStop||hostOperationFailed||hostCancelled||jogCanFault)?4:0;hostSend(&r);operationActive=0;
-    }
-}
+#include "host_service.h"
 #endif

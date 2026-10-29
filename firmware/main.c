@@ -264,8 +264,6 @@ static void serialSendString(const char *text)
     while (*text != '\0') {
         serialSendChar(*text++);
     }
-    while (USART_GetFlagStatus(UART5, USART_FLAG_TC) == RESET) {
-    }
 }
 
 
@@ -352,6 +350,7 @@ static void serialInit(void)
     nvic.NVIC_IRQChannelCmd = ENABLE;
     NVIC_Init(&nvic);
 
+    USART_ITConfig(UART5, USART_IT_TXE, DISABLE);
     USART_ITConfig(UART5, USART_IT_RXNE, ENABLE);
     USART_Cmd(UART5, ENABLE);
 }
@@ -2894,11 +2893,13 @@ static void processCommand(const char *command)
 void UART5_IRQHandler(void)
 {
     uint16_t next;uint8_t b;
-    if(USART_GetITStatus(UART5,USART_IT_RXNE)==RESET) return;
-    b=(uint8_t)USART_ReceiveData(UART5);next=(uint16_t)((hostHead+1)%sizeof(hostRx));
-    if(next==hostTail) hostOverflow=1;
-    else {hostRx[hostHead]=b;hostHead=next;}
-    USART_ClearITPendingBit(UART5,USART_IT_RXNE);
+    if(USART_GetITStatus(UART5,USART_IT_RXNE)!=RESET) {
+        b=(uint8_t)USART_ReceiveData(UART5);next=(uint16_t)((hostHead+1)%sizeof(hostRx));
+        if(next==hostTail) hostOverflow=1;
+        else {hostRx[hostHead]=b;hostHead=next;}
+        USART_ClearITPendingBit(UART5,USART_IT_RXNE);
+    }
+    if(USART_GetITStatus(UART5,USART_IT_TXE)!=RESET) hostTxInterrupt();
 }
 
 int main(void)
