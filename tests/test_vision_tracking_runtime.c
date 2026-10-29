@@ -112,6 +112,9 @@ int main(void)
     uint32_t token;
     float expected;
     int16_t farForward;
+    reset();queueFrame(-40,-20,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(0);
+    step(9);assert(!sentForward && !sentRight);
+    step(1);assert(sentForward>0 && sentRight>0);
     reset(); step(20); assert(!enables && !sends && visionTracking.state == VISION_TRACK_WAIT);
     run(); farForward = sentForward; assert(farForward > 0 && sentRight > 0);
     for (i = 2; i <= 5; ++i) { queueFrame(-4,0,i,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20); }
@@ -129,11 +132,11 @@ int main(void)
 
     reset(); queueFrame(-40,0,1,VISION_FLAG_VALID|VISION_FLAG_STABLE); step(20);
     assert(failures == 1 && !enables && !sends && !strcmp(failureReason,"CAMERA_TRACKING_UNSUPPORTED"));
-    reset(); step(1800); assert(failures == 1 && !enables && !sends);
+    reset(); step(1000); assert(failures == 1 && !enables && !sends);
     assert(!strcmp(failureReason,"TRACK_ACK_TIMEOUT"));
     reset(); run(); missionActive = routeWaiting = missionOffline = fullRouteRunning = 1;
     token = visionTrackingRequest.token;
-    for(i=0;i<12;++i) step(20);
+    for(i=0;i<17;++i) step(20);
     assert(!failures && visionTrackingActive() && motionMode == 4 && visionTracking.state == VISION_TRACK_HOLD);
     assert(stops == 1 && !sentForward && !sentRight && !sentTurn && missionActive && routeWaiting);
     expected = missionOffsetForward;
@@ -144,7 +147,7 @@ int main(void)
         assert(stops == stopped && queries > polled && !sentForward && !sentRight && !sentTurn);
     }
     assert(!failures && missionOffsetForward == expected && requests == 1 && !visionTrackingEndPending);
-    queueFrame(-40,0,2,VISION_FLAG_TRACKING|VISION_FLAG_VALID);visionRxPacket.value[7]=219;step(20);
+    queueFrame(-40,0,2,VISION_FLAG_TRACKING|VISION_FLAG_VALID);visionRxPacket.value[7]=319;step(20);
     assert(visionTracking.state == VISION_TRACK_HOLD && !sentForward);
     queueFrame(-40,0,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
     assert(visionTracking.state == VISION_TRACK_HOLD && !sentForward);
@@ -154,7 +157,7 @@ int main(void)
     queueFrame(0,0,4,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
     assert(!failures && visionSession.state == VISION_STATE_ALIGNED && missionActive);
 
-    reset();run();for(i=0;i<12;++i) step(20);
+    reset();run();for(i=0;i<17;++i) step(20);
     cancelVisionTracking();motionMode=0;vision_session_pause(&visionSession);
     queueFrame(-40,0,2,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
     assert(!failures && !visionTrackingActive() && !sentForward && !sentRight);
@@ -190,7 +193,7 @@ int main(void)
     /* Faults while waiting still end the session; late frames cannot restart it. */
     for(i=0;i<4;++i) {
         unsigned j;
-        reset();run();for(j=0;j<12;++j) step(20);
+        reset();run();for(j=0;j<17;++j) step(20);
         assert(visionTracking.state == VISION_TRACK_HOLD);
         if(i==0) emergencyStop=1;
         if(i==1) fault=1;
@@ -200,7 +203,7 @@ int main(void)
         queueFrame(-40,0,2,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
         assert(failures == 1 && !visionTrackingActive() && !sentForward && !sentRight);
     }
-    reset();run();for(i=0;i<12;++i) step(20);
+    reset();run();for(i=0;i<17;++i) step(20);
     statusReady=1;statusValues[0]=5;step(20);
     assert(failures == 1 && !strcmp(failureReason,"MOTOR_STATUS_FAULT"));
     reset(); hostHeartbeatStamp = clockMs-1001U; serviceMotion();
@@ -273,7 +276,7 @@ int main(void)
     visionSession.maxCorrections=2;visionSession.iteration=1;
     missionActive=routeWaiting=1;missionPhase=MISSION_TEMP_ALIGN;expectedWheelLimit=30;
     assert(startVisionTracking(44.44f,22.86f));
-    run();for(i=0;i<12;++i) step(20);
+    run();for(i=0;i<17;++i) step(20);
     assert(visionTracking.state==VISION_TRACK_HOLD);
     for(i=0;i<100;++i) step(20);
     assert(!failures && visionSession.state==VISION_STATE_MOVE && visionSession.iteration==1);

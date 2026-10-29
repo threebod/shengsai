@@ -6,10 +6,12 @@
 #include "vision_control.h"
 #include "route_plan.h"
 
-#define VISION_TRACK_FRESH_MS 250U
-#define VISION_TRACK_ACK_MS 1800U
+#define VISION_TRACK_FRESH_MS 350U
+#define VISION_TRACK_ACK_MS 1000U
 #define VISION_TRACK_WIRE_MS 32U
-#define VISION_TRACK_CONTROL_MS 20U
+#define VISION_TRACK_CONTROL_MS 10U
+/* The watchdog may be relaxed without slowing the existing error response. */
+#define VISION_TRACK_RESPONSE_MS 500U
 
 typedef enum {
     VISION_TRACK_WAIT = 0, VISION_TRACK_RUN, VISION_TRACK_DONE,
@@ -199,8 +201,8 @@ static VisionTrackingState vision_tracking_tick(VisionTracking *tracking, uint32
         return tracking->state;
     }
     tracking->controlAt = now;
-    forward = tracking->forwardMm * (60000.0f / (2.0f * VISION_TRACK_FRESH_MS * ROUTE_MM_PER_REV)) / forwardScale;
-    right = tracking->rightMm * (60000.0f / (2.0f * VISION_TRACK_FRESH_MS * ROUTE_MM_PER_REV)) / lateralScale;
+    forward = tracking->forwardMm * (60000.0f / (VISION_TRACK_RESPONSE_MS * ROUTE_MM_PER_REV)) / forwardScale;
+    right = tracking->rightMm * (60000.0f / (VISION_TRACK_RESPONSE_MS * ROUTE_MM_PER_REV)) / lateralScale;
     total = fabsf(forward) + fabsf(right);
     if (total > tracking->limitRpm) {
         forward *= tracking->limitRpm / total; right *= tracking->limitRpm / total;

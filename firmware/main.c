@@ -2144,6 +2144,7 @@ static void serviceMaterialLayout(void)
             packet.mode == VISION_MODE_MATERIAL && packet.selector == 0U && packet.target == 0U &&
             (packet.flags & VISION_FLAG_MATERIAL_LAYOUT)) {
             visionSession.requestAt = clockMs;
+            visionSession.layoutFrameReceived = 1U;
             visionSession.misses = 0U;
         }
         return;
@@ -2157,7 +2158,8 @@ static void serviceMaterialLayout(void)
     }
     if (event == VISION_EVENT_FAILED) { failVision(visionSession.fault); return; }
     if (event == VISION_EVENT_MOVE) {
-        if (!startVisionMotion(visionSession.forwardMm, visionSession.rightMm, 30U, 1U)) {
+        if (!startVisionMotion(visionSession.forwardMm, visionSession.rightMm,
+                              rawPickAtStation ? VISION_RAW_ALIGN_RPM : 30U, 1U)) {
             failVision("MOTION_START_FAILED"); return;
         }
         vision_session_make_request(&visionSession, &visionMaterialCalibration, &packet, clockMs);

@@ -7,6 +7,8 @@
 #define VISION_FRAME_SIZE 30U
 #define VISION_VALUE_COUNT 8U
 #define VISION_ALIGN_TOLERANCE_PX 1
+#define VISION_RAW_ALIGN_RPM 50U
+#define VISION_LAYOUT_ACK_MS 1000U
 
 #define VISION_MESSAGE_REQUEST 1U
 #define VISION_MESSAGE_RESULT 2U
@@ -98,6 +100,7 @@ typedef struct {
     uint8_t layoutColors[3]; /* Bottom, left upper, right upper. */
     uint8_t layoutInferred;
     uint8_t layoutPositioned; /* After first alignment, a lone blob cannot identify a grasp slot. */
+    uint8_t layoutFrameReceived;
     uint8_t sampleOnly;
     uint16_t sampleId;
     uint32_t token;
@@ -275,6 +278,7 @@ static void vision_session_make_request(VisionSession *session,
     if (session->mode == VISION_MODE_MATERIAL)
         packet->value[6] = session->materialMask;
     if (session->requestFlags & VISION_FLAG_MATERIAL_LAYOUT) {
+        session->layoutFrameReceived = 0U;
         packet->value[4] = 160;
         packet->value[5] = 205;
         packet->value[7] = session->layoutPhase;
@@ -314,6 +318,7 @@ static VisionEvent vision_layout_observe(VisionSession *session,
         return VISION_EVENT_FAILED;
     }
     session->requestAt = now;
+    session->layoutFrameReceived = 1U;
     session->misses = 0U;
     if (session->state == VISION_STATE_MOVE || session->state == VISION_STATE_SETTLE ||
         session->layoutPhase != VISION_LAYOUT_CONFIRM) return VISION_EVENT_NONE;
@@ -556,7 +561,7 @@ static VisionEvent vision_session_tick(VisionSession *session, uint32_t now)
     if (session->requestFlags & VISION_FLAG_MATERIAL_LAYOUT) {
         if (session->state != VISION_STATE_REQUEST && session->state != VISION_STATE_PREP &&
             session->state != VISION_STATE_FAILED && session->state != VISION_STATE_PAUSED &&
-            now - session->requestAt >= 1800U) {
+            now - session->requestAt >= (session->layoutFrameReceived ? 1800U : VISION_LAYOUT_ACK_MS)) {
             memset(session->layoutColors, 0, sizeof(session->layoutColors));
             return vision_session_miss(session, "CAMERA_TIMEOUT");
         }

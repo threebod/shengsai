@@ -33,6 +33,39 @@ int main(void)
     float right;
     VisionSession session;
 
+    /* Layout first replies get 1000ms, while an established stream keeps its
+     * existing 1800ms communication timeout. Each new token resets the ACK gate. */
+    {
+        VisionSession layout;
+        VisionPacket reply;
+        vision_session_init(&layout);
+        vision_session_start(&layout, VISION_MODE_MATERIAL, 0U, 0U, &calibration, 100U);
+        layout.requestFlags = VISION_FLAG_MATERIAL_LAYOUT;
+        layout.layoutPhase = VISION_LAYOUT_CONFIRM;
+        vision_session_make_request(&layout, &calibration, &request, 100U);
+        if (!require(vision_session_tick(&layout, 1099U) == VISION_EVENT_NONE &&
+                     vision_session_tick(&layout, 1100U) == VISION_EVENT_REQUEST && layout.misses == 1U,
+                     "layout first-frame timeout was not exactly 1000ms")) return 1;
+        vision_session_make_request(&layout, &calibration, &request, 1200U);
+        reply = request; reply.type = VISION_MESSAGE_RESULT;
+        reply.flags = VISION_FLAG_MATERIAL_LAYOUT;
+        reply.token++;
+        vision_layout_observe(&layout, &calibration, &reply, 1300U);
+        if (!require(!layout.layoutFrameReceived && layout.requestAt == 1200U,
+                     "wrong layout token acknowledged a new request")) return 1;
+        reply.token = request.token;
+        vision_layout_observe(&layout, &calibration, &reply, 1300U);
+        if (!require(layout.layoutFrameReceived &&
+                     vision_session_tick(&layout, 3099U) == VISION_EVENT_NONE &&
+                     vision_session_tick(&layout, 3100U) == VISION_EVENT_REQUEST,
+                     "layout stream timeout changed after its first response")) return 1;
+        vision_session_make_request(&layout, &calibration, &request, 3200U);
+        if (!require(!layout.layoutFrameReceived &&
+                     vision_session_tick(&layout, 4199U) == VISION_EVENT_NONE &&
+                     vision_session_tick(&layout, 4200U) == VISION_EVENT_REQUEST,
+                     "layout retry did not reset the first-frame timeout")) return 1;
+    }
+
     vision_map_error(&visionMaterialCalibration, 100, 100, &forward, &right);
     if (!require(fabsf(forward + 66.7f) < 0.0001f && fabsf(right + 76.9f) < 0.0001f,
                  "material default scale changed its units or directions")) return 1;
