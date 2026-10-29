@@ -10,12 +10,12 @@ static RingPose missionRingPoses[3] = {{130, 3080}, {-200, 2677}, {500, 2335}};
 /* 动作组/放置.json: three tray slots to three rings. Lift coordinates grow
  * downward; the second storage layer keeps its fixed 570 dmm depth. */
 static MechanismInitialState missionInitial =
-    MECH_INITIAL_STATE(0, 0, 2600, 1000, 228, 2000, 248, 2200, 2700, 1800,
+    MECH_INITIAL_STATE(0, 0, 2600, 1000, 228, 2000, 248, 2200, 2700, 2200,
                        1, 1, 200, 155, 26, 146, 264);
 
 /* 动作组/放置_升降600rpm无等待.json is the source; firmware lift moves use 2000 RPM / acc 248. */
 static MechanismInitialState missionCoarseInitial =
-    MECH_INITIAL_STATE(0, 0, 2600, 1000, 228, 2000, 248, 2200, 2700, 1800,
+    MECH_INITIAL_STATE(0, 0, 2600, 1000, 228, 2000, 248, 2200, 2700, 2200,
                        1, 1, 200, 155, 26, 146, 264);
 
 /* Let the grip settle for 200ms after commanded closure before lifting. */

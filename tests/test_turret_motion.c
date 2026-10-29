@@ -31,12 +31,39 @@ static void checkMove(uint32_t start, uint32_t target, uint16_t speed)
     }
 }
 
+static void checkFasterRamps(void)
+{
+    uint32_t duration = turretMotionDurationMs(120000U, 2500U);
+    uint32_t elapsed, previous = 0U, previousStep = 0U, peakChange = 0U;
+    /* The original 900 ms quintic peaks at 10*sqrt(3)/3 * delta/time^2.
+     * Compare 20 ms second differences, allowing for PWM duration rounding. */
+    float oldPeakChange = 5.77350269f * 120000.0f * 400.0f / (900.0f * 900.0f);
+    assert(duration == 700U);
+    for (elapsed = 20U; elapsed <= duration; elapsed += 20U) {
+        uint32_t current = turretMotionAngleMdeg(0U, 120000U, elapsed, duration);
+        uint32_t step = current - previous;
+        uint32_t change = step > previousStep ? step - previousStep : previousStep - step;
+        if (elapsed > 20U && change > peakChange) peakChange = change;
+        previous = current;
+        previousStep = step;
+    }
+    assert(peakChange > oldPeakChange * 1.8f && peakChange < oldPeakChange * 2.1f);
+    /* Shorter ramps join a constant-speed middle section. */
+    {
+        uint32_t a = turretMotionAngleMdeg(0U, 120000U, 300U, duration);
+        uint32_t b = turretMotionAngleMdeg(0U, 120000U, 320U, duration);
+        uint32_t c = turretMotionAngleMdeg(0U, 120000U, 340U, duration);
+        int32_t difference = (int32_t)(c - b) - (int32_t)(b - a);
+        assert(difference >= -1 && difference <= 1);
+    }
+}
+
 int main(void)
 {
     static const uint32_t positions[] = {0U, 100U, 53000U, 120000U, 260000U, 360000U};
     static const uint16_t speeds[] = {10U, 1200U, 2200U, 2500U};
     unsigned i, j, k;
-    assert(turretMotionDurationMs(120000U, 2500U) == 900U);
+    checkFasterRamps();
     for (i = 0U; i < sizeof(positions) / sizeof(positions[0]); ++i)
         for (j = 0U; j < sizeof(positions) / sizeof(positions[0]); ++j)
             for (k = 0U; k < sizeof(speeds) / sizeof(speeds[0]); ++k)

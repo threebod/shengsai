@@ -8,7 +8,7 @@
 /* Single-item bench sequence from 动作组/夹取.json. The operator places the
  * selected color at this sequence's fixed pickup position. */
 static MechanismInitialState rawPickInitial =
-    MECH_INITIAL_STATE(0, 0, 2600, 1000, 228, 2000, 248, 2200, 3600, 1800,
+    MECH_INITIAL_STATE(0, 0, 2600, 1000, 228, 2000, 248, 2200, 3600, 2200,
                        1, 1, 200, 155, 26, 146, 264);
 
 static const MechanismPose rawPickObservePose =

@@ -3,27 +3,32 @@
 
 #include <stdint.h>
 
-/* Quintic peak slope is 15/8. Round up to whole 20 ms PWM updates.
+/* Quintic ramps occupy 15/46 of the time each, with a constant-speed middle.
+ * Peak slope is 23/16; at the same peak speed each ramp takes half the original
+ * time, doubling peak acceleration before 20 ms duration rounding.
  * speedDps10 is the peak command speed in 0.1 degrees/second. */
 static inline uint32_t turretMotionDurationMs(uint32_t deltaMdeg, uint16_t speedDps10)
 {
-    uint32_t denominator = (uint32_t)speedDps10 * 16U;
-    return ((deltaMdeg * 15U + denominator - 1U) / denominator) * 20U;
+    uint32_t denominator = (uint32_t)speedDps10 * 32U;
+    return ((deltaMdeg * 23U + denominator - 1U) / denominator) * 20U;
 }
 
 static inline uint32_t turretMotionAngleMdeg(uint32_t start, uint32_t target,
                                       uint32_t elapsedMs, uint32_t durationMs)
 {
-    float t, s;
+    float t, u, s;
     uint32_t delta, offset;
     if (elapsedMs >= durationMs) return target;
     t = (float)elapsedMs / (float)durationMs;
-    /* Evaluate near the closest endpoint to avoid cancellation at t=1. */
-    if (t <= 0.5f) {
-        s = t * t * t * (10.0f + t * (-15.0f + 6.0f * t));
+    /* Mirror the quintic ramps so angle, speed and acceleration join smoothly. */
+    if (t < 15.0f / 46.0f) {
+        u = t * (46.0f / 15.0f);
+        s = u * u * u * (20.0f + u * (-15.0f + 3.0f * u)) / 32.0f;
+    } else if (t <= 31.0f / 46.0f) {
+        s = t * (23.0f / 16.0f) - 7.0f / 32.0f;
     } else {
-        t = 1.0f - t;
-        s = 1.0f - t * t * t * (10.0f + t * (-15.0f + 6.0f * t));
+        u = (1.0f - t) * (46.0f / 15.0f);
+        s = 1.0f - u * u * u * (20.0f + u * (-15.0f + 3.0f * u)) / 32.0f;
     }
     delta = target > start ? target - start : start - target;
     offset = (uint32_t)((float)delta * s + 0.5f);
