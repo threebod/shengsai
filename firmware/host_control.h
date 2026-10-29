@@ -67,7 +67,7 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
     if(q->command==SS_HELLO) {
         if(q->length!=4) {r->data[0]=1;return;}
         if(hostSession!=ss_get32(q->data)) {
-            if(axis6TestActive() || lateralTestActive) {
+            if(axis6TestActive() || lateralTestActive || straightTestActive) {
                 hostCancelled=hostOperationFailed=1;stopServoMotion();stopAllMotors();
             }
             memset(hostCache,0,sizeof(hostCache));hostConfirmed=0;hostSession=ss_get32(q->data);
@@ -137,6 +137,10 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
             r->length=3;ss_put16(r->data+1,routeRpm<routeLateralRpmLimit?routeRpm:routeLateralRpmLimit);
             return;
         }
+    case SS_STRAIGHT_TEST:
+        if(q->length) break;
+        if(!startStraightTest()) {r->data[0]=4;return;}
+        r->length=3;ss_put16(r->data+1,SS_STRAIGHT_TEST_RPM);return;
     case SS_PREPARE: case SS_MISSION: case SS_ROUTE:
         if(!ss_route_request_valid(q->data,q->length)) break;
         a=ss_get16(q->data+3);

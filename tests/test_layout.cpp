@@ -129,6 +129,21 @@ private slots:
                 QVERIFY(testButton && testButton->isVisible());
                 QVERIFY(!testButton->isEnabled());
                 QVERIFY(testButton->height() >= 44);
+                auto *straightCard = window->findChild<QQuickItem *>("straightTestCard");
+                auto *straightTest = window->findChild<QQuickItem *>("straightTestButton");
+                auto *straightStop = window->findChild<QQuickItem *>("straightStopButton");
+                QVERIFY(straightCard && straightCard->isVisible() && straightTest && straightStop);
+                QVERIFY(!straightTest->isEnabled() && !straightStop->isEnabled());
+                QVERIFY(straightTest->height() >= 44 && straightStop->height() >= 44);
+                controller.connected_ = controller.confirmed_ = true;
+                emit controller.changed();
+                QVERIFY(straightTest->isEnabled() && !controller.mechanismValid());
+                controller.straightTestSequence_ = 5;
+                emit controller.changed();
+                QVERIFY(!straightTest->isEnabled() && straightStop->isEnabled() && !testButton->isEnabled());
+                controller.straightTestSequence_ = -1;
+                controller.connected_ = controller.confirmed_ = false;
+                emit controller.changed();
                 auto *lateralCard = window->findChild<QQuickItem *>("lateralTestCard");
                 auto *leftTest = window->findChild<QQuickItem *>("lateralLeftButton");
                 auto *rightTest = window->findChild<QQuickItem *>("lateralRightButton");
@@ -137,6 +152,15 @@ private slots:
                 QVERIFY(leftTest->height() >= 44 && rightTest->height() >= 44);
                 auto *flickable = scroll->property("contentItem").value<QQuickItem *>();
                 QVERIFY(flickable);
+                const auto captureDir = qEnvironmentVariable("SS_LAYOUT_CAPTURE_DIR");
+                if (!captureDir.isEmpty()) {
+                    QDir().mkpath(captureDir);
+                    const auto straightY = flickable->property("contentY").toReal()
+                        + sceneRect(straightCard).top() - sceneRect(scroll).top();
+                    flickable->setProperty("contentY", qMax(0.0, straightY));
+                    QTest::qWait(50);
+                    QVERIFY(window->grabWindow().save(captureDir + "/" + QTest::currentDataTag() + "-straight.png"));
+                }
                 flickable->setProperty("contentY", qMax(0.0, flickable->property("contentHeight").toReal() - flickable->height()));
                 QTest::qWait(50);
             }

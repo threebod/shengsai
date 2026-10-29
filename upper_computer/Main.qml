@@ -24,7 +24,7 @@ ApplicationWindow {
     readonly property bool mobile: width - SafeArea.margins.left - SafeArea.margins.right < 760 || (Qt.platform.os === "android" && height < 500)
     readonly property int pageSpacing: mobile ? 14 : 20
     readonly property color blue: "#007AFF"
-    readonly property bool motionReady: controller.connected && controller.confirmed && !controller.calibrating && !controller.axis6Testing && !controller.lateralTesting
+    readonly property bool motionReady: controller.connected && controller.confirmed && !controller.calibrating && !controller.axis6Testing && !controller.lateralTesting && !controller.straightTesting
     readonly property var pageNames: ["比赛", "圆环", "视觉", "手动"]
     font.family: Qt.platform.os === "windows" ? "Microsoft YaHei UI" : "sans-serif"
     font.pixelSize: 14
@@ -402,6 +402,20 @@ ApplicationWindow {
                                 ActionButton { text: "按住前进"; primary: true; Layout.fillWidth: true; enabled: app.motionReady; onPressed: controller.drive(1); onReleased: controller.stop(); onCanceled: controller.stop() }
                                 ActionButton { text: "按住后退"; primary: true; Layout.fillWidth: true; enabled: app.motionReady; onPressed: controller.drive(-1); onReleased: controller.stop(); onCanceled: controller.stop() }
                                 Hint { text: "松开、切换页面或窗口失焦即停；主控另有点动指令超时保护。" }
+                            }
+                            Card {
+                                objectName: "straightTestCard"; heading: "1680mm直行测试"
+                                ActionButton {
+                                    objectName: "straightTestButton"; text: controller.straightTesting ? "直行测试中…" : "直行1680mm并记录角度"
+                                    primary: true; Layout.fillWidth: true
+                                    enabled: app.motionReady && !controller.busy
+                                    onClicked: controller.testStraight()
+                                }
+                                ActionButton { objectName: "straightStopButton"; text: "停止直行测试"; Layout.fillWidth: true; enabled: controller.connected && controller.straightTesting; onClicked: controller.stop() }
+                                Hint { text: "沿当前车头方向前进1680mm，240RPM，沿用正式直线加减速和航向PID；不转向、不执行取放动作。" }
+                                Hint { text: "每100ms记录角度和纠偏指令。结束后请测量实际侧偏，并在“日志”中读取上次任务日志；开始下次测试会清空记录。" }
+                                Hint { text: "切页、失焦或断连停止；完成表示指令距离估算结束，请留足直线距离。" }
+                                Hint { text: controller.straightTestState }
                             }
                             Card {
                                 objectName: "lateralTestCard"; heading: "左右横移测距"
