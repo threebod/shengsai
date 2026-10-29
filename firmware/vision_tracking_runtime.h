@@ -76,7 +76,6 @@ static uint8_t startVisionTracking(float forwardMm, float rightMm)
     visionTrackingRequest.value[7] = VISION_TRACK_START;
     vision_tracking_begin(&visionTracking,visionTrackingRequest.token,visionSession.mode,
                           visionSession.selector,visionSession.target,forwardMm,rightMm,rpm,duration,clockMs);
-    if (visionSession.mode == VISION_MODE_RING) visionTracking.budgetMm *= 2.0f;
     visionTrackingYaw = imuYaw;
     visionTrackingTick = clockMs;
     visionTrackingForward = visionTrackingRight = 0;

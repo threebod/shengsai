@@ -266,13 +266,31 @@ static void completionAndBudget(void)
     tracking.selector=packet.selector=3U;packet.value[5]=3;
     receive(1U,100U); tick(120U); tick(140U);
     assert(tick(160U)==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_DEADLINE"));
-    begin(30U,10000U,1.0f); receive(1U,100U);
+    /* Fresh ring feedback can drive beyond the former budget without slowing. */
+    begin(15U,60U,0.01f); receive(1U,100U);
+    for(now=120U;now<=1100U;now+=20U) {
+        receive((uint16_t)now,now);
+        assert(tick(now)==VISION_TRACK_RUN && forward+right>0);
+    }
+    assert(tracking.travelledMm>tracking.budgetMm && forward+right==15.0f);
+    packet.value[0]=160;packet.value[1]=120;receive(1200U,1120U);
+    assert(tracking.state==VISION_TRACK_RUN);
+    receive(1201U,1140U);
+    assert(tracking.state==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_IN_RANGE"));
+    /* Second-layer material retains both budget exhaustion paths. */
+    begin(30U,10000U,1.0f);
+    tracking.mode=packet.mode=VISION_MODE_MATERIAL;
+    tracking.selector=packet.selector=3U;packet.value[5]=3;
+    receive(1U,100U);
     for(now=120U;now<1000U && tracking.state==VISION_TRACK_RUN;now+=20U) {
         receive((uint16_t)now,now); tick(now);
         assert(tracking.travelledMm<=tracking.budgetMm+0.0001f);
     }
     assert(tracking.state==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_BUDGET"));
-    begin(30U,10000U,8.0f); receive(1U,100U); tick(120U);
+    begin(30U,10000U,8.0f);
+    tracking.mode=packet.mode=VISION_MODE_MATERIAL;
+    tracking.selector=packet.selector=3U;packet.value[5]=3;
+    receive(1U,100U); tick(120U);
     assert(forward+right>0);
     for(now=240U;now<3000U && tracking.state==VISION_TRACK_RUN;now+=150U) {
         receive((uint16_t)now,now); tick(now);
@@ -285,6 +303,8 @@ static void completionAndBudget(void)
     vision_tracking_begin(&tracking,1U,VISION_MODE_MATERIAL,1U,0U,10,0,30,1000,0);
     assert(tracking.state==VISION_TRACK_FAILED); /* Raw-material picking is excluded. */
     vision_tracking_begin(&tracking,1U,VISION_MODE_RING,0U,2U,0,0,30,1000,0);
+    assert(tracking.state==VISION_TRACK_WAIT);
+    vision_tracking_begin(&tracking,1U,VISION_MODE_MATERIAL,1U,2U,0,0,30,1000,0);
     assert(tracking.state==VISION_TRACK_DONE);
 }
 

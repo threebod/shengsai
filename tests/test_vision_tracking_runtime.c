@@ -245,9 +245,15 @@ int main(void)
     queueFrame(0,0,52,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
     queueFrame(0,0,53,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
     assert(!failures && !visionTrackingActive() && visionSession.state == VISION_STATE_ALIGNED);
-    /* The ring travel boundary remains a failure, never precise alignment. */
+    /* Exhausting the former ring budget must neither stop nor report alignment. */
     reset(); run(); visionTracking.budgetMm = visionTracking.travelledMm; serviceMotion();
-    assert(failures == 1 && !strcmp(failureReason,"TRACK_BUDGET") && visionSession.state == VISION_STATE_FAILED);
+    for(i=2;i<52;++i) { queueFrame(-40,-20,i,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20); }
+    assert(!failures && visionTrackingActive() && visionSession.state == VISION_STATE_MOVE);
+    assert(visionTracking.travelledMm>visionTracking.budgetMm && sentForward+sentRight>0);
+    queueFrame(0,0,52,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
+    assert(visionTrackingActive() && visionSession.state == VISION_STATE_MOVE);
+    queueFrame(0,0,53,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
+    assert(!failures && !visionTrackingActive() && visionSession.state == VISION_STATE_ALIGNED);
     /* Second-layer material retains 30 RPM and the two-round settle/limit behavior. */
     for(i = 1; i <= 2; ++i) {
         reset(); cancelVisionTracking(); visionSession.state = VISION_STATE_MOVE;

@@ -72,7 +72,7 @@ static void vision_tracking_begin(VisionTracking *tracking, uint32_t token,
     tracking->budgetMm = fabsf(initialForwardMm) + fabsf(initialRightMm);
     if (!vision_tracking_finite(tracking->budgetMm))
         vision_tracking_stop(tracking, VISION_TRACK_FAILED, "TRACK_START_INVALID");
-    else if (tracking->budgetMm == 0.0f)
+    else if (mode != VISION_MODE_RING && tracking->budgetMm == 0.0f)
         vision_tracking_stop(tracking, VISION_TRACK_DONE, "TRACK_BUDGET");
 }
 
@@ -182,7 +182,7 @@ static VisionTrackingState vision_tracking_tick(VisionTracking *tracking, uint32
     if (tracking->mode != VISION_MODE_RING && (int32_t)(now - tracking->deadlineMs) >= 0)
         return vision_tracking_stop(tracking, VISION_TRACK_DONE, "TRACK_DEADLINE");
     remaining = tracking->budgetMm - tracking->travelledMm;
-    if (remaining <= 0.0f)
+    if (tracking->mode != VISION_MODE_RING && remaining <= 0.0f)
         return vision_tracking_stop(tracking, VISION_TRACK_DONE, "TRACK_BUDGET");
     if ((tracking->forwardRpm > 0.0f && tracking->forwardMm < 0.0f) ||
         (tracking->forwardRpm < 0.0f && tracking->forwardMm > 0.0f)) {
@@ -225,10 +225,10 @@ static VisionTrackingState vision_tracking_tick(VisionTracking *tracking, uint32
         if (fabsf(forward) > fabsf(right)) forward += forward > 0.0f ? -1.0f : 1.0f;
         else right += right > 0.0f ? -1.0f : 1.0f;
     }
-    /* Reserve the complete frame-watchdog interval, including control jitter. */
+    /* Material tracking reserves the complete frame-watchdog interval. */
     distance = (fabsf(forward) * forwardScale + fabsf(right) * lateralScale) *
         (ROUTE_MM_PER_REV / 60000.0f) * VISION_TRACK_FRESH_MS;
-    if (distance > remaining) {
+    if (tracking->mode != VISION_MODE_RING && distance > remaining) {
         forward = (float)(int16_t)(forward * remaining / distance);
         right = (float)(int16_t)(right * remaining / distance);
         if (forward == 0.0f && right == 0.0f)
