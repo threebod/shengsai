@@ -30,6 +30,7 @@
 #include "task_log.h"
 #include "route_heading_log.h"
 #include "route_pid_log.h"
+#include "turn_test_log.h"
 
 #define COMMAND_BAUD_RATE  115200U
 
@@ -108,7 +109,9 @@ static uint32_t motionStart, motionDuration, lastControl;
 static void serviceMotion(void);
 /* Route progress is nominal, NOT measured ground position. */
 static uint8_t routeActive, routeWaiting, routeIndex, routeStartZone, routeStep;
-static uint8_t lateralTestActive, straightTestActive;
+static uint8_t lateralTestActive, straightTestActive, turnTestActive;
+static TurnTestLog turnTestLog;
+static void finishTurnTest(uint8_t aborted);
 static void finishStraightTest(uint8_t aborted);
 /* Independent QR-to-RAW arc test: 1 approach, 2 QR wait, 3 arc, 4 exit. */
 static uint8_t arcRoutePhase;
@@ -676,6 +679,7 @@ static void stopAllMotors(void)
     navRunning = 0U;
     navPathCount = 0U;
     stopDriveMotors();
+    finishTurnTest(1U);
     stopAuxMotors();
     armed = 0U;
 }
@@ -1614,6 +1618,9 @@ static void serviceRoute(void)
         routeTurnRpm = routeTurnRamp(routeTurnRpm,
                                     routeTurnInBand ? 0.0f : pidTurn, dt);
         sendRouteSpeeds(0, 0, routeRound(routeTurnRpm));
+        if (turnTestActive && routeSentValid && !motionInterrupted())
+            turnTestLogRecord(&taskLog,&turnTestLog,clockMs,sampleMs,routeYaw,yaw,
+                              pidTurn,routeTurnRpm,&routeTurnPid,routeSent,routeTurnInBand);
         if (routeTurnInBand && routeRound(routeTurnRpm) == 0) {
             if (routeTurnInBand == 1U) { routeTurnStable = now; routeTurnInBand = 2U; }
             if (now - routeTurnStable >= 200U &&
@@ -1629,6 +1636,7 @@ static void serviceRoute(void)
                     stopDriveMotors();
                     routeActive = routeOnlyTurn = 0U;
                     routeSentValid = 0U;
+                    finishTurnTest(0U);
                 }
             }
         }
@@ -2881,6 +2889,7 @@ static void processCommand(const char *command)
 
 #include "lateral_test.h"
 #include "straight_test.h"
+#include "turn_test.h"
 #include "host_control.h"
 void UART5_IRQHandler(void)
 {

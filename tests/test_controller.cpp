@@ -11,6 +11,33 @@ public: QByteArray written;
 class ControllerTest:public QObject {
     Q_OBJECT
 private slots:
+    void turnTestDirectionsAndCompletion(){
+        Wire wire;Controller c;c.device_=&wire;
+        c.testTurn(1);QVERIFY(wire.written.isEmpty());c.connected_=true;
+        c.testTurn(1);QVERIFY(wire.written.isEmpty());c.confirmed_=true;
+        for(int direction:{0,2,-2}){c.testTurn(direction);QVERIFY(wire.written.isEmpty());}
+        c.busy_=true;c.testTurn(1);QVERIFY(wire.written.isEmpty());c.busy_=false;
+        for(int direction:{1,-1}){
+            c.testTurn(direction);auto q=wire.last();QCOMPARE(int(q.command),int(SS_TURN_TEST));
+            QCOMPARE(int(q.length),1);QCOMPARE(int(qint8(q.data[0])),direction);QVERIFY(c.turnTesting() && c.busy());
+            c.testTurn(1);c.testStraight();c.testLateral(1,100);QTest::qWait(120);QVERIFY(wire.written.isEmpty());
+            SsFrame r{};r.command=q.command;r.sequence=q.sequence;r.flags=SS_RESPONSE;r.length=5;
+            ss_put16(r.data+1,300);ss_put16(r.data+3,100);c.handle(r);
+            QVERIFY(c.turnTesting() && c.turnTestState().contains("300RPM"));
+            r.flags=SS_EVENT;r.length=1;r.sequence++;c.handle(r);QVERIFY(c.turnTesting());
+            r.sequence=q.sequence;c.handle(r);QVERIFY(!c.turnTesting() && c.turnTestState().contains("完成"));
+        }
+        c.testTurn(1);auto q=wire.last();SsFrame r{};r.command=q.command;r.sequence=q.sequence;r.flags=SS_RESPONSE|SS_ERROR;r.length=1;r.data[0]=1;c.handle(r);
+        QVERIFY(!c.turnTesting() && c.turnTestState().contains("未启动"));
+        c.testTurn(1);q=wire.last();r.sequence=q.sequence;r.flags=SS_RESPONSE;r.data[0]=0;c.handle(r);
+        q=wire.last();QCOMPARE(int(q.command),int(SS_STOP));QVERIFY(!c.turnTesting());
+        c.testTurn(1);q=wire.last();c.pauseManual();QCOMPARE(int(wire.last().command),int(SS_STOP));
+        QVERIFY(c.turnTesting() && c.turnTestState().contains("停止"));
+        r.command=SS_TURN_TEST;r.sequence=q.sequence;r.flags=SS_EVENT;r.length=1;r.data[0]=4;c.handle(r);
+        QVERIFY(!c.turnTesting() && c.turnTestState().contains("中止"));
+        c.testTurn(-1);wire.last();c.disconnectDevice();QCOMPARE(int(wire.last().command),int(SS_STOP));
+        QVERIFY(!c.turnTesting() && c.turnTestState().contains("未知"));c.device_=nullptr;
+    }
     void straightTestRequiresSafeIdleAndCompletion(){
         Wire wire;Controller c;c.device_=&wire;
         c.testStraight();QVERIFY(wire.written.isEmpty());

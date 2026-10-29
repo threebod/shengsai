@@ -23,9 +23,9 @@ if(BUILD_TESTING AND NOT ANDROID)
     add_executable(test_can_mailbox tests/test_can_mailbox.c firmware/jog_can.c)
     target_include_directories(test_can_mailbox PRIVATE firmware/tests/stubs)
     add_test(NAME can_mailbox COMMAND test_can_mailbox)
-    foreach(name protocol task_log straight_test lateral_test axis_feedback axis6_test mechanism_runtime mechanism_pose_runtime vision_motion_runtime scale_store obstacle_turret turret_motion preset_route raw_departure mission_observation vision_tracking vision_tracking_runtime)
+    foreach(name protocol task_log turn_test straight_test lateral_test axis_feedback axis6_test mechanism_runtime mechanism_pose_runtime vision_motion_runtime scale_store obstacle_turret turret_motion preset_route raw_departure mission_observation vision_tracking vision_tracking_runtime)
         add_executable(test_${name} tests/test_${name}.c)
-        if(name STREQUAL "straight_test" OR name STREQUAL "lateral_test" OR name STREQUAL "mechanism_pose_runtime" OR name STREQUAL "preset_route" OR name STREQUAL "raw_departure" OR name STREQUAL "mission_observation" OR
+        if(name STREQUAL "turn_test" OR name STREQUAL "straight_test" OR name STREQUAL "lateral_test" OR name STREQUAL "mechanism_pose_runtime" OR name STREQUAL "preset_route" OR name STREQUAL "raw_departure" OR name STREQUAL "mission_observation" OR
            name STREQUAL "vision_tracking" OR name STREQUAL "vision_tracking_runtime")
             target_link_libraries(test_${name} PRIVATE m)
         endif()

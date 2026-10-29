@@ -22,6 +22,8 @@ class Controller : public QObject {
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
     Q_PROPERTY(bool axis6Testing READ axis6Testing NOTIFY changed)
     Q_PROPERTY(QString axis6TestState READ axis6TestState NOTIFY changed)
+    Q_PROPERTY(bool turnTesting READ turnTesting NOTIFY changed)
+    Q_PROPERTY(QString turnTestState READ turnTestState NOTIFY changed)
     Q_PROPERTY(bool straightTesting READ straightTesting NOTIFY changed)
     Q_PROPERTY(QString straightTestState READ straightTestState NOTIFY changed)
     Q_PROPERTY(bool lateralTesting READ lateralTesting NOTIFY changed)
@@ -46,9 +48,11 @@ class Controller : public QObject {
     Q_PROPERTY(double rightScale READ rightScale NOTIFY changed)
 public:
     explicit Controller(QObject *parent=nullptr);
-    bool connected()const{return connected_;} bool busy()const{return busy_ || axis6Testing() || lateralTesting() || straightTesting();}
+    bool connected()const{return connected_;} bool busy()const{return busy_ || axis6Testing() || lateralTesting() || straightTesting() || turnTesting();}
     bool axis6Testing()const{return axis6TestSequence_>=0;}
     QString axis6TestState()const{return axis6TestState_;}
+    bool turnTesting()const{return turnTestSequence_>=0;}
+    QString turnTestState()const{return turnTestState_;}
     bool straightTesting()const{return straightTestSequence_>=0;}
     QString straightTestState()const{return straightTestState_;}
     bool lateralTesting()const{return lateralTestSequence_>=0;}
@@ -82,6 +86,7 @@ public:
     Q_INVOKABLE void testAxis6();
     Q_INVOKABLE void testLateral(int direction,double distanceMm);
     Q_INVOKABLE void testStraight();
+    Q_INVOKABLE void testTurn(int direction);
     Q_INVOKABLE void drive(int direction);
     Q_INVOKABLE void run(int type,int zone,int regions,int rpm=240);
     Q_INVOKABLE void runAction(int action);
@@ -119,6 +124,8 @@ private:
     quint32 logTask_{},logOffset_{},logEnd_{};
     bool logTruncated_{};
     QString logsState_{QStringLiteral("连接后可读取主控最近任务日志；断电或重启清空")};
+    int turnTestSequence_{-1};
+    QString turnTestState_{QStringLiteral("尚未测试")};
     int straightTestSequence_{-1};
     QString straightTestState_{QStringLiteral("尚未测试")};
     int axis6TestSequence_{-1};

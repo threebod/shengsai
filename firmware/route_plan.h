@@ -21,6 +21,12 @@
 #define ROUTE_BRAKE_RPM_S   200.0f
 #define ROUTE_TURN_RPM      300.0f
 #define ROUTE_TURN_ACCEL    100.0f
+#define ROUTE_TURN_KP       2.0f
+#define ROUTE_TURN_KI       1.0f
+#define ROUTE_TURN_KD_FAR   0.8f
+#define ROUTE_TURN_KD_NEAR  0.4f
+#define ROUTE_TURN_SWITCH_DEG 15.0f
+#define ROUTE_TURN_INTEGRAL_LIMIT 7.0f
 /* Initial navigation heading PID gains; tune against measured IMU response. */
 #define ROUTE_HEADING_KP    2.0f
 #define ROUTE_HEADING_KI    0.25f
@@ -174,7 +180,7 @@ static float routeTurnPidStep(RouteTurnPid *pid, float error,
 {
     float sampleScale = 1.0f;
     float change = 0.0f;
-    float kd = routeAbs(error) > 15.0f ? 0.8f : 0.4f;
+    float kd = routeAbs(error) > ROUTE_TURN_SWITCH_DEG ? ROUTE_TURN_KD_FAR : ROUTE_TURN_KD_NEAR;
     if (pid->initialized) {
         if (sampleMs == pid->sampleMs) return pid->output * sign;
         sampleScale = (sampleMs - pid->sampleMs) / 50.0f;
@@ -182,14 +188,14 @@ static float routeTurnPidStep(RouteTurnPid *pid, float error,
         while (change > 180.0f) change -= 360.0f;
         while (change < -180.0f) change += 360.0f;
     }
-    if (routeAbs(error) <= 15.0f) {
+    if (routeAbs(error) <= ROUTE_TURN_SWITCH_DEG) {
         pid->integral += error * 0.05f * sampleScale;
-        if (pid->integral > 7.0f) pid->integral = 7.0f;
-        if (pid->integral < -7.0f) pid->integral = -7.0f;
+        if (pid->integral > ROUTE_TURN_INTEGRAL_LIMIT) pid->integral = ROUTE_TURN_INTEGRAL_LIMIT;
+        if (pid->integral < -ROUTE_TURN_INTEGRAL_LIMIT) pid->integral = -ROUTE_TURN_INTEGRAL_LIMIT;
     } else {
         pid->integral = 0.0f;
     }
-    pid->output = error * 2.0f + kd * change / sampleScale + pid->integral;
+    pid->output = error * ROUTE_TURN_KP + kd * change / sampleScale + ROUTE_TURN_KI * pid->integral;
     if (pid->output > maximumRpm) pid->output = maximumRpm;
     if (pid->output < -(float)maximumRpm) pid->output = -(float)maximumRpm;
     pid->previousError = error;
