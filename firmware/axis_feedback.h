@@ -2,7 +2,7 @@
 #define SHENGSAI_AXIS_FEEDBACK_H
 #include <stdint.h>
 #include <stdlib.h>
-#define MECHANISM_FEEDBACK_POLL_MS 20U
+#define MECHANISM_FEEDBACK_POLL_MS 10U
 #define MECHANISM_FEEDBACK_DIAG_MS 500U
 #define MECHANISM_FEEDBACK_SAMPLES 4U
 /* Emm relative mode 0 accumulates from the previous input target, not a timer estimate. */

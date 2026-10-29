@@ -74,6 +74,16 @@ int main(void){
     initial.gripperOpenDeg=185U;
     assert(mechanismGripperOpenCommandComplete(&initial,1U,0U,185000U,185000U));
     assert(!mechanismGripperOpenCommandComplete(&initial,1U,0U,200000U,200000U));
+    /* One shared query slot every 10ms; never catch up with a burst after a delay. */
+    reset();clockMs=509;serviceMechanism();assert(!queries);
+    clockMs=510;serviceMechanism();assert(queries==1 && queryKinds[1][0]==1);
+    serviceMechanism();assert(queries==1);
+    clockMs=519;serviceMechanism();assert(queries==1);
+    clockMs=520;serviceMechanism();assert(queries==2 && queryKinds[0][0]==1);
+    clockMs=555;serviceMechanism();assert(queries==3);
+    serviceMechanism();assert(queries==3);
+    clockMs=564;serviceMechanism();assert(queries==3);
+    clockMs=565;serviceMechanism();assert(queries==4);
     reset();serviceMechanism();assert(mechanismState.running && !stops && !completed());
     reply(5,0x3a,3);reply(6,0x3a,3);serviceMechanism();assert(!completed());
     reply(5,0x33,0);reply(6,0x33,0);serviceMechanism();assert(!completed());
@@ -135,21 +145,21 @@ int main(void){
     latency=clockMs-1000;
     printf("Both-axis completion delay after simulated arrival: %lu ms; premature position queries: %u\n",
            (unsigned long)latency,prematurePositions);
-    if(completed()!=1 || stops || latency>82 || prematurePositions){
+    if(completed()!=1 || stops || latency>42 || prematurePositions){
         fprintf(stderr,"feedback polling added excessive inter-action delay\n");return 1;
     }
-    for(phase=0;phase<40;++phase){
+    for(phase=0;phase<20;++phase){
         reset();simulateReplies=1;arrivalAt[0]=arrivalAt[1]=1000+phase;
         while(mechanismState.running && clockMs<3000){++clockMs;serviceMechanism();}
         latency=clockMs-arrivalAt[0];
-        assert(completed()==1 && !stops && !prematurePositions && latency<=82);
+        assert(completed()==1 && !stops && !prematurePositions && latency<=42);
         if(latency>maximumLatency) maximumLatency=latency;
     }
     printf("Maximum dual-axis delay across arrival phases: %lu ms\n",(unsigned long)maximumLatency);
     for(axes=1;axes<=2;++axes){
         reset();simulateReplies=1;mechanismAxes=axes;arrivalAt[0]=arrivalAt[1]=1000;
         while(mechanismState.running && clockMs<3000){++clockMs;serviceMechanism();}
-        assert(completed()==1 && !stops && clockMs-1000<=42 && !prematurePositions);
+        assert(completed()==1 && !stops && clockMs-1000<=22 && !prematurePositions);
     }
     reset();simulateReplies=1;missingMotor=6;missingFn=0x36;
     while(mechanismState.running && clockMs<3000){++clockMs;serviceMechanism();}
