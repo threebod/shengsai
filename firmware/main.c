@@ -158,7 +158,7 @@ static float missionOffsetForward, missionOffsetRight;
 static MechanismAction missionWorkActions[MISSION_PLACE_COUNT];
 static MechanismAction missionPickBackActions[MISSION_PICK_BACK_COUNT];
 static const MechanismPose missionRingObservePose =
-    {-770, 0, 2600, 1000, 200, 2000, 240, 2200};
+    {-770, 0, 2600, 1000, 228, 2000, 248, 2200};
 static int8_t routeHeading, routeNextHeading;
 static float routeBaseYaw;
 static uint32_t routeTurnStart, routeTurnStable;

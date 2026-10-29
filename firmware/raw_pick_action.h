@@ -8,37 +8,37 @@
 /* Single-item bench sequence from 动作组/夹取.json. The operator places the
  * selected color at this sequence's fixed pickup position. */
 static MechanismInitialState rawPickInitial =
-    MECH_INITIAL_STATE(0, 0, 2600, 1000, 200, 2000, 240, 2200, 3600, 1800,
+    MECH_INITIAL_STATE(0, 0, 2600, 1000, 228, 2000, 248, 2200, 3600, 1800,
                        1, 1, 200, 155, 26, 146, 264);
 
 static const MechanismPose rawPickObservePose =
-    { 650, 0, 2600, 1000, 200, 2000, 240, 2200 };
+    { 650, 0, 2600, 1000, 228, 2000, 248, 2200 };
 
 static const MechanismPose rawPickLowerPose =
-    { -900, 530, 2560, 1000, 200, 2000, 240, 2200 };
+    { -900, 530, 2560, 1000, 228, 2000, 248, 2200 };
 
 static const MechanismPose rawPickUpperPoses[2] = {
-    { 649, 530, 2773, 1000, 200, 2000, 240, 2200 },
-    { 701, 530, 2384, 1000, 200, 2000, 240, 2200 }
+    { 649, 530, 2773, 1000, 228, 2000, 248, 2200 },
+    { 701, 530, 2384, 1000, 228, 2000, 248, 2200 }
 };
 
 static const MechanismPose rawPickTravelPose =
-    { 0, 0, 530, 1000, 200, 2000, 240, 2200 };
+    { 0, 0, 530, 1000, 228, 2000, 248, 2200 };
 
 /* Let the grip settle for 200ms after commanded closure before lifting. */
 static const MechanismAction rawPickActions[] = {
     MECH_PLATFORM(1, 0),
     MECH_GRIPPER_OPEN(0),
-    MECH_POSE(-900, 530, 2560, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(-900, 530, 2560, 1000, 228, 2000, 248, 2200, 0),
     MECH_GRIPPER_CLOSE(200),
-    MECH_POSE(-900, 0, 2560, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(-200, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(-500, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(-500, 120, 1200, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(-900, 0, 2560, 1000, 228, 2000, 248, 2200, 0),
+    MECH_POSE(-200, 0, 1200, 1000, 228, 2000, 248, 2200, 0),
+    MECH_POSE(-500, 0, 1200, 1000, 228, 2000, 248, 2200, 0),
+    MECH_POSE(-500, 120, 1200, 1000, 228, 2000, 248, 2200, 0),
     MECH_GRIPPER_OPEN(0),
     MECH_PLATFORM(2, 0),
-    MECH_POSE(-500, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(0, 0, 2600, 1000, 200, 2000, 240, 2200, 0)
+    MECH_POSE(-500, 0, 1200, 1000, 228, 2000, 248, 2200, 0),
+    MECH_POSE(0, 0, 2600, 1000, 228, 2000, 248, 2200, 0)
 };
 
 #define RAW_PICK_ACTION_COUNT \
