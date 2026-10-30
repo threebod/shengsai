@@ -1112,7 +1112,7 @@ static uint8_t startVisionMotion(float forwardMm, float rightMm,
     /* Both visual modes use timed completion; ring status checks faults only. */
     motionDuration = maximumPulses * 60000U / (3200U * rpm) +
         ((automatic && rawPickAtStation && visionSession.mode == VISION_MODE_MATERIAL &&
-          (visionSession.requestFlags & VISION_FLAG_MATERIAL_LAYOUT)) ? 200U : 800U);
+          (visionSession.requestFlags & VISION_FLAG_MATERIAL_LAYOUT)) ? 500U : 800U);
     motionMode = 4U;
     visionMotionAutomatic = automatic;
     if (missionActive && routeWaiting) {
