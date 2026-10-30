@@ -124,6 +124,29 @@ private slots:
                     flickable->setProperty("contentY",0);
                 }
             }
+            if (page == 1) {
+                auto *pickupRead = window->findChild<QQuickItem *>("pickupReadButton");
+                auto *pickupSave = window->findChild<QQuickItem *>("pickupSaveButton");
+                QVERIFY(pickupRead && pickupSave && !pickupRead->isEnabled() && !pickupSave->isEnabled());
+                QVERIFY(pickupRead->height() >= 44 && pickupSave->height() >= 44);
+                controller.connected_ = true;emit controller.changed();
+                QVERIFY(pickupRead->isEnabled() && !pickupSave->isEnabled());
+                controller.pickupRead_ = true;emit controller.changed();
+                QVERIFY(pickupSave->isEnabled());
+                controller.busy_ = true;emit controller.changed();
+                QVERIFY(!pickupRead->isEnabled() && !pickupSave->isEnabled());
+                controller.busy_ = controller.connected_ = controller.pickupRead_ = false;emit controller.changed();
+                auto *heightsCard = window->findChild<QQuickItem *>("placementHeightsCard");
+                auto *readButton = window->findChild<QQuickItem *>("heightsReadButton");
+                auto *saveButton = window->findChild<QQuickItem *>("heightsSaveButton");
+                QVERIFY(heightsCard && heightsCard->isVisible());
+                QVERIFY(readButton && saveButton && !readButton->isEnabled() && !saveButton->isEnabled());
+                QVERIFY(readButton->height() >= 44 && saveButton->height() >= 44);
+                auto *flickable = scroll->property("contentItem").value<QQuickItem *>();
+                QVERIFY(flickable && flickable->property("contentY").isValid());
+                flickable->setProperty("contentY", qMax(0.0, flickable->property("contentHeight").toReal() - flickable->height()));
+                QTest::qWait(50);
+            }
             if (page == 3) {
                 auto *testButton = window->findChild<QQuickItem *>("axis6TestButton");
                 QVERIFY(testButton && testButton->isVisible());

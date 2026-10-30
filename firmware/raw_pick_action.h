@@ -2,6 +2,8 @@
 #define MECANUM_JOG_RAW_PICK_ACTION_H
 
 #include "mechanism_action.h"
+#include "placement_heights.h"
+#include "ring_pose.h"
 
 /* Turret remount: recorded angles - 12 degrees (observation 272 -> 260). */
 
@@ -14,13 +16,25 @@ static MechanismInitialState rawPickInitial =
 static const MechanismPose rawPickObservePose =
     { 650, 0, 2600, 1000, 228, 2000, 248, 2200 };
 
-static const MechanismPose rawPickLowerPose =
+static MechanismPose rawPickLowerPose =
     { -900, 530, 2560, 1000, 228, 2000, 248, 2200 };
 
-static const MechanismPose rawPickUpperPoses[2] = {
+static MechanismPose rawPickUpperPoses[2] = {
     { 649, 530, 2773, 1000, 228, 2000, 248, 2200 },
     { 701, 530, 2384, 1000, 228, 2000, 248, 2200 }
 };
+
+static uint8_t pickupPosesSaved;
+
+static void applyPickupPoses(const RingPose poses[3])
+{
+    uint8_t i;
+    for (i = 0U; i < 3U; ++i) {
+        MechanismPose *pose = i == 0U ? &rawPickLowerPose : &rawPickUpperPoses[i - 1U];
+        pose->horizontalDmm = poses[i].horizontalDmm;
+        pose->turretDdeg = poses[i].turretDdeg;
+    }
+}
 
 static const MechanismPose rawPickTravelPose =
     { 0, 0, 530, 1000, 228, 2000, 248, 2200 };
@@ -34,7 +48,7 @@ static const MechanismAction rawPickActions[] = {
     MECH_POSE(-900, 0, 2560, 1000, 228, 2000, 248, 2200, 0),
     MECH_POSE(-200, 0, 1200, 1000, 228, 2000, 248, 2200, 0),
     MECH_POSE(-500, 0, 1200, 1000, 228, 2000, 248, 2200, 0),
-    MECH_POSE(-500, 120, 1200, 1000, 228, 2000, 248, 2200, 0),
+    MECH_POSE(-500, 170, 1200, 1000, 228, 2000, 248, 2200, 0),
     MECH_GRIPPER_OPEN(0),
     MECH_PLATFORM(2, 0),
     MECH_POSE(-500, 0, 1200, 1000, 228, 2000, 248, 2200, 0),
@@ -47,6 +61,10 @@ static const MechanismAction rawPickActions[] = {
 static void rawPickActionsForSlot(MechanismAction *actions, uint8_t slot)
 {
     memcpy(actions, rawPickActions, sizeof(rawPickActions));
+    actions[2].pose = rawPickLowerPose;
+    actions[4].pose = rawPickLowerPose;
+    actions[4].pose.liftDmm = 0U;
+    actions[7].pose.liftDmm = placementHeights.rawTrayDmm;
     actions[0].value = slot;
     if (slot < 3U) {
         actions[10].pose.horizontalDmm = rawPickObservePose.horizontalDmm;

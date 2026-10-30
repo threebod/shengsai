@@ -31,6 +31,12 @@ class Controller : public QObject {
     Q_PROPERTY(bool confirmed READ confirmed NOTIFY changed)
     Q_PROPERTY(bool mechanismValid READ mechanismValid NOTIFY changed)
     Q_PROPERTY(bool ringsRead READ ringsRead NOTIFY changed)
+    Q_PROPERTY(bool pickupRead READ pickupRead NOTIFY changed)
+    Q_PROPERTY(QVariantList pickup READ pickup NOTIFY changed)
+    Q_PROPERTY(QString pickupState READ pickupState NOTIFY changed)
+    Q_PROPERTY(bool heightsRead READ heightsRead NOTIFY changed)
+    Q_PROPERTY(QVariantList placementHeights READ placementHeights NOTIFY changed)
+    Q_PROPERTY(QString heightsState READ heightsState NOTIFY changed)
     Q_PROPERTY(bool calibrating READ calibrating NOTIFY changed)
     Q_PROPERTY(bool parametersPending READ parametersPending NOTIFY changed)
     Q_PROPERTY(QString status READ status NOTIFY changed)
@@ -58,6 +64,12 @@ public:
     bool lateralTesting()const{return lateralTestSequence_>=0;}
     QString lateralTestState()const{return lateralTestState_;}
     bool confirmed()const{return confirmed_;} bool ringsRead()const{return ringsRead_;}
+    bool pickupRead()const{return pickupRead_;}
+    QVariantList pickup()const{return pickup_;}
+    QString pickupState()const{return pickupState_;}
+    bool heightsRead()const{return heightsRead_;}
+    QVariantList placementHeights()const{return heights_;}
+    QString heightsState()const{return heightsState_;}
     bool mechanismValid()const{return mechanismValid_;}
     bool calibrating()const{return calibrationStage_!=0;}
     bool parametersPending()const;
@@ -79,6 +91,10 @@ public:
     Q_INVOKABLE void readRings();
     Q_INVOKABLE void readTaskLog();
     Q_INVOKABLE void saveRings(const QVariantList &values);
+    Q_INVOKABLE void readPickup();
+    Q_INVOKABLE void savePickup(const QVariantList &values);
+    Q_INVOKABLE void readHeights();
+    Q_INVOKABLE void saveHeights(const QVariantList &values);
     Q_INVOKABLE void readScale();
     Q_INVOKABLE void applyScale(double forward,double right,bool save);
     Q_INVOKABLE void setServo(int channel,double angle,bool finalValue=false);
@@ -119,11 +135,17 @@ private:
     QElapsedTimer clock_;qint64 lastRx_{};
     QHash<int,int> servoTargets_;
     bool connected_{},busy_{},confirmed_{},ringsRead_{},mechanismValid_{};
+    bool pickupRead_{};
+    QVariantList pickup_;
+    QString pickupState_{QStringLiteral("请先读取取料区参数")};
+    bool heightsRead_{};
     bool logsLoading_{};
     QByteArray taskLogBytes_;
     quint32 logTask_{},logOffset_{},logEnd_{};
     bool logTruncated_{};
     QString logsState_{QStringLiteral("连接后可读取主控最近任务日志；断电或重启清空")};
+    QVariantList heights_;
+    QString heightsState_{QStringLiteral("请先读取主控放置深度")};
     int turnTestSequence_{-1};
     QString turnTestState_{QStringLiteral("尚未测试")};
     int straightTestSequence_{-1};

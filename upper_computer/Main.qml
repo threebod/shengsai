@@ -8,7 +8,9 @@ ApplicationWindow {
     visible: true; title: "省赛控制台"; color: "#F5F5F7"
     property int page: 0
     property string logText: ""
+    property bool pickupDirty: false
     property bool ringsDirty: false
+    property bool heightsDirty: false
     property bool scaleDirty: false
     property int obstacleMask: 0
     readonly property int obstacleCount: {
@@ -313,6 +315,102 @@ ApplicationWindow {
                                         let values=[]
                                         for(let i=0;i<3;i++) {let item=ringRepeater.itemAt(i); if(!item.valid) return;values.push({horizontal:item.horizontal,turret:item.turret})}
                                         app.ringsDirty=false;controller.saveRings(values)
+                                    }
+                                }
+                            }
+                        }
+                        GridLayout {
+                        uniformCellWidths: true
+                            columns: app.mobile ? 1 : 3; Layout.fillWidth: true; columnSpacing: 16; rowSpacing: 16
+                            Repeater {
+                                id: pickupRepeater; model: 3
+                                delegate: Card {
+                                    required property int index
+                                    property alias horizontal: pickupH.number
+                                    property alias turret: pickupT.number
+                                    readonly property bool valid: pickupH.valid && pickupT.valid
+                                    heading: ["取料区 · 下方", "取料区 · 左上", "取料区 · 右上"][index]
+                                    Label { text: "水平位置 mm"; color: "#656570" }
+                                    NumberField { id: pickupH; minimum: -122; maximum: 85; enabled: controller.pickupRead && !controller.busy && !controller.parametersPending; placeholderText: "待读取"; onTextEdited: app.pickupDirty=true }
+                                    Label { text: "云台角度 °"; color: "#656570" }
+                                    NumberField { id: pickupT; minimum: 0; maximum: 360; enabled: controller.pickupRead && !controller.busy && !controller.parametersPending; placeholderText: "待读取"; onTextEdited: app.pickupDirty=true }
+                                    Connections {
+                                        target: controller
+                                        function onRequestAccepted(command) {
+                                            if(command === 24 && controller.pickup.length === 3) {
+                                                pickupH.text = controller.pickup[index].horizontal.toFixed(1)
+                                                pickupT.text = controller.pickup[index].turret.toFixed(1)
+                                                app.pickupDirty=false
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Card {
+                            heading: "取料区参数状态"
+                            Hint { text: app.pickupDirty ? "参数已修改，待固化" : controller.pickupState }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ActionButton { objectName: "pickupReadButton"; text: "读取取料区"; Layout.fillWidth: true; enabled: controller.connected && !controller.busy && !controller.parametersPending; onClicked: {app.pickupDirty=false;controller.readPickup()} }
+                                ActionButton {
+                                    objectName: "pickupSaveButton"; text: "固化取料区参数"; primary: true; Layout.fillWidth: true; enabled: controller.connected && controller.pickupRead && !controller.busy && !controller.parametersPending
+                                    onClicked: {
+                                        let values=[]
+                                        for(let i=0;i<3;i++) {let item=pickupRepeater.itemAt(i); if(!item.valid) return;values.push({horizontal:item.horizontal,turret:item.turret})}
+                                        app.pickupDirty=false;controller.savePickup(values)
+                                    }
+                                }
+                            }
+                        }
+                        Card {
+                            objectName: "placementHeightsCard"
+                            heading: "放置深度"
+                            Hint { text: "从升降零位向下的深度，数值越大越往下。先读取，再修改并固化；保存不会驱动机构。" }
+                            GridLayout {
+                                columns: app.mobile ? 1 : 2; Layout.fillWidth: true; columnSpacing: 16; rowSpacing: 12
+                                Repeater {
+                                    id: heightsRepeater
+                                    model: ["一层放置 mm", "二层放置 mm", "原料落盘 mm", "回收落盘 mm"]
+                                    delegate: ColumnLayout {
+                                        required property int index
+                                        required property string modelData
+                                        property alias depth: heightField.number
+                                        readonly property bool valid: heightField.valid
+                                        Layout.fillWidth: true
+                                        Label { text: modelData; color: "#656570" }
+                                        NumberField {
+                                            id: heightField; minimum: 0; maximum: 150; placeholderText: "待读取"
+                                            enabled: controller.heightsRead && !controller.busy && !controller.parametersPending
+                                            onTextEdited: app.heightsDirty=true
+                                        }
+                                        Connections {
+                                            target: controller
+                                            function onRequestAccepted(command) {
+                                                if(command === 21 && controller.placementHeights.length === 4) {
+                                                    heightField.text=controller.placementHeights[index].toFixed(1)
+                                                    app.heightsDirty=false
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Hint { text: app.heightsDirty ? "深度已修改，待固化" : controller.heightsState }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ActionButton {
+                                    objectName: "heightsReadButton"; text: "读取放置深度"; Layout.fillWidth: true
+                                    enabled: controller.connected && !controller.busy && !controller.parametersPending
+                                    onClicked: { app.heightsDirty=false; controller.readHeights() }
+                                }
+                                ActionButton {
+                                    objectName: "heightsSaveButton"; text: "固化放置深度"; primary: true; Layout.fillWidth: true
+                                    enabled: controller.connected && controller.heightsRead && !controller.busy && !controller.parametersPending
+                                    onClicked: {
+                                        let values=[]
+                                        for(let i=0;i<4;i++) { let item=heightsRepeater.itemAt(i); if(!item.valid) return; values.push(item.depth) }
+                                        app.heightsDirty=false; controller.saveHeights(values)
                                     }
                                 }
                             }

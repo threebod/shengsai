@@ -50,7 +50,7 @@ Controller::Controller(QObject *parent):QObject(parent) {
 }
 void Controller::setStatus(const QString &text){status_=text;emit changed();}
 bool Controller::parametersPending()const{
-    for(const auto &p:pending_)if(p.command>=SS_GET_RINGS && p.command<=SS_SAVE_SCALE)return true;
+    for(const auto &p:pending_)if(p.command>=SS_GET_RINGS && p.command<=SS_SET_PICKUP)return true;
     return false;
 }
 QByteArray Controller::pair(int a,int b){QByteArray bytes(4,0);ss_put16(reinterpret_cast<uint8_t *>(bytes.data()),quint16(a));ss_put16(reinterpret_cast<uint8_t *>(bytes.data()+2),quint16(b));return bytes;}
@@ -108,6 +108,8 @@ void Controller::disconnectDevice(){
     connected_=confirmed_=ringsRead_=busy_=mechanismValid_=false;pending_.clear();parser_={};
     if(logsLoading_)logsState_=QStringLiteral("读取中断，已显示的日志仍保留；重连后可重新读取");
     logsLoading_=false;taskLogBytes_.clear();
+    pickupRead_=false;pickup_.clear();pickupState_=QStringLiteral("断线后请重新读取取料区参数");
+    heightsRead_=false;heights_.clear();heightsState_=QStringLiteral("断线后请重新读取放置深度");
     ringState_=QStringLiteral("断线后请重新读取");scaleState_=QStringLiteral("断线后请重新读取");
     if(device_ && device_->isOpen())device_->close();status_=QStringLiteral("未连接");emit changed();
 }
@@ -177,6 +179,9 @@ void Controller::handle(const SsFrame &f){
             logsState_=f.data[0]==5?QStringLiteral("日志已更新或被覆盖，请重新读取"):QStringLiteral("读取失败，请确认主控固件支持任务日志读取");
             emit changed();return;
         }
+        if(f.command==SS_GET_PICKUP || f.command==SS_SET_PICKUP)pickupState_=QStringLiteral("取料区参数读写失败，请检查主控状态后重试");
+        if(f.command==SS_SET_HEIGHTS || f.command==SS_GET_HEIGHTS)
+            heightsState_=QStringLiteral("放置深度读写失败，请检查主控状态后重试");
         if(f.command==SS_SET_RINGS)ringState_=QStringLiteral("固化失败，请检查主控状态后重试");
         if(f.command==SS_APPLY_SCALE || f.command==SS_SAVE_SCALE)scaleState_=QStringLiteral("写入失败，尚未获得主控确认");
         static const QStringList errors{QString(),QStringLiteral("参数或命令无效"),QStringLiteral("主控忙，请等待或停止"),QStringLiteral("急停锁定"),QStringLiteral("主控执行失败，请检查日志"),QStringLiteral("协议不匹配"),QStringLiteral("请先确认机构零点及安全条件")};
@@ -256,6 +261,25 @@ void Controller::handle(const SsFrame &f){
         for(int i=0;i<3;++i)rings_.append(QVariantMap{{"horizontal",qint16(ss_get16(f.data+2+i*4))/10.0},{"turret",ss_get16(f.data+4+i*4)/10.0}});
         ringsRead_=true;ringState_=f.data[1]?QStringLiteral("已读取主控固化参数"):QStringLiteral("已读取固件默认参数");break;
     case SS_SET_RINGS:ringState_=QStringLiteral("主控已确认固化成功");readRings();break;
+    case SS_GET_PICKUP:
+        if(f.length!=14 || f.data[1]>1){pickupRead_=false;pickupState_=QStringLiteral("取料区应答无效，请重新读取");emit changed();return;}
+        for(int i=0;i<3;++i){
+            int h=qint16(ss_get16(f.data+2+i*4)),t=ss_get16(f.data+4+i*4);
+            if(h< -1220 || h>850 || t>3600){pickupRead_=false;pickupState_=QStringLiteral("取料区参数超出机械范围");emit changed();return;}
+        }
+        pickup_.clear();for(int i=0;i<3;++i)pickup_.append(QVariantMap{{"horizontal",qint16(ss_get16(f.data+2+i*4))/10.0},{"turret",ss_get16(f.data+4+i*4)/10.0}});
+        pickupRead_=true;pickupState_=f.data[1]?QStringLiteral("已读取主控固化参数"):QStringLiteral("已读取固件默认参数");break;
+    case SS_SET_PICKUP:
+        if(f.length!=1){pickupState_=QStringLiteral("固化应答无效，请重新读取确认");emit changed();return;}
+        pickupState_=QStringLiteral("主控已确认固化成功");readPickup();break;
+    case SS_GET_HEIGHTS:
+        if(f.length!=10 || f.data[1]>1){heightsRead_=false;heightsState_=QStringLiteral("主控返回的放置深度无效");emit changed();return;}
+        for(int i=0;i<4;++i)if(ss_get16(f.data+2+i*2)>1500){heightsRead_=false;heightsState_=QStringLiteral("主控返回的放置深度超出范围");emit changed();return;}
+        heights_.clear();for(int i=0;i<4;++i)heights_.append(ss_get16(f.data+2+i*2)/10.0);
+        heightsRead_=true;heightsState_=f.data[1]?QStringLiteral("已读取主控固化深度"):QStringLiteral("已读取固件默认深度");break;
+    case SS_SET_HEIGHTS:
+        if(f.length!=1){heightsState_=QStringLiteral("固化应答无效，请重新读取确认");emit changed();return;}
+        heightsState_=QStringLiteral("主控已确认固化成功");readHeights();break;
     case SS_GET_SCALE:case SS_APPLY_SCALE:case SS_SAVE_SCALE:
         if(f.length!=6)return;forward_=ss_get16(f.data+2);right_=ss_get16(f.data+4);
         scaleState_=f.data[1]?QStringLiteral("与主控一致 · 已掉电保存"):QStringLiteral("与主控一致 · 本次上电有效");
@@ -296,6 +320,34 @@ void Controller::saveRings(const QVariantList &values){
     ringState_=QStringLiteral("等待主控固化确认");request(SS_SET_RINGS,data);emit changed();
 }
 void Controller::readScale(){if(connected_)request(SS_GET_SCALE);}
+void Controller::readPickup(){if(connected_ && !busy() && !parametersPending())request(SS_GET_PICKUP);}
+void Controller::savePickup(const QVariantList &values){
+    if(!connected_ || !pickupRead_ || busy() || parametersPending() || values.size()!=3)return;
+    QByteArray data(12,0);
+    for(int i=0;i<3;++i){
+        const auto map=values[i].toMap();bool hOk,tOk;
+        double h=map["horizontal"].toDouble(&hOk),t=map["turret"].toDouble(&tOk);
+        if(!hOk || !tOk || !qIsFinite(h) || !qIsFinite(t) || h< -122 || h>85 || t<0 || t>360){pickupState_=QStringLiteral("取料区参数超出机械范围");emit changed();return;}
+        ss_put16(reinterpret_cast<uint8_t *>(data.data()+i*4),quint16(qRound(h*10)));
+        ss_put16(reinterpret_cast<uint8_t *>(data.data()+i*4+2),quint16(qRound(t*10)));
+    }
+    pickupState_=QStringLiteral("等待主控固化确认");
+    if(request(SS_SET_PICKUP,data)<0)pickupState_=QStringLiteral("发送失败，未固化");
+    emit changed();
+}
+void Controller::readHeights(){if(connected_ && !busy() && !parametersPending())request(SS_GET_HEIGHTS);}
+void Controller::saveHeights(const QVariantList &values){
+    if(!connected_ || !heightsRead_ || busy() || parametersPending() || values.size()!=4)return;
+    QByteArray data(8,0);
+    for(int i=0;i<4;++i){
+        bool ok;const double value=values[i].toDouble(&ok);
+        if(!ok || !qIsFinite(value) || value<0 || value>150){heightsState_=QStringLiteral("放置深度范围为0～150mm");emit changed();return;}
+        ss_put16(reinterpret_cast<uint8_t *>(data.data()+i*2),quint16(qRound(value*10)));
+    }
+    heightsState_=QStringLiteral("等待主控固化确认");
+    if(request(SS_SET_HEIGHTS,data)<0)heightsState_=QStringLiteral("发送失败，未固化");
+    emit changed();
+}
 void Controller::applyScale(double f,double r,bool save){
     if(!connected_ || busy_)return;
     if(!qIsFinite(f) || !qIsFinite(r) || f<0.05 || f>2 || r<0.05 || r>2){setStatus(QStringLiteral("比例范围为 0.050～2.000 mm/像素"));return;}

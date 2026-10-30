@@ -11,6 +11,25 @@ public: QByteArray written;
 class ControllerTest:public QObject {
     Q_OBJECT
 private slots:
+    void pickupReadSaveAndFailure(){
+        Wire wire;Controller c;c.device_=&wire;c.connected_=true;
+        QVariantList values{QVariantMap{{"horizontal",-88.0},{"turret",272.1}},QVariantMap{{"horizontal",64.0},{"turret",291.1}},QVariantMap{{"horizontal",72.0},{"turret",254.1}}};
+        c.savePickup(values);QVERIFY(wire.written.isEmpty());
+        c.readPickup();auto q=wire.last();QCOMPARE(int(q.command),int(SS_GET_PICKUP));
+        SsFrame r{};r.command=q.command;r.sequence=q.sequence;r.flags=SS_RESPONSE;r.length=14;
+        for(int i=0;i<3;++i){ss_put16(r.data+2+i*4,quint16(-880+i*100));ss_put16(r.data+4+i*4,2721+i);}
+        c.handle(r);QVERIFY(c.pickupRead());QCOMPARE(c.pickup().size(),3);
+        c.savePickup(values);q=wire.last();QCOMPARE(int(q.command),int(SS_SET_PICKUP));
+        QCOMPARE(qint16(ss_get16(q.data)),qint16(-880));QVERIFY(c.parametersPending() && c.pickupState().contains("等待"));
+        r.command=q.command;r.sequence=q.sequence;r.length=1;r.data[0]=4;r.flags=SS_RESPONSE|SS_ERROR;c.handle(r);
+        QVERIFY(c.pickupState().contains("失败") && !c.parametersPending());
+        c.savePickup(values);q=wire.last();r.sequence=q.sequence;r.data[0]=0;r.flags=SS_RESPONSE;c.handle(r);
+        QCOMPARE(int(wire.last().command),int(SS_GET_PICKUP));
+        c.pending_.clear();values[0]=QVariantMap{{"horizontal",std::numeric_limits<double>::quiet_NaN()},{"turret",200}};
+        c.savePickup(values);QVERIFY(wire.written.isEmpty());
+        c.disconnectDevice();QVERIFY(!c.pickupRead());c.device_=nullptr;
+    }
+
     void turnTestDirectionsAndCompletion(){
         Wire wire;Controller c;c.device_=&wire;
         c.testTurn(1);QVERIFY(wire.written.isEmpty());c.connected_=true;
@@ -181,6 +200,44 @@ private slots:
         c.run(1,1,0x0810,9);c.run(1,1,0x0810,251);QVERIFY(wire.written.isEmpty());
         c.busy_=true;c.run(1,1,0x0810);QVERIFY(wire.written.isEmpty());
         QCOMPARE(c.obstacleRegions().size(),15);QCOMPARE(c.obstacleRegions()[7].toMap()["x0"].toInt(),1000);
+        c.disconnectDevice();c.device_=nullptr;
+    }
+    void heightsRequireReadAndConfirmedSave(){
+        Wire wire;Controller c;c.device_=&wire;c.connected_=true;
+        const QVariantList values{127.0,58.0,17.0,20.0};
+        c.saveHeights(values);QVERIFY(wire.written.isEmpty());
+        c.readHeights();auto q=wire.last();QCOMPARE(int(q.command),int(SS_GET_HEIGHTS));
+        SsFrame r{};r.flags=SS_RESPONSE;r.sequence=q.sequence;r.command=q.command;r.length=10;
+        const uint16_t depths[4]={1270,580,170,200};
+        for(int i=0;i<4;++i)ss_put16(r.data+2+i*2,depths[i]);
+        c.handle(r);QVERIFY(c.heightsRead());QCOMPARE(c.placementHeights(),values);
+        c.saveHeights(values);q=wire.last();QCOMPARE(int(q.command),int(SS_SET_HEIGHTS));QCOMPARE(int(q.length),8);
+        for(int i=0;i<4;++i)QCOMPARE(ss_get16(q.data+i*2),depths[i]);
+        QVERIFY(c.parametersPending() && c.heightsState().contains("等待"));
+        c.saveHeights(values);c.readHeights();QVERIFY(wire.written.isEmpty());
+        r.command=q.command;r.sequence=q.sequence;r.length=1;c.handle(r);
+        q=wire.last();QCOMPARE(int(q.command),int(SS_GET_HEIGHTS));
+        r.command=q.command;r.sequence=q.sequence;r.length=10;r.data[1]=1;
+        for(int i=0;i<4;++i)ss_put16(r.data+2+i*2,depths[i]);
+        c.handle(r);QVERIFY(c.heightsState().contains("固化") && !c.parametersPending());
+        c.saveHeights({128.0,59.0,18.0,21.0});q=wire.last();
+        r.command=q.command;r.sequence=q.sequence;r.length=1;r.flags=SS_RESPONSE|SS_ERROR;r.data[0]=4;c.handle(r);
+        QVERIFY(c.heightsState().contains("失败"));QCOMPARE(c.placementHeights(),values);
+        c.disconnectDevice();QVERIFY(!c.heightsRead());QVERIFY(c.placementHeights().isEmpty());c.device_=nullptr;
+    }
+    void invalidOrBusyHeightsAreNotSent(){
+        Wire wire;Controller c;c.device_=&wire;c.connected_=c.heightsRead_=true;
+        QVariantList values{127.0,58.0,17.0,20.0};
+        c.busy_=true;c.saveHeights(values);QVERIFY(wire.written.isEmpty());c.busy_=false;
+        for(int i=0;i<4;++i)for(double invalid:{-0.1,150.01,std::numeric_limits<double>::quiet_NaN(),std::numeric_limits<double>::infinity()}){
+            auto changed=values;changed[i]=invalid;c.saveHeights(changed);QVERIFY(wire.written.isEmpty());
+        }
+        c.saveHeights({1.0,2.0});QVERIFY(wire.written.isEmpty());
+        c.saveHeights({0.0,150.0,0.0,150.0});auto q=wire.last();QCOMPARE(int(q.command),int(SS_SET_HEIGHTS));
+        SsFrame r{};r.flags=SS_RESPONSE;r.command=q.command;r.sequence=q.sequence;r.length=2;c.handle(r);
+        QVERIFY(c.heightsState().contains("无效"));QVERIFY(wire.written.isEmpty());
+        c.readHeights();q=wire.last();r.command=q.command;r.sequence=q.sequence;r.length=10;ss_put16(r.data+2,1501);c.handle(r);
+        QVERIFY(!c.heightsRead());c.saveHeights(values);QVERIFY(wire.written.isEmpty());
         c.disconnectDevice();c.device_=nullptr;
     }
     void invalidScaleAndJogAreNotSent(){

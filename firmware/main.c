@@ -93,6 +93,7 @@ static volatile uint32_t turretDurationMs;
 /* A close command may hold material; opening releases it. No load sensor. */
 static uint8_t gripperMayHoldMaterial = 1U;
 static uint8_t ringPosesSaved;
+static uint8_t placementHeightsSaved;
 static volatile uint32_t servoStepMdeg[3] = {
     SERVO_STEP_MDEG, SERVO_STEP_MDEG, SERVO_STEP_MDEG
 };
@@ -2395,7 +2396,8 @@ static void serviceVision(void)
         }
     } else if (event == VISION_EVENT_ALIGNED) {
         if (visionPickActive) {
-            const MechanismAction *actions = rawPickActions;
+            const MechanismAction *actions = rawPickRouteActions;
+            rawPickActionsForSlot(rawPickRouteActions, 1U);
             if (mechanismState.running) {
                 visionSession.state = VISION_STATE_REQUEST;
                 visionSession.confirmations = 0U;
@@ -2926,7 +2928,13 @@ int main(void)
         (void)gripperAnglesLoad(&open, &close);
         applyGripperAngles(open, close);
     }
+    {
+        RingPose poses[3];
+        pickupPosesSaved = poseSettingsLoad(poses, RAW_PICK_RECORD);
+        if (pickupPosesSaved) applyPickupPoses(poses);
+    }
     ringPosesSaved = ringPosesLoad(missionRingPoses);
+    placementHeightsSaved = placementHeightsLoad(&placementHeights);
     /* Servo PWM starts only when an explicit motion command needs its channel. */
     gripperMayHoldMaterial = 0U;
     hostScaleInit();

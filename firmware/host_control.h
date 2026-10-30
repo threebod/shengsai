@@ -93,8 +93,23 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
         r->length=14;r->data[1]=ringPosesSaved;
         for(i=0;i<3;++i) {ss_put16(r->data+2+i*4,(uint16_t)missionRingPoses[i].horizontalDmm);ss_put16(r->data+4+i*4,missionRingPoses[i].turretDdeg);}return;
     }
+    if(q->command==SS_GET_PICKUP && !q->length) {
+        r->length=14;r->data[1]=pickupPosesSaved;
+        for(i=0;i<3;++i) {
+            const MechanismPose *pose=i==0?&rawPickLowerPose:&rawPickUpperPoses[i-1];
+            ss_put16(r->data+2+i*4,(uint16_t)pose->horizontalDmm);
+            ss_put16(r->data+4+i*4,pose->turretDdeg);
+        }return;
+    }
     if(q->command==SS_GET_SCALE && !q->length) {
         r->length=6;r->data[1]=scaleSaved;ss_put16(r->data+2,scaleForward);ss_put16(r->data+4,scaleRight);return;
+    }
+    if(q->command==SS_GET_HEIGHTS && !q->length) {
+        r->length=10;r->data[1]=placementHeightsSaved;
+        ss_put16(r->data+2,placementHeights.firstLayerDmm);
+        ss_put16(r->data+4,placementHeights.secondLayerDmm);
+        ss_put16(r->data+6,placementHeights.rawTrayDmm);
+        ss_put16(r->data+8,placementHeights.returnTrayDmm);return;
     }
     if(hostBusy() && !(q->command==SS_DRIVE && hostDriveActive) &&
        !(q->command==SS_SERVO && !hostStartPending && !obstacleTurretPending &&
@@ -102,6 +117,32 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
          !mechanismActionActive && !visionSessionActive())) {r->data[0]=2;return;}
     hostError=hostCancelled=0;command[0]=0;
     switch(q->command) {
+    case SS_SET_PICKUP:
+        if(q->length!=12) break;
+        if(hostEStop || emergencyStop) {r->data[0]=3;return;}
+        {
+            RingPose poses[3];
+            for(i=0;i<3;++i) {
+                poses[i].horizontalDmm=(int16_t)ss_get16(q->data+i*4);
+                poses[i].turretDdeg=ss_get16(q->data+2+i*4);
+            }
+            if(!ringPosesValid(poses)) break;
+            if(!poseSettingsSave(poses,RAW_PICK_RECORD)) {r->data[0]=4;return;}
+            applyPickupPoses(poses);pickupPosesSaved=1U;return;
+        }
+    case SS_SET_HEIGHTS:
+        if(q->length!=8) break;
+        if(hostEStop) {r->data[0]=3;return;}
+        {
+            PlacementHeights heights;
+            heights.firstLayerDmm=ss_get16(q->data);
+            heights.secondLayerDmm=ss_get16(q->data+2);
+            heights.rawTrayDmm=ss_get16(q->data+4);
+            heights.returnTrayDmm=ss_get16(q->data+6);
+            if(!placementHeightsValid(&heights)) break;
+            if(!placementHeightsSave(&heights)) {r->data[0]=4;return;}
+            placementHeights=heights;placementHeightsSaved=1U;return;
+        }
     case SS_SET_RINGS:
         if(q->length!=12) break;
         sprintf(command,"ring poses %d %u %d %u %d %u",(int16_t)ss_get16(q->data),ss_get16(q->data+2),(int16_t)ss_get16(q->data+4),ss_get16(q->data+6),(int16_t)ss_get16(q->data+8),ss_get16(q->data+10));break;
