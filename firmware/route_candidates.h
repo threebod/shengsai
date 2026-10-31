@@ -175,13 +175,16 @@ static const PresetStep presetSteps32[] = {
     {1200,2080,0,850,1,1,1,0},
 };
 /* TR-2 */
+#define PRESET_TEMP_RIGHT_UP_MM 30
 static const PresetStep presetSteps33[] = {
-    {1200,1200,0,800,2,2,2,0},
+    {400,1200+PRESET_TEMP_RIGHT_UP_MM,PRESET_TEMP_RIGHT_UP_MM,0,2,2,2,0},
+    {1200,1200+PRESET_TEMP_RIGHT_UP_MM,0,800,2,2,2,0},
     {1200,2080,880,0,2,1,1,0},
 };
 /* TR-3 */
 static const PresetStep presetSteps34[] = {
-    {2100,1200,0,1700,-1,-1,0,1},
+    {400,1200+PRESET_TEMP_RIGHT_UP_MM,PRESET_TEMP_RIGHT_UP_MM,0,2,2,2,0},
+    {2100,1200+PRESET_TEMP_RIGHT_UP_MM,0,1700,-1,-1,0,1},
     {2100,2080,880,0,0,0,1,1},
     {1200,2080,0,-900,1,1,1,0},
 };
@@ -357,8 +360,8 @@ static const PresetCandidate presetTemplates[] = {
     {"CT-B2",presetSteps30,8},
     {"CT-B3",presetSteps31,3},
     {"TR-1",presetSteps32,2},
-    {"TR-2",presetSteps33,2},
-    {"TR-3",presetSteps34,3},
+    {"TR-2",presetSteps33,3},
+    {"TR-3",presetSteps34,4},
     {"TR-4",presetSteps35,3},
     {"TR-B1",presetSteps36,5},
     {"TR-B2",presetSteps37,4},
