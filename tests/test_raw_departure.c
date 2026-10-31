@@ -43,8 +43,7 @@ int main(void)
                         int16_t forward, right;
                         assert(step == 0U && index > 0U);
                         assert(current->taskIndex == 6U || current->taskIndex == 13U);
-                        assert(abs(presetHeadingChange(route.legs[index-1U].drive.heading,
-                                                       leg.departureHeading)) < 2);
+                        assert(route.legs[index-1U].drive.heading == leg.departureHeading);
                         routeBody(leg.upMm, leg.rightMm, leg.departureHeading, &forward, &right);
                         assert(forward < 0 && right == 0);
                         if (leg.rightMm > 0) {
@@ -54,10 +53,15 @@ int main(void)
                             assert(route.legs[index-1U].drive.heading == leg.departureHeading);
                             assert(presetArcClear(current,&route.legs[index+1U],route.regions));
                         } else if (leg.upMm) {
-                            assert(leg.upMm == -1431 && leg.rightMm == 0 && !leg.event);
-                            assert(leg.departureHeading == 0 && leg.heading == 0 && !current->arc);
+                            PresetLeg unshifted = *current;
+                            assert(leg.upMm == -1232 && leg.rightMm == 0 && !leg.event);
+                            assert(current->drive.upMm == -1730);
+                            assert(leg.departureHeading == 0 && leg.heading == -1 && current->arc == 1U);
+                            assert(presetArcClear(current,&route.legs[index+1U],route.regions));
+                            unshifted.templateId = 0U;
+                            assert(!presetArcClear(&unshifted,&route.legs[index+1U],route.regions));
                         } else {
-                            assert(leg.rightMm == -900 && leg.event && !current->arc);
+                            assert(leg.rightMm == -651 && leg.event && !current->arc);
                             assert(leg.departureHeading == -1 && leg.heading == -1);
                         }
                     } else {
@@ -84,6 +88,6 @@ int main(void)
     /* A 50mm right bias touches the nominal boundary; one more mm hits fixed blocks. */
     assert(presetRectangleClear(1200, 300, 1250, 2080, 0U));
     assert(!presetRectangleClear(1200, 300, 1251, 2080, 0U));
-    puts("PASS RAW departure: centre down100/right50/down1680, RC-3 reverse bend without U-turn, station events and two rounds/zones");
+    puts("PASS RAW departure: centre unchanged, RC-3 two reverse bends/down50 without parking turns, station events and two rounds/zones");
     return 0;
 }

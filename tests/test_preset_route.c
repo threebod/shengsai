@@ -21,6 +21,8 @@ static uint8_t referenceArcClear(const PresetLeg *before, const PresetLeg *after
     angle = heading*1.570796327f;
     float x = before->to.x+sinf(angle)*PRESET_ARC_TRIM;
     float y = before->to.y-cosf(angle)*PRESET_ARC_TRIM;
+    if (before->templateId == 20U && before->drive.upMm < 0)
+        y -= PRESET_RC3_EXTRA_DOWN_MM;
     float distance = 0.0f, degrees, curvature, step;
     int8_t change = presetHeadingChange(before->from.heading,after->from.heading);
     if (change != 1 && change != -1) return 0U;
@@ -255,8 +257,8 @@ static void fixedDistances(void)
         {7,9,6,1,"RC-1",{-1680},{0}},
         {7,14,6,1,"RC-1",{-1680},{0}},
         {8,9,6,3,"RC-2",{0,-1242,0},{-581,0,661}},
-        {4,8,6,3,"RC-3",{0,-1431,0},{651,0,-900}},
-        {8,14,6,3,"RC-3",{0,-1431,0},{651,0,-900}},
+        {4,8,6,3,"RC-3",{0,-1232,0},{651,0,-651}},
+        {8,14,6,3,"RC-3",{0,-1232,0},{651,0,-651}},
         {7,9,8,2,"CT-1",{0,601},{-611,0}},
         {7,13,8,4,"CT-3",{0,1680,0,-637},{-50,0,-661,0}},
         {7,9,10,2,"TR-1",{631,0},{0,601}},
@@ -437,7 +439,7 @@ static void rawRightDirectArrival(void)
 {
     static PresetRoute reference;
     static const unsigned regions[][2] = {{4,8},{8,14}};
-    static const int up[] = {0,-1431,0}, right[] = {651,0,-900};
+    static const int up[] = {0,-1232,0}, right[] = {651,0,-651};
     unsigned zone, map, round, i;
     for (zone = 1U; zone <= 2U; ++zone) for (map = 0U; map < 2U; ++map) {
         assert(presetBuild(&route,(uint8_t)zone,mask(regions[map][0],regions[map][1])));
@@ -448,12 +450,12 @@ static void rawRightDirectArrival(void)
                 RouteLeg active;
                 const PresetLeg *leg = &route.legs[first+i];
                 assert(leg->taskIndex == task && leg->drive.upMm <= 0);
-                assert(leg->arc == (i == 0U));
+                assert(leg->arc == (i < 2U));
                 route.index = (uint16_t)(first+i); active = presetActiveLeg(&route);
                 assert(active.upMm == up[i] && active.rightMm == right[i]);
             }
             assert(route.legs[first+1U].to.x == 2100 && route.legs[first+1U].to.y == 400);
-            assert(route.legs[first+1U].drive.upMm == -1680);
+            assert(route.legs[first+1U].drive.upMm == -1730);
             assert(route.legs[first+2U].from.y == 400 && route.legs[first+2U].to.y == 400);
             assert(route.legs[first+2U].to.x == 1200 && route.legs[first+2U].drive.event);
             assert(route.legs[first+2U].from.heading == -1 && route.legs[first+2U].to.heading == -1);

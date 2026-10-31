@@ -122,8 +122,12 @@ static uint8_t presetArcClear(const PresetLeg *before, const PresetLeg *after, u
     static ArcSample samples[402];
     static unsigned count;
     unsigned i;
+    float cornerY = before->to.y;
     int8_t heading = before->from.heading;
     int8_t change = presetHeadingChange(heading, after->from.heading);
+    /* RC-3 keeps nominal station anchors, but its lower bend executes 50mm lower. */
+    if (before->templateId == 20U && before->drive.upMm < 0)
+        cornerY -= PRESET_RC3_EXTRA_DOWN_MM;
     if (before->from.x != before->to.x || before->from.y != before->to.y) {
         int8_t incoming = presetHeadingChange(heading,presetDirection(before->from,before->to));
         int8_t outgoing = presetHeadingChange(after->from.heading,presetDirection(after->from,after->to));
@@ -161,7 +165,7 @@ static uint8_t presetArcClear(const PresetLeg *before, const PresetLeg *after, u
         case -1: x = p.y; y = -p.x; s = -p.c; c = p.s; break;
         default: x = p.x; y = p.y; s = p.s; c = p.c; break;
         }
-        if (!presetBodyClearScope(before->to.x+x,before->to.y+y,s,c,regions,
+        if (!presetBodyClearScope(before->to.x+x,cornerY+y,s,c,regions,
                                   (uint8_t)(before->arc != PRESET_ARC_FOUR_POINT))) return 0U;
     }
     return 1U;
@@ -208,6 +212,12 @@ static uint8_t presetTryTemplate(PresetRoute *route, const PresetGroup *group,
             !presetRectangleClear(leg->from.x, leg->to.y - PRESET_RAW_CLEAR_MM,
                                   leg->from.x + PRESET_RAW_RIGHT_MM,
                                   leg->from.y, route->regions)) return 0U;
+        /* Cover the lower RC-3 command path and the nominal station alignment band. */
+        if (templateId == 20U && i > first &&
+            !presetRectangleClear(leg->from.x < leg->to.x ? leg->from.x : leg->to.x,
+                                  (leg->from.y < leg->to.y ? leg->from.y : leg->to.y) - PRESET_RC3_EXTRA_DOWN_MM,
+                                  leg->from.x > leg->to.x ? leg->from.x : leg->to.x,
+                                  leg->from.y > leg->to.y ? leg->from.y : leg->to.y, route->regions)) return 0U;
         /* Calibrated motor commands are not nominal map displacements.
          * Select corridors by map endpoints; keep station alignment unchanged. */
         /* Station alignment and the fixed template define parking turns.
