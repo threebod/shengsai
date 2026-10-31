@@ -10,7 +10,7 @@ static uint8_t startLateralTest(int16_t distanceMm)
     missionButtonReady = 0U;
     presetRouteActive = missionActive = fullRouteRunning = arcRoutePhase = 0U;
     missionArcActive = missionArcExit = rawPickRouteActive = 0U;
-    routeWaiting = routeRotating = routeOnlyTurn = routeTurnInBand = routeStationAlignment = 0U;
+    routeWaiting = routeRotating = routeTurnInBand = routeStationAlignment = 0U;
     routeHeading = routeNextHeading = 0;
     routeBaseYaw = routeYaw = imuYaw;
     routeX = routeY = 0.0f;

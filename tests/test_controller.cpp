@@ -66,69 +66,6 @@ private slots:
         c.disconnectDevice();QVERIFY(!c.pickupRead());c.device_=nullptr;
     }
 
-    void turnTestDirectionsAndCompletion(){
-        Wire wire;Controller c;c.device_=&wire;
-        c.testTurn(1);QVERIFY(wire.written.isEmpty());c.connected_=true;
-        c.testTurn(1);QVERIFY(wire.written.isEmpty());c.confirmed_=true;
-        for(int direction:{0,2,-2}){c.testTurn(direction);QVERIFY(wire.written.isEmpty());}
-        c.busy_=true;c.testTurn(1);QVERIFY(wire.written.isEmpty());c.busy_=false;
-        for(int direction:{1,-1}){
-            c.testTurn(direction);auto q=wire.last();QCOMPARE(int(q.command),int(SS_TURN_TEST));
-            QCOMPARE(int(q.length),1);QCOMPARE(int(qint8(q.data[0])),direction);QVERIFY(c.turnTesting() && c.busy());
-            c.testTurn(1);c.testStraight();c.testLateral(1,100);QTest::qWait(120);QVERIFY(wire.written.isEmpty());
-            SsFrame r{};r.command=q.command;r.sequence=q.sequence;r.flags=SS_RESPONSE;r.length=5;
-            ss_put16(r.data+1,300);ss_put16(r.data+3,100);c.handle(r);
-            QVERIFY(c.turnTesting() && c.turnTestState().contains("300RPM"));
-            r.flags=SS_EVENT;r.length=1;r.sequence++;c.handle(r);QVERIFY(c.turnTesting());
-            r.sequence=q.sequence;c.handle(r);QVERIFY(!c.turnTesting() && c.turnTestState().contains("完成"));
-        }
-        c.testTurn(1);auto q=wire.last();SsFrame r{};r.command=q.command;r.sequence=q.sequence;r.flags=SS_RESPONSE|SS_ERROR;r.length=1;r.data[0]=1;c.handle(r);
-        QVERIFY(!c.turnTesting() && c.turnTestState().contains("未启动"));
-        c.testTurn(1);q=wire.last();r.sequence=q.sequence;r.flags=SS_RESPONSE;r.data[0]=0;c.handle(r);
-        q=wire.last();QCOMPARE(int(q.command),int(SS_STOP));QVERIFY(!c.turnTesting());
-        c.testTurn(1);q=wire.last();c.pauseManual();QCOMPARE(int(wire.last().command),int(SS_STOP));
-        QVERIFY(c.turnTesting() && c.turnTestState().contains("停止"));
-        r.command=SS_TURN_TEST;r.sequence=q.sequence;r.flags=SS_EVENT;r.length=1;r.data[0]=4;c.handle(r);
-        QVERIFY(!c.turnTesting() && c.turnTestState().contains("中止"));
-        c.testTurn(-1);wire.last();c.disconnectDevice();QCOMPARE(int(wire.last().command),int(SS_STOP));
-        QVERIFY(!c.turnTesting() && c.turnTestState().contains("未知"));c.device_=nullptr;
-    }
-    void straightTestRequiresSafeIdleAndCompletion(){
-        Wire wire;Controller c;c.device_=&wire;
-        c.testStraight();QVERIFY(wire.written.isEmpty());
-        c.connected_=true;c.testStraight();QVERIFY(wire.written.isEmpty());
-        c.confirmed_=true;c.busy_=true;c.testStraight();QVERIFY(wire.written.isEmpty());c.busy_=false;
-        c.calibrationStage_=1;c.testStraight();QVERIFY(wire.written.isEmpty());c.calibrationStage_=0;
-        c.servoTargets_.insert(4,100);c.testStraight();QVERIFY(wire.written.isEmpty());c.servoTargets_.clear();
-        c.axis6TestSequence_=9;c.testStraight();QVERIFY(wire.written.isEmpty());c.axis6TestSequence_=-1;
-        c.lateralTestSequence_=9;c.testStraight();QVERIFY(wire.written.isEmpty());c.lateralTestSequence_=-1;
-        QVERIFY(!c.mechanismValid());c.testStraight();auto q=wire.last();
-        QCOMPARE(int(q.command),int(SS_STRAIGHT_TEST));QCOMPARE(int(q.length),0);
-        QVERIFY(c.straightTesting() && c.busy());
-        c.testStraight();c.testLateral(1,100);c.testAxis6();QTest::qWait(150);QVERIFY(wire.written.isEmpty());
-        SsFrame r{};r.command=q.command;r.sequence=q.sequence;r.flags=SS_RESPONSE;r.length=3;
-        ss_put16(r.data+1,240);c.handle(r);
-        QVERIFY(c.straightTesting() && c.straightTestState().contains("240RPM"));
-        r.flags=SS_EVENT;r.length=1;r.sequence=q.sequence+1;c.handle(r);QVERIFY(c.straightTesting());
-        r.sequence=q.sequence;c.handle(r);QVERIFY(!c.straightTesting());
-        QVERIFY(c.straightTestState().contains("1680mm") && c.straightTestState().contains("完成"));
-        c.testStraight();q=wire.last();r.sequence=q.sequence;r.data[0]=4;c.handle(r);
-        QVERIFY(!c.straightTesting() && c.straightTestState().contains("中止"));
-        c.disconnectDevice();c.device_=nullptr;
-    }
-    void straightTestRejectsInvalidReplyAndStopsOnPauseOrDisconnect(){
-        Wire wire;Controller c;c.device_=&wire;c.connected_=c.confirmed_=true;
-        c.testStraight();auto q=wire.last();SsFrame r{};
-        r.command=q.command;r.sequence=q.sequence;r.flags=SS_RESPONSE|SS_ERROR;r.length=1;r.data[0]=1;c.handle(r);
-        QVERIFY(!c.straightTesting() && c.straightTestState().contains("未启动"));
-        c.testStraight();q=wire.last();r.sequence=q.sequence;r.flags=SS_RESPONSE;r.data[0]=0;c.handle(r);
-        q=wire.last();QCOMPARE(int(q.command),int(SS_STOP));
-        QVERIFY(!c.straightTesting() && c.straightTestState().contains("应答无效"));
-        c.testStraight();wire.last();c.pauseManual();q=wire.last();QCOMPARE(int(q.command),int(SS_STOP));
-        QVERIFY(c.straightTesting() && c.straightTestState().contains("停止"));
-        c.disconnectDevice();q=wire.last();QCOMPARE(int(q.command),int(SS_STOP));
-        QVERIFY(!c.straightTesting() && c.straightTestState().contains("未知"));c.device_=nullptr;
-    }
     void lateralTestRequiresSafeIdleAndCompletion(){
         Wire wire;Controller c;c.device_=&wire;
         c.testLateral(-1,1000);QVERIFY(wire.written.isEmpty());

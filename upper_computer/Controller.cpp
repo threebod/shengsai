@@ -97,14 +97,6 @@ void Controller::disconnectDevice(){
         request(SS_LIDAR_CONTROL,data);
     }
     resetLidar();
-    if(turnTesting()){
-        if(device_ && device_->isOpen())request(SS_STOP);
-        turnTestSequence_=-1;turnTestState_=QStringLiteral("连接已断开，转向结果未知；重连后读取日志");
-    }
-    if(straightTesting()){
-        if(device_ && device_->isOpen())request(SS_STOP);
-        straightTestSequence_=-1;straightTestState_=QStringLiteral("连接已断开，直行结果未知；重连后读取日志");
-    }
     if(lateralTesting()){
         if(device_ && device_->isOpen())request(SS_STOP);
         lateralTestSequence_=-1;lateralTestState_=QStringLiteral("连接已断开，横移结果未知");
@@ -143,20 +135,6 @@ void Controller::handle(const SsFrame &f){
     if(f.flags==SS_EVENT){
         if(f.command==SS_LIDAR_SCAN){handleLidarScan(f);return;}
         if(f.command==SS_LOG){log(QString::fromUtf8(reinterpret_cast<const char *>(f.data),f.length));return;}
-        if(f.command==SS_TURN_TEST && f.length==1 && f.sequence==turnTestSequence_){
-            turnTestSequence_=-1;
-            if(f.data[0])mechanismValid_=false;
-            turnTestState_=f.data[0]?QStringLiteral("转向测试中止，请读取日志"):
-                QStringLiteral("90°转向测试完成，请读取日志并记录载荷");
-            emit changed();return;
-        }
-        if(f.command==SS_STRAIGHT_TEST && f.length==1 && f.sequence==straightTestSequence_){
-            straightTestSequence_=-1;
-            if(f.data[0])mechanismValid_=false;
-            straightTestState_=f.data[0]?QStringLiteral("直行测试中止，请读取日志"):
-                QStringLiteral("1680mm直行指令完成，请测量侧偏并读取日志");
-            emit changed();return;
-        }
         if(f.command==SS_LATERAL_TEST && f.length==1 && f.sequence==lateralTestSequence_){
             lateralTestSequence_=-1;
             if(f.data[0])mechanismValid_=false;
@@ -201,12 +179,6 @@ void Controller::handle(const SsFrame &f){
         if(f.command==SS_APPLY_SCALE || f.command==SS_SAVE_SCALE)scaleState_=QStringLiteral("写入失败，尚未获得主控确认");
         static const QStringList errors{QString(),QStringLiteral("参数或命令无效"),QStringLiteral("主控忙，请等待或停止"),QStringLiteral("急停锁定"),QStringLiteral("主控执行失败，请检查日志"),QStringLiteral("协议不匹配"),QStringLiteral("请先确认机构零点及安全条件")};
         const QString message=errors.value(f.data[0],QStringLiteral("主控拒绝指令"));
-        if(f.command==SS_TURN_TEST && f.sequence==turnTestSequence_){
-            turnTestSequence_=-1;turnTestState_=QStringLiteral("转向测试未启动：")+message;
-        }
-        if(f.command==SS_STRAIGHT_TEST && f.sequence==straightTestSequence_){
-            straightTestSequence_=-1;straightTestState_=QStringLiteral("直行测试未启动：")+message;
-        }
         if(f.command==SS_LATERAL_TEST && f.sequence==lateralTestSequence_){
             lateralTestSequence_=-1;lateralTestState_=QStringLiteral("横移测试未启动：")+message;
         }
@@ -227,20 +199,6 @@ void Controller::handle(const SsFrame &f){
             if(!lidarRunning_){lidarPartial_.clear();lidarTotal_=0;}
         }
         emit lidarChanged();break;
-    case SS_TURN_TEST:
-        if(f.sequence==turnTestSequence_){
-            if(f.length!=5 || !ss_get16(f.data+1) || !ss_get16(f.data+3)){
-                stop();turnTestSequence_=-1;turnTestState_=QStringLiteral("转向应答无效，请检查固件版本");
-            }else turnTestState_=QStringLiteral("转向测试进行中 · 上限%1RPM · 加速度%2RPM/s · 正在记录").arg(ss_get16(f.data+1)).arg(ss_get16(f.data+3));
-        }
-        break;
-    case SS_STRAIGHT_TEST:
-        if(f.sequence==straightTestSequence_){
-            if(f.length!=3 || ss_get16(f.data+1)!=SS_STRAIGHT_TEST_RPM){
-                stop();straightTestSequence_=-1;straightTestState_=QStringLiteral("直行应答无效，请检查固件版本");
-            }else straightTestState_=QStringLiteral("直行测试进行中 · 1680mm · 240RPM · 正在记录角度");
-        }
-        break;
     case SS_LATERAL_TEST:
         if(f.sequence==lateralTestSequence_){
             if(f.length!=3){
@@ -322,12 +280,10 @@ void Controller::stop(bool emergency){
     calibrationTimeout_.stop();calibrationStage_=0;++calibrationGeneration_;
     if(axis6Testing())axis6TestState_=QStringLiteral("正在停止测试…");
     if(lateralTesting())lateralTestState_=QStringLiteral("正在停止横移测试…");
-    if(straightTesting())straightTestState_=QStringLiteral("正在停止直行测试…");
-    if(turnTesting())turnTestState_=QStringLiteral("正在停止转向测试…");
     request(emergency?SS_ESTOP:SS_STOP);confirmed_=emergency?false:confirmed_;emit changed();
 }
 void Controller::pauseManual(){
-    if(driveTimer_.isActive() || calibrating() || !servoTargets_.isEmpty() || axis6Testing() || lateralTesting() || straightTesting() || turnTesting())stop();
+    if(driveTimer_.isActive() || calibrating() || !servoTargets_.isEmpty() || axis6Testing() || lateralTesting())stop();
     servoTimer_.stop();servoTargets_.clear();
 }
 void Controller::readRings(){if(connected_)request(SS_GET_RINGS);}
@@ -412,19 +368,6 @@ void Controller::testLateral(int direction,double distanceMm){
     const int sequence=request(SS_LATERAL_TEST,data);
     if(sequence<0)return;
     lateralTestSequence_=sequence;lateralTestState_=QStringLiteral("等待主控开始横移测距");emit changed();
-}
-void Controller::testStraight(){
-    if(!connected_ || !confirmed_ || busy() || calibrating() || driveTimer_.isActive() || !servoTargets_.isEmpty())return;
-    const int sequence=request(SS_STRAIGHT_TEST);
-    if(sequence<0)return;
-    straightTestSequence_=sequence;straightTestState_=QStringLiteral("等待主控开始1680mm直行测试");emit changed();
-}
-void Controller::testTurn(int direction){
-    if(!connected_ || !confirmed_ || busy() || calibrating() || driveTimer_.isActive() ||
-       !servoTargets_.isEmpty() || (direction!=1 && direction!=-1))return;
-    const int sequence=request(SS_TURN_TEST,QByteArray(1,char(direction)));
-    if(sequence<0)return;
-    turnTestSequence_=sequence;turnTestState_=QStringLiteral("等待主控开始90°转向测试");emit changed();
 }
 void Controller::drive(int direction){
     if(!connected_ || !confirmed_ || calibrating() || (direction!=1 && direction!=-1))return;

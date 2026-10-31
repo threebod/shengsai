@@ -26,7 +26,7 @@ ApplicationWindow {
     readonly property bool mobile: width - SafeArea.margins.left - SafeArea.margins.right < 760 || (Qt.platform.os === "android" && height < 500)
     readonly property int pageSpacing: mobile ? 14 : 20
     readonly property color blue: "#007AFF"
-    readonly property bool motionReady: controller.connected && controller.confirmed && !controller.calibrating && !controller.axis6Testing && !controller.lateralTesting && !controller.straightTesting && !controller.turnTesting
+    readonly property bool motionReady: controller.connected && controller.confirmed && !controller.calibrating && !controller.axis6Testing && !controller.lateralTesting
     readonly property var pageNames: ["比赛", "圆环", "视觉", "手动", "雷达"]
     font.family: Qt.platform.os === "windows" ? "Microsoft YaHei UI" : "sans-serif"
     font.pixelSize: 14
@@ -500,33 +500,6 @@ ApplicationWindow {
                                 ActionButton { text: "按住前进"; primary: true; Layout.fillWidth: true; enabled: app.motionReady; onPressed: controller.drive(1); onReleased: controller.stop(); onCanceled: controller.stop() }
                                 ActionButton { text: "按住后退"; primary: true; Layout.fillWidth: true; enabled: app.motionReady; onPressed: controller.drive(-1); onReleased: controller.stop(); onCanceled: controller.stop() }
                                 Hint { text: "松开、切换页面或窗口失焦即停；主控另有点动指令超时保护。" }
-                            }
-                            Card {
-                                objectName: "turnTestCard"; heading: "90°原地转向测试"
-                                RowLayout {
-                                    Layout.fillWidth: true
-                                    ActionButton { objectName: "turnLeftButton"; text: "左转90°"; primary: true; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy; onClicked: controller.testTurn(1) }
-                                    ActionButton { objectName: "turnRightButton"; text: "右转90°"; primary: true; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy; onClicked: controller.testTurn(-1) }
-                                }
-                                ActionButton { objectName: "turnStopButton"; text: "停止转向测试"; Layout.fillWidth: true; enabled: controller.connected && controller.turnTesting; onClicked: controller.stop() }
-                                Hint { text: "从当前朝向原地转90°，复用正式转向PID和加减速；±0.5°内停车，稳定200ms并确认新IMU数据后完成。" }
-                                Hint { text: "记录每个新IMU角度及轮速指令变化。请左右各测3次，每次立即读取日志并注明载荷；下一次测试会清空上一趟记录。" }
-                                Hint { text: "不自动转回、不执行取放动作；切页、失焦或断连停止。" }
-                                Hint { text: controller.turnTestState }
-                            }
-                            Card {
-                                objectName: "straightTestCard"; heading: "1680mm直行测试"
-                                ActionButton {
-                                    objectName: "straightTestButton"; text: controller.straightTesting ? "直行测试中…" : "直行1680mm并记录角度"
-                                    primary: true; Layout.fillWidth: true
-                                    enabled: app.motionReady && !controller.busy
-                                    onClicked: controller.testStraight()
-                                }
-                                ActionButton { objectName: "straightStopButton"; text: "停止直行测试"; Layout.fillWidth: true; enabled: controller.connected && controller.straightTesting; onClicked: controller.stop() }
-                                Hint { text: "沿当前车头方向前进1680mm，240RPM，沿用正式直线加减速和航向PID；不转向、不执行取放动作。" }
-                                Hint { text: "每100ms记录角度和纠偏指令。结束后请测量实际侧偏，并在“日志”中读取上次任务日志；开始下次测试会清空记录。" }
-                                Hint { text: "切页、失焦或断连停止；完成表示指令距离估算结束，请留足直线距离。" }
-                                Hint { text: controller.straightTestState }
                             }
                             Card {
                                 objectName: "lateralTestCard"; heading: "左右横移测距"

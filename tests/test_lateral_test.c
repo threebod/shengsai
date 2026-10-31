@@ -9,7 +9,7 @@
 
 static uint8_t imuValid, fault, failEnable, missionButtonReady, presetRouteActive, missionActive;
 static uint8_t fullRouteRunning, arcRoutePhase, missionArcActive, missionArcExit, rawPickRouteActive;
-static uint8_t routeWaiting, routeRotating, routeOnlyTurn, routeTurnInBand, routeStationAlignment;
+static uint8_t routeWaiting, routeRotating, routeTurnInBand, routeStationAlignment;
 static uint8_t routeSentValid, routeIndex, navPathCount, routeAuto, routeActive, navRunning, navInitialized;
 static uint8_t lateralTestActive, hostHeartbeatActive;
 static int8_t routeHeading, routeNextHeading;

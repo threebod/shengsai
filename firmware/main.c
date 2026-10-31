@@ -29,8 +29,6 @@
 #include "axis6_test.h"
 #include "task_log.h"
 #include "route_heading_log.h"
-#include "route_pid_log.h"
-#include "turn_test_log.h"
 
 #define COMMAND_BAUD_RATE  115200U
 
@@ -80,7 +78,6 @@ static uint8_t hostEStop;
 static void hostLogChar(char c);
 static TaskLog taskLog;
 static RouteHeadingLog routeHeadingLog;
-static RoutePidLog routePidLog;
 static uint8_t armed;
 static uint8_t servoTimerReady;
 static volatile uint8_t servoChannelEnabled[3];
@@ -111,10 +108,7 @@ static uint32_t motionStart, motionDuration, lastControl;
 static void serviceMotion(void);
 /* Route progress is nominal, NOT measured ground position. */
 static uint8_t routeActive, routeWaiting, routeIndex, routeStartZone, routeStep;
-static uint8_t lateralTestActive, straightTestActive, turnTestActive;
-static TurnTestLog turnTestLog;
-static void finishTurnTest(uint8_t aborted);
-static void finishStraightTest(uint8_t aborted);
+static uint8_t lateralTestActive;
 /* Independent QR-to-RAW arc test: 1 approach, 2 QR wait, 3 arc, 4 exit. */
 static uint8_t arcRoutePhase;
 /* Formal mission uses only the selected corners; exit retains live speeds. */
@@ -132,7 +126,7 @@ static uint8_t presetRouteActive;
 static uint8_t presetExecutionStep;
 static int16_t routeForward, routeRight;
 static uint32_t routeTick, routeLegStart, routeSettle;
-static uint8_t routeAuto, routeRotating, routeOnlyTurn, routeTurnInBand;
+static uint8_t routeAuto, routeRotating, routeTurnInBand;
 /* 0 pending, 1 aligning station heading, 2 aligned for this leg. */
 static uint8_t routeStationAlignment;
 static uint8_t fullRouteRunning;
@@ -657,7 +651,6 @@ static void stopAllMotors(void)
     routeActive = 0U;
     fullRouteRunning = 0U;
     lateralTestActive = 0U;
-    finishStraightTest(1U);
     presetRouteActive = 0U;
     presetRoute.count = presetRoute.index = 0U;
     missionButtonReady = 0U;
@@ -670,7 +663,7 @@ static void stopAllMotors(void)
     rawPickMissingReported = 0U;
     rawPickCurrentColor = rawPickCurrentSlot = rawPickCollectedMask = 0U;
     routeWaiting = 0U;
-    routeRotating = routeOnlyTurn = routeTurnInBand = 0U;
+    routeRotating = routeTurnInBand = 0U;
     routeStationAlignment = 0U;
     routeDriveRpm = routeTurnRpm = routeCorrection = 0.0f;
     routeHeadingPidReset(&routeHeadingPid);
@@ -680,7 +673,6 @@ static void stopAllMotors(void)
     navRunning = 0U;
     navPathCount = 0U;
     stopDriveMotors();
-    finishTurnTest(1U);
     stopAuxMotors();
     armed = 0U;
 }
@@ -1436,20 +1428,6 @@ static void recordRouteHeading(float target, float actual, uint32_t sample, uint
                           routeIndex, segment, templateId, phase, target, actual);
 }
 
-static void recordRoutePid(float target, float actual, uint32_t sample,
-                           uint32_t dt, float raw, float scale)
-{
-    RoutePidSample s;
-    if (!routeSentValid || motionInterrupted() || missionArcExit || arcRoutePhase) return;
-    s.now = clockMs; s.sample = sample; s.dt = (uint16_t)dt;
-    s.step = routeIndex; s.sub = presetExecutionStep;
-    s.segment = presetRouteActive ? presetRoute.index : routeIndex;
-    s.templateId = presetRouteActive ? presetRoute.legs[presetRoute.index].templateId : 0U;
-    s.yawSign = yawSign;
-    memcpy(s.wheels, routeSent, sizeof(s.wheels));
-    s.target = target; s.actual = actual; s.raw = raw; s.scale = scale;
-    routePidLogRecord(&taskLog, &routePidLog, &s, &routeHeadingGains, &routeHeadingPid);
-}
 
 static void printArcBlendState(const char *event)
 {
@@ -1554,9 +1532,8 @@ static void finishNavigation(void)
     stopDriveMotors();
     routeActive = 0U;
     lateralTestActive = 0U;
-    finishStraightTest(0U);
     routeWaiting = 0U;
-    routeRotating = routeOnlyTurn = routeTurnInBand = 0U;
+    routeRotating = routeTurnInBand = 0U;
     routeHeadingPidReset(&routeHeadingPid);
     routeForward = routeRight = 0;
     navRunning = 0U;
@@ -1571,7 +1548,7 @@ static void serviceRoute(void)
     RouteLeg leg;
     float yaw, error, dx, dy, remaining, turnEntry, turnExit, correctionAccel, brakeRemaining;
     int16_t speed, turn, bodyForward, bodyRight;
-    float pidTurn, rawPidTurn;
+    float pidTurn;
     uint16_t cruiseRpm;
     uint8_t lateral, bodyLateral;
     if (!routeActive || missionArcActive || motionInterrupted()) return;
@@ -1619,9 +1596,6 @@ static void serviceRoute(void)
         routeTurnRpm = routeTurnRamp(routeTurnRpm,
                                     routeTurnInBand ? 0.0f : pidTurn, dt);
         sendRouteSpeeds(0, 0, routeRound(routeTurnRpm));
-        if (turnTestActive && routeSentValid && !motionInterrupted())
-            turnTestLogRecord(&taskLog,&turnTestLog,clockMs,sampleMs,routeYaw,yaw,
-                              pidTurn,routeTurnRpm,&routeTurnPid,routeSent,routeTurnInBand);
         if (routeTurnInBand && routeRound(routeTurnRpm) == 0) {
             if (routeTurnInBand == 1U) { routeTurnStable = now; routeTurnInBand = 2U; }
             if (now - routeTurnStable >= 200U &&
@@ -1632,12 +1606,6 @@ static void serviceRoute(void)
                 routeHeadingPidReset(&routeHeadingPid);
                 if (routeStationAlignment == 1U) {
                     routeStationAlignment = 2U;
-                }
-                if (routeOnlyTurn) {
-                    stopDriveMotors();
-                    routeActive = routeOnlyTurn = 0U;
-                    routeSentValid = 0U;
-                    finishTurnTest(0U);
                 }
             }
         }
@@ -1818,7 +1786,6 @@ static void serviceRoute(void)
     routeForward = lateral ? 0 : (dy > 0 ? speed : -speed);
     pidTurn = routeHeadingPidStep(&routeHeadingPid, &routeHeadingGains, error,
                                   yaw, sampleMs, dt, yawSign);
-    rawPidTurn = pidTurn;
     /* A slow arc exit still needs yaw damping. Scaling by the requested
      * 250 RPM cruise would almost disable it at the live 10..36 RPM speed. */
     if (arcRoutePhase == 4U || missionArcExit) {
@@ -1830,7 +1797,6 @@ static void serviceRoute(void)
     turn = routeRound(routeCorrection);
     routeBody(routeForward, routeRight, routeHeading, &bodyForward, &bodyRight);
     sendRouteSpeeds(bodyForward, bodyRight, turn);
-    recordRoutePid(routeYaw, yaw, sampleMs, dt, rawPidTurn, (float)speed / cruiseRpm);
 }
 
 static uint8_t processRouteCommand(const char *command)
@@ -1928,7 +1894,7 @@ static uint8_t processRouteCommand(const char *command)
     routeDriveRpm = routeTurnRpm = routeCorrection = 0.0f;
     routeHeadingPidReset(&routeHeadingPid);
     routeSentValid = 0U;
-    routeRotating = routeOnlyTurn = routeTurnInBand = 0U;
+    routeRotating = routeTurnInBand = 0U;
     routeStationAlignment = 0U;
     routeStartZone = start; routeStep = 0U; routeIndex = 0U;
     routeRawLeftCorrection = 0;
@@ -2901,8 +2867,6 @@ static void processCommand(const char *command)
 #include "qr_camera_control.h"
 
 #include "lateral_test.h"
-#include "straight_test.h"
-#include "turn_test.h"
 #include "host_control.h"
 #include "lidar_runtime.h"
 void UART5_IRQHandler(void)
