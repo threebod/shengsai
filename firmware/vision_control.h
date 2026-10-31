@@ -17,6 +17,7 @@
 #define VISION_FLAG_VALID 0x01U
 #define VISION_FLAG_STABLE 0x02U
 #define VISION_FLAG_RING_NO_DIGIT 0x04U /* Request only; selector is the fallback color. */
+#define VISION_FLAG_LAYOUT_MOVING 0x04U /* Layout result only; measured motion. */
 #define VISION_FLAG_MATERIAL_LAYOUT 0x08U
 #define VISION_FLAG_COLOR_INFERRED 0x10U /* Result only. */
 #define VISION_FLAG_STACK_PREPARE 0x20U /* Request only; prepare stack material or numbered ring 2, without detecting. */
@@ -101,6 +102,8 @@ typedef struct {
     uint8_t layoutInferred;
     uint8_t layoutPositioned; /* After first alignment, a lone blob cannot identify a grasp slot. */
     uint8_t layoutFrameReceived;
+    uint8_t layoutMotionSeen; /* Real material motion observed after the latest chassis correction. */
+    uint8_t layoutWaitMotion; /* First post-correction stop must wait for a new material cycle. */
     uint8_t sampleOnly;
     uint16_t sampleId;
     uint32_t token;
@@ -282,7 +285,8 @@ static void vision_session_make_request(VisionSession *session,
         packet->value[4] = 160;
         packet->value[5] = 205;
         packet->value[7] = session->layoutPhase;
-        if (session->layoutPhase == VISION_LAYOUT_CONFIRM && !session->layoutPositioned)
+        if (session->layoutPhase == VISION_LAYOUT_CONFIRM &&
+            (!session->layoutPositioned || session->layoutWaitMotion))
             packet->value[7] = VISION_LAYOUT_LOCATE;
     }
     session->requestAt = now;
@@ -338,9 +342,10 @@ static VisionEvent vision_layout_observe(VisionSession *session,
     referenceSlot = packet->value[1] >= 120 ? 1U : packet->value[0] < 160 ? 2U :
                     packet->value[0] > 160 ? 3U : 0U;
     if (((index != 3U || mask != session->materialMask) &&
-         !(single && !session->layoutPositioned)) ||
-        (packet->flags & (VISION_FLAG_VALID | VISION_FLAG_STABLE)) !=
-            (VISION_FLAG_VALID | VISION_FLAG_STABLE) ||
+         !(single && (!session->layoutPositioned ||
+           (session->layoutWaitMotion && (packet->flags & VISION_FLAG_LAYOUT_MOVING) &&
+            !(packet->flags & VISION_FLAG_STABLE))))) ||
+        !(packet->flags & VISION_FLAG_VALID) ||
         packet->value[0] < 0 || packet->value[0] >= 320 ||
         packet->value[1] < 0 || packet->value[1] >= 240 ||
         (!session->layoutPositioned && session->iteration && packet->value[1] < 120) ||
@@ -354,6 +359,14 @@ static VisionEvent vision_layout_observe(VisionSession *session,
         session->state = VISION_STATE_WAIT;
         return VISION_EVENT_NONE;
     }
+    if (!(packet->flags & VISION_FLAG_STABLE)) {
+        if ((!session->layoutPositioned || session->layoutWaitMotion) && session->iteration &&
+            (packet->flags & VISION_FLAG_LAYOUT_MOVING)) session->layoutMotionSeen = 1U;
+        memset(session->layoutColors, 0, sizeof(session->layoutColors));
+        session->layoutInferred = 0U;
+        session->state = VISION_STATE_WAIT;
+        return VISION_EVENT_NONE;
+    }
     du = (int16_t)(packet->value[0] - 160);
     dv = (int16_t)(packet->value[1] - 205);
     vision_map_error(calibration, du, dv, &session->forwardMm, &session->rightMm);
@@ -361,13 +374,23 @@ static VisionEvent vision_layout_observe(VisionSession *session,
         (du >= -10 && du <= 10 && dv >= -10 && dv <= 10)) {
         if (!session->layoutPositioned) {
             session->layoutPositioned = 1U;
-            /* The locating round only positions the chassis. Even a complete
-             * layout needs a fresh color-confirmation request before grasping. */
+            /* An already-still first view after correction must wait for an
+             * actual material movement/stop cycle, even across fresh requests. */
+            session->layoutWaitMotion = session->iteration && !session->layoutMotionSeen;
+            if (!session->layoutMotionSeen || single) {
+                memset(session->layoutColors, 0, sizeof(session->layoutColors));
+                session->layoutInferred = 0U;
+                session->state = VISION_STATE_WAIT;
+                return VISION_EVENT_NONE;
+            }
+        }
+        if (session->layoutWaitMotion && !session->layoutMotionSeen) {
             memset(session->layoutColors, 0, sizeof(session->layoutColors));
             session->layoutInferred = 0U;
             session->state = VISION_STATE_WAIT;
             return VISION_EVENT_NONE;
         }
+        session->layoutWaitMotion = 0U;
         for (index = 0U; index < 3U; ++index) {
             if (session->layoutColors[index] != (uint8_t)packet->value[5U + index]) wasReady = 0U;
             session->layoutColors[index] = (uint8_t)packet->value[5U + index];
@@ -382,6 +405,7 @@ static VisionEvent vision_layout_observe(VisionSession *session,
         session->fault = "NOT_CONVERGED";
         return VISION_EVENT_FAILED;
     }
+    session->layoutMotionSeen = 0U;
     session->state = VISION_STATE_MOVE;
     session->layoutPhase = VISION_LAYOUT_TRACK;
     return VISION_EVENT_MOVE;

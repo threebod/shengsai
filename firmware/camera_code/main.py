@@ -6,7 +6,7 @@ from maix import app, camera, display, err, gpio, image, pinmap, uart
 
 from vision_detectors import find_material, find_ring
 from material_layout import LayoutMemory, LayoutWindow, find_material_layout
-from vision_protocol import (FLAG_COLOR_INFERRED, FLAG_LAYOUT_REFERENCE, FLAG_MATERIAL_LAYOUT,
+from vision_protocol import (FLAG_COLOR_INFERRED, FLAG_LAYOUT_MOVING, FLAG_LAYOUT_REFERENCE, FLAG_MATERIAL_LAYOUT,
                              FLAG_RING_NO_DIGIT, FLAG_STACK_PREPARE, FLAG_STABLE, FLAG_VALID, KIND_RESULT,
                              FLAG_TRACKING, TRACKING_END,
                              LAYOUT_CONFIRM, LAYOUT_END, LAYOUT_LOCATE,
@@ -206,6 +206,8 @@ def main():
                         if confirmed and request["values"][7] in (LAYOUT_CONFIRM, LAYOUT_LOCATE):
                             values[:2] = layout_window.center(target_color)
                             flags |= FLAG_STABLE
+                        elif layout_window.moving and request["values"][7] in (LAYOUT_CONFIRM, LAYOUT_LOCATE):
+                            flags |= FLAG_LAYOUT_MOVING
                     if frame is not None:
                         for slot, point in enumerate(layout.get("visible_points", layout["points"])):
                             if point is not None:

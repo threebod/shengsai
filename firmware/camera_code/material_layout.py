@@ -123,6 +123,7 @@ class LayoutWindow:
     def reset(self):
         self.samples = []
         self.signature = None
+        self.moving = False
 
     def update(self, layout, target_color=0):
         target_slot = (layout["colors"].index(target_color)
@@ -141,13 +142,15 @@ class LayoutWindow:
         self.samples = self.samples[-6:]
         if len(self.samples) < 6:
             return False
-        return any(
+        still = any(
             all(max(row[slot][axis] for row in self.samples) -
                 min(row[slot][axis] for row in self.samples) <= 8 and
                 abs(sorted(row[slot][axis] for row in self.samples[:3])[1] -
                     sorted(row[slot][axis] for row in self.samples[-3:])[1]) <= 2
                 for axis in (0, 1))
             for slot, point in enumerate(layout["points"]) if point is not None)
+        self.moving = not still
+        return still
 
     def center(self, target_color=0):
         slot = self.signature[2]

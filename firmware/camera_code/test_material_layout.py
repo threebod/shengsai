@@ -8,7 +8,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import vision_settings as settings
 from material_layout import LayoutMemory, LayoutWindow, find_material_layout
 import test_vision_main as vision_main_tests
-from vision_protocol import (FLAG_COLOR_INFERRED, FLAG_LAYOUT_REFERENCE, FLAG_MATERIAL_LAYOUT, FLAG_STABLE,
+from vision_protocol import (FLAG_COLOR_INFERRED, FLAG_LAYOUT_MOVING, FLAG_LAYOUT_REFERENCE, FLAG_MATERIAL_LAYOUT, FLAG_STABLE,
                              FLAG_VALID, KIND_REQUEST, LAYOUT_CONFIRM, LAYOUT_END, LAYOUT_LOCATE,
                              LAYOUT_TRACK, MODE_MATERIAL, Parser, encode, validate_request)
 
@@ -238,6 +238,22 @@ class MaterialLayoutDetectorTest(unittest.TestCase):
         for index in range(5):
             self.assertEqual(index == 4, window.update(moving))
 
+    def test_motion_requires_full_observed_window_and_clears_on_loss_or_reset(self):
+        window = LayoutWindow()
+        for index in range(6):
+            observed = layout()
+            observed["points"] = tuple((point[0] + index * 3, *point[1:])
+                                       for point in observed["points"])
+            self.assertFalse(window.update(observed))
+            self.assertEqual(index == 5, window.moving)
+        window.update(None)
+        self.assertFalse(window.moving)
+        for index in range(6):
+            self.assertEqual(index == 5, window.update(layout()))
+            self.assertFalse(window.moving)
+        window.reset()
+        self.assertFalse(window.moving)
+
     def test_gradual_drift_and_new_confirmation_cannot_reuse_old_frames(self):
         window = LayoutWindow()
         for shift in range(10):
@@ -416,6 +432,27 @@ class MaterialLayoutStreamTest(unittest.TestCase):
         self.assertEqual(4, result["selector"])
         self.assertEqual([70, 50], result["values"][:2])
         self.assertEqual([0, 4, 0], result["values"][5:8])
+
+    def test_stream_reports_real_motion_before_stopping_but_not_window_warmup(self):
+        for moving, partial in ((False, False), (True, False), (False, True), (True, True)):
+            with self.subTest(moving=moving, partial=partial):
+                frames = []
+                for index in range(6):
+                    observed = layout()
+                    observed["points"] = tuple((point[0] + (index * 3 if moving else 0), *point[1:])
+                                               for point in observed["points"])
+                    if partial:
+                        observed["points"] = (observed["points"][0], None, None)
+                        observed["colors"] = (1, 0, 0)
+                    frames.append(observed)
+                frames += [layout()] * 6
+                maix = self.run_camera([request(phase=LAYOUT_LOCATE)] + [b""] * 13,
+                                       [index * 0.11 for index in range(14)], layout_found=frames)
+                replies = self.responses(maix)
+                self.assertEqual(moving, any(row["flags"] & FLAG_LAYOUT_MOVING for row in replies))
+                self.assertFalse(any(row["flags"] & FLAG_LAYOUT_MOVING for row in replies[:7]))
+                self.assertTrue(replies[-1]["flags"] & FLAG_STABLE)
+                self.assertFalse(replies[-1]["flags"] & FLAG_LAYOUT_MOVING)
 
     def test_stream_keeps_detecting_after_confirmation_and_limits_uart_rate(self):
         maix = self.run_camera([request()] + [b""] * 20,

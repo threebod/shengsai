@@ -10,6 +10,7 @@ MODE_RING = 2
 FLAG_VALID = 1
 FLAG_STABLE = 2
 FLAG_RING_NO_DIGIT = 4  # Request only; selector carries the fallback material color.
+FLAG_LAYOUT_MOVING = 4  # Layout result only; measured motion, not stability warmup.
 FLAG_MATERIAL_LAYOUT = 8
 FLAG_COLOR_INFERRED = 16  # Result only; one slot color was inferred.
 FLAG_STACK_PREPARE = 32  # Request only; configure stack or ring 2 without detecting or replying.
