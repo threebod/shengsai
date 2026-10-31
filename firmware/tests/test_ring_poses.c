@@ -13,9 +13,9 @@ static void checkTurretRemount(void)
     assert(rawPickInitial.pose.turretDdeg == observation);
     assert(missionInitial.pose.turretDdeg == observation && missionCoarseInitial.pose.turretDdeg == observation);
     /* Preserve the recorded geometry relative to the observation direction. */
-    assert((int)rawPickLowerPose.turretDdeg - observation == -40);
-    assert((int)rawPickUpperPoses[0].turretDdeg - observation == 173);
-    assert((int)rawPickUpperPoses[1].turretDdeg - observation == -216);
+    assert(rawPickLowerPose.horizontalDmm == -800 && rawPickLowerPose.turretDdeg == 2710U);
+    assert(rawPickUpperPoses[0].horizontalDmm == 750 && rawPickUpperPoses[0].turretDdeg == 2903U);
+    assert(rawPickUpperPoses[1].horizontalDmm == 800 && rawPickUpperPoses[1].turretDdeg == 2534U);
     assert((int)rawPickTravelPose.turretDdeg - observation == -2070);
     assert(missionRingPoses[0].horizontalDmm == 130 && missionRingPoses[0].turretDdeg == 3080U);
     assert(missionRingPoses[1].horizontalDmm == -150 && missionRingPoses[1].turretDdeg == 2685U);
@@ -199,7 +199,7 @@ int main(void)
             assert(after[2].pose.liftDmm == 530U && after[7].pose.liftDmm == 180U);
             assert(after[4].pose.liftDmm == 0U && after[10].pose.liftDmm == 0U);
             if (layer == 2U) {
-                assert(after[2].pose.turretDdeg == 2773U && after[4].pose.turretDdeg == 2773U);
+                assert(after[2].pose.turretDdeg == 2903U && after[4].pose.turretDdeg == 2903U);
                 assert(after[2].pose.horizontalDmm == 750 && after[4].pose.horizontalDmm == 750);
             }
         }
