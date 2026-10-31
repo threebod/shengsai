@@ -154,7 +154,7 @@ int main(void)
         assert(routeTurnRamp(100, 5, 20) == 5);
         assert(routeTurnRamp(100, 0, 20) == 0);
         assert(routeTurnRamp(100, -5, 20) < 0);
-        assert(routeAbs(routeTurnRamp(0, 100, 20) - 2.8f) < 0.001f);
+        assert(routeAbs(routeTurnRamp(0, 100, 20) - 3.2f) < 0.001f);
     }
     assert(routeSpeed(1000,0,60)==0);
     assert(routeSpeed(1000,350,60)==30);

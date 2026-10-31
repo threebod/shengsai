@@ -81,7 +81,7 @@ int main(int argc,char **argv){
         assert(!missionActive && !presetRouteActive && !missionOffline && !fullRouteRunning && !missionButtonReady);
         assert(!routeForward && !routeRight && !routeTurnRpm && hostHeartbeatActive);
         contains("TURN_CFG kp_m=2000 ki_m=500 kd_far_m=800 kd_near_m=400");
-        contains("max_rpm=300 accel_m=140000 control_ms=20 stable_ms=200 tolerance_cd=50");
+        contains("max_rpm=300 accel_m=160000 control_ms=20 stable_ms=200 tolerance_cd=50");
         turnTestLogRecord(&taskLog,&turnTestLog,1020,1000,routeYaw,imuYaw,180,10,&pid,wheels,0);
         end=taskLog.end;
         turnTestLogRecord(&taskLog,&turnTestLog,1040,1000,routeYaw,imuYaw,180,10,&pid,wheels,0);
