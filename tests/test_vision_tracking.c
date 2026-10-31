@@ -154,16 +154,18 @@ static void frameRecovery(void)
         vision_tracking_cancel(&tracking);receive(3U,10040U);
         assert(tracking.state==VISION_TRACK_IDLE && tick(10040U)==VISION_TRACK_IDLE);
     }
-    /* A lost stream breaks the two-consecutive-frame alignment confirmation. */
+    /* A lost stream breaks the three-consecutive-frame alignment confirmation. */
     begin(15U,1200U,500.0f);packet.value[0]=160;packet.value[1]=120;receive(1U,100U);
     assert(tracking.confirmations==1U);
     assert(tick(419U)==VISION_TRACK_HOLD && !tracking.confirmations);
     receive(2U,1000U);assert(tracking.state==VISION_TRACK_RUN && tracking.confirmations==1U);
-    receive(3U,1020U);assert(tracking.state==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_IN_RANGE"));
+    receive(3U,1020U);assert(tracking.state==VISION_TRACK_RUN && tracking.confirmations==2U);
+    receive(4U,1040U);assert(tracking.state==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_IN_RANGE"));
     /* A fresh frame just before the next control tick cannot reuse an expired confirmation. */
     begin(15U,1200U,500.0f);packet.value[0]=160;packet.value[1]=120;receive(1U,100U);
     receive(2U,419U);assert(tracking.state==VISION_TRACK_RUN && tracking.confirmations==1U);
-    receive(3U,439U);assert(tracking.state==VISION_TRACK_DONE);
+    receive(3U,439U);assert(tracking.state==VISION_TRACK_RUN && tracking.confirmations==2U);
+    receive(4U,459U);assert(tracking.state==VISION_TRACK_DONE);
 }
 
 static void thirteenFpsCamera(void)
@@ -244,14 +246,16 @@ static void completionAndBudget(void)
     assert(tracking.state==VISION_TRACK_RUN && tracking.confirmations==1U);
     assert(tick(140U)==VISION_TRACK_RUN && forward==0 && right==0);
     receive(2U,150U);assert(tracking.confirmations==1U); /* Duplicate is not a second confirmation. */
-    receive(3U,160U);
+    receive(3U,160U);assert(tracking.state==VISION_TRACK_RUN && tracking.confirmations==2U);
+    receive(4U,180U);
     assert(tracking.state==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_IN_RANGE"));
-    assert(tick(160U)==VISION_TRACK_DONE && forward==0 && right==0);
-    receive(4U,180U); assert(tracking.state==VISION_TRACK_DONE);
+    assert(tick(180U)==VISION_TRACK_DONE && forward==0 && right==0);
+    receive(5U,200U); assert(tracking.state==VISION_TRACK_DONE);
     begin(15U,1200U,80.0f);packet.value[0]=160;packet.value[1]=120;receive(1U,100U);
     packet.value[0]=162;receive(2U,120U);assert(!tracking.confirmations);
     packet.value[0]=160;receive(3U,140U);assert(tracking.state==VISION_TRACK_RUN);
-    receive(4U,160U);assert(tracking.state==VISION_TRACK_DONE);
+    receive(4U,160U);assert(tracking.state==VISION_TRACK_RUN && tracking.confirmations==2U);
+    receive(5U,180U);assert(tracking.state==VISION_TRACK_DONE);
     /* Fresh ring tracking may continue past its former duration. */
     begin(15U,60U,80.0f); packet.value[0]=158; packet.value[1]=120; receive(1U,100U);
     for(now=120U;now<=1100U;now+=20U) {
@@ -259,13 +263,14 @@ static void completionAndBudget(void)
         assert(tick(now)==VISION_TRACK_RUN && forward>0 && right==0);
     }
     packet.value[0]=160;receive(1200U,1120U);assert(tracking.state==VISION_TRACK_RUN);
-    receive(1201U,1140U);assert(tracking.state==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_IN_RANGE"));
+    receive(1201U,1140U);assert(tracking.state==VISION_TRACK_RUN && tracking.confirmations==2U);
+    receive(1202U,1160U);assert(tracking.state==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_IN_RANGE"));
     /* Second-layer material still obeys the tracking duration. */
     begin(30U,60U,80.0f);
     tracking.mode=packet.mode=VISION_MODE_MATERIAL;
     tracking.selector=packet.selector=3U;packet.value[5]=3;
     receive(1U,100U); tick(120U); tick(140U);
-    assert(tick(160U)==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_DEADLINE"));
+    assert(tick(180U)==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_DEADLINE"));
     /* Fresh ring feedback can drive beyond the former budget without slowing. */
     begin(15U,60U,0.01f); receive(1U,100U);
     for(now=120U;now<=1100U;now+=20U) {
@@ -275,7 +280,8 @@ static void completionAndBudget(void)
     assert(tracking.travelledMm>tracking.budgetMm && forward+right==15.0f);
     packet.value[0]=160;packet.value[1]=120;receive(1200U,1120U);
     assert(tracking.state==VISION_TRACK_RUN);
-    receive(1201U,1140U);
+    receive(1201U,1140U);assert(tracking.state==VISION_TRACK_RUN && tracking.confirmations==2U);
+    receive(1202U,1160U);
     assert(tracking.state==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_IN_RANGE"));
     /* Second-layer material retains both budget exhaustion paths. */
     begin(30U,10000U,1.0f);
@@ -330,7 +336,8 @@ static void pixelTolerance(void)
                 assert(tick(100U)==VISION_TRACK_RUN && forward==0 && right==0);
                 receive(1U,110U);assert(tracking.confirmations==1U);
                 assert(tick(110U)==VISION_TRACK_RUN && forward==0 && right==0);
-                receive(2U,120U);
+                receive(2U,120U);assert(tracking.state==VISION_TRACK_RUN && tracking.confirmations==2U);
+                receive(3U,140U);
             }
             assert(tracking.state==(aligned?VISION_TRACK_DONE:VISION_TRACK_RUN));
             if(aligned) assert(!strcmp(tracking.reason,"TRACK_IN_RANGE"));

@@ -125,6 +125,8 @@ int main(void)
     queueFrame(1,1,6,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
     assert(visionTrackingActive() && !sentForward && !sentRight);
     queueFrame(0,1,7,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
+    assert(visionTrackingActive() && visionTracking.confirmations == 2U);
+    queueFrame(0,1,8,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
     assert(!visionTrackingActive() && !motionMode && stops && visionSession.state == VISION_STATE_ALIGNED);
     assert(visionSession.iteration == 1 && requests == 1);
     assert(vision_session_tick(&visionSession,clockMs+300) == VISION_EVENT_NONE);
@@ -155,6 +157,8 @@ int main(void)
     assert(!failures && sentForward > 0 && visionTrackingRequest.token == token && enables == 1 && requests == 1);
     queueFrame(0,0,3,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
     queueFrame(0,0,4,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
+    assert(visionTrackingActive() && visionTracking.confirmations == 2U);
+    queueFrame(0,0,5,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
     assert(!failures && visionSession.state == VISION_STATE_ALIGNED && missionActive);
 
     reset();run();for(i=0;i<17;++i) step(20);
@@ -175,6 +179,8 @@ int main(void)
     queueFrame(0,0,2,VISION_FLAG_TRACKING|VISION_FLAG_VALID); receiveVisionTracking();
     assert(visionTrackingActive());
     queueFrame(0,0,3,VISION_FLAG_TRACKING|VISION_FLAG_VALID); receiveVisionTracking();
+    assert(visionTrackingActive() && visionTracking.confirmations == 2U);
+    queueFrame(0,0,4,VISION_FLAG_TRACKING|VISION_FLAG_VALID); receiveVisionTracking();
     assert(!visionTrackingActive() && fabsf(missionOffsetForward-expected) < 0.001f);
     reset(); run(); assert(sentForward > 0);
     clockMs += 1; imuStamp = clockMs;
@@ -231,6 +237,8 @@ int main(void)
     assert(!failures && visionTrackingActive() && sentForward>0);
     queueFrame(0,0,8,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
     queueFrame(0,0,9,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
+    assert(visionTrackingActive() && visionTracking.confirmations == 2U);
+    queueFrame(0,0,10,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
     assert(!failures && visionSession.state==VISION_STATE_ALIGNED);
 
     reset(); cancelVisionTracking();
@@ -244,6 +252,8 @@ int main(void)
     assert(!failures && visionTrackingActive() && visionSession.state == VISION_STATE_MOVE && sentForward>0);
     queueFrame(0,0,52,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
     queueFrame(0,0,53,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
+    assert(visionTrackingActive() && visionTracking.confirmations == 2U);
+    queueFrame(0,0,54,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
     assert(!failures && !visionTrackingActive() && visionSession.state == VISION_STATE_ALIGNED);
     /* Exhausting the former ring budget must neither stop nor report alignment. */
     reset(); run(); visionTracking.budgetMm = visionTracking.travelledMm; serviceMotion();
@@ -253,6 +263,8 @@ int main(void)
     queueFrame(0,0,52,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
     assert(visionTrackingActive() && visionSession.state == VISION_STATE_MOVE);
     queueFrame(0,0,53,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
+    assert(visionTrackingActive() && visionTracking.confirmations == 2U);
+    queueFrame(0,0,54,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(20);
     assert(!failures && !visionTrackingActive() && visionSession.state == VISION_STATE_ALIGNED);
     /* Second-layer material retains 30 RPM and the two-round settle/limit behavior. */
     for(i = 1; i <= 2; ++i) {

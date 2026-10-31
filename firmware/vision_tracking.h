@@ -128,7 +128,7 @@ static VisionTrackingState vision_tracking_observe(VisionTracking *tracking,
     tracking->lastFrameAt = now - age;
     if (du >= 0 && du <= VISION_ALIGN_TOLERANCE_PX &&
         dv >= 0 && dv <= VISION_ALIGN_TOLERANCE_PX) {
-        if (tracking->mode != VISION_MODE_RING || ++tracking->confirmations >= 2U)
+        if (tracking->mode != VISION_MODE_RING || ++tracking->confirmations >= 3U)
             return vision_tracking_stop(tracking, VISION_TRACK_DONE, "TRACK_IN_RANGE");
         tracking->forwardMm = tracking->rightMm = 0.0f;
         tracking->forwardRpm = tracking->rightRpm = 0.0f;
