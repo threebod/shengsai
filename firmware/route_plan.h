@@ -22,7 +22,7 @@
 #define ROUTE_TURN_RPM      300.0f
 #define ROUTE_TURN_ACCEL    100.0f
 #define ROUTE_TURN_KP       2.0f
-#define ROUTE_TURN_KI       1.0f
+#define ROUTE_TURN_KI       0.5f
 #define ROUTE_TURN_KD_FAR   0.8f
 #define ROUTE_TURN_KD_NEAR  0.4f
 #define ROUTE_TURN_SWITCH_DEG 15.0f

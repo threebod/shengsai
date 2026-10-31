@@ -80,7 +80,7 @@ int main(int argc,char **argv){
         assert(routeYaw==179+90*direction*sign && routeNextHeading==direction && routeTurnRpmLimit==300);
         assert(!missionActive && !presetRouteActive && !missionOffline && !fullRouteRunning && !missionButtonReady);
         assert(!routeForward && !routeRight && !routeTurnRpm && hostHeartbeatActive);
-        contains("TURN_CFG kp_m=2000 ki_m=1000 kd_far_m=800 kd_near_m=400");
+        contains("TURN_CFG kp_m=2000 ki_m=500 kd_far_m=800 kd_near_m=400");
         turnTestLogRecord(&taskLog,&turnTestLog,1020,1000,routeYaw,imuYaw,180,10,&pid,wheels,0);
         end=taskLog.end;
         turnTestLogRecord(&taskLog,&turnTestLog,1040,1000,routeYaw,imuYaw,180,10,&pid,wheels,0);
