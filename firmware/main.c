@@ -2499,6 +2499,17 @@ static void serviceMission(void)
     if (missionPhase == MISSION_RAW_PICK) {
         if (rawPickItemIndex == 3U && !visionPickActive &&
             !mechanismActionActive) {
+            VisionPacket packet;
+            /* Switch camera configuration during travel; sample only after arrival. */
+            memset(&packet, 0, sizeof(packet));
+            packet.type = VISION_MESSAGE_REQUEST;
+            packet.mode = VISION_MODE_RING;
+            packet.target = 2U;
+            packet.flags = VISION_FLAG_STACK_PREPARE;
+            memcpy(packet.value, visionRingCalibration[1].roi, sizeof(visionRingCalibration[1].roi));
+            packet.value[4] = visionRingCalibration[1].anchorU;
+            packet.value[5] = visionRingCalibration[1].anchorV;
+            visionUartSend(&packet);
             /* Validate the retracted travel pose before leaving from visual alignment. */
             missionPhase = MISSION_RECENTER;
         }
@@ -2570,7 +2581,7 @@ static void serviceMission(void)
         if (!missionActionStarted) {
             const MechanismAction *actions = missionWorkActions;
             const MechanismInitialState *initial = &missionInitial;
-            uint16_t count = MISSION_PLACE_COUNT;
+            uint16_t count = MISSION_PLACE_COUNT - 1U;
             if (missionPhase == MISSION_COARSE_PLACE) {
                 count = missionBuildTaskPlace(missionWorkActions,
                                              missionTask.rings[routeIndex == 14U], 1U, 1U);

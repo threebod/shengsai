@@ -94,8 +94,8 @@ int main(void)
                 uint16_t count;
                 memcpy(missionRingPoses, original, sizeof(original));
                 count = missionBuildTaskPlace(before, orders[order], layer, coarse);
-                assert(count == (coarse ? MISSION_COARSE_PLACE_COUNT - 1U : MISSION_PLACE_COUNT));
-                if (coarse) {
+                assert(count == (coarse ? MISSION_COARSE_PLACE_COUNT : MISSION_PLACE_COUNT) - 1U);
+                {
                     assert(before[0].type == MECHANISM_ACTION_PLATFORM && before[0].value == 1U);
                     assert(before[1].type == MECHANISM_ACTION_GRIPPER && before[1].value == 1U);
                     assert(before[2].type == MECHANISM_ACTION_POSE && before[2].pose.horizontalDmm == -500);
@@ -106,11 +106,11 @@ int main(void)
                 checkUnchanged(before, after, count);
                 for (item = 0U; item < 3U; ++item) {
                     uint8_t ring = orders[order][item] - 1U;
-                    assert(after[land[item] - coarse].pose.horizontalDmm == changed[ring].horizontalDmm);
-                    assert(after[land[item] - coarse].pose.turretDdeg == changed[ring].turretDdeg);
-                    assert(after[land[item] - coarse].pose.liftDmm == (layer == 2U ? 600U : 1270U));
+                    assert(after[land[item] - 1U].pose.horizontalDmm == changed[ring].horizontalDmm);
+                    assert(after[land[item] - 1U].pose.turretDdeg == changed[ring].turretDdeg);
+                    assert(after[land[item] - 1U].pose.liftDmm == (layer == 2U ? 600U : 1270U));
                     {
-                        unsigned down = land[item] - coarse;
+                        unsigned down = land[item] - 1U;
                         const MechanismPose *turn = &after[down - 1U].pose;
                         assert(turn->horizontalDmm == (layer == 2U || ring == 2U ? changed[ring].horizontalDmm :
                                                        after[down - 2U].pose.horizontalDmm));
@@ -179,8 +179,8 @@ int main(void)
             for (coarse = 0U; coarse < 2U; ++coarse) {
                 missionBuildTaskPlace(after, orders[order], layer, coarse);
                 for (item = 0U; item < 3U; ++item) {
-                    assert(after[land[item] - coarse].pose.liftDmm == (layer == 2U ? 590U : 1280U));
-                    assert(after[(item == 0U ? 4U : item == 1U ? 13U : 22U) - coarse].pose.liftDmm == 300U);
+                    assert(after[land[item] - 1U].pose.liftDmm == (layer == 2U ? 590U : 1280U));
+                    assert(after[(item == 0U ? 4U : item == 1U ? 13U : 22U) - 1U].pose.liftDmm == 300U);
                 }
             }
             missionBuildStoragePlace(after, layer);

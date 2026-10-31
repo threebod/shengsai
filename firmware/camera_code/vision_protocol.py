@@ -12,7 +12,7 @@ FLAG_STABLE = 2
 FLAG_RING_NO_DIGIT = 4  # Request only; selector carries the fallback material color.
 FLAG_MATERIAL_LAYOUT = 8
 FLAG_COLOR_INFERRED = 16  # Result only; one slot color was inferred.
-FLAG_STACK_PREPARE = 32  # Request only; configure stacking without detecting or replying.
+FLAG_STACK_PREPARE = 32  # Request only; configure stack or ring 2 without detecting or replying.
 FLAG_LAYOUT_REFERENCE = 64  # Result only; center belongs to a visible rotation reference.
 FLAG_TRACKING = 128  # Continuous raw results for chassis alignment.
 TRACKING_START = 1
@@ -139,7 +139,7 @@ def validate_request(packet):
              (packet["target"] != 2 or packet["flags"] != FLAG_TRACKING))):
         return False
     if packet["flags"] & FLAG_STACK_PREPARE and (
-            packet["mode"] != MODE_MATERIAL or packet["target"] != 2 or
+            packet["target"] != 2 or
             packet["flags"] != FLAG_STACK_PREPARE):
         return False
     if packet["flags"] & FLAG_MATERIAL_LAYOUT:

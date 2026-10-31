@@ -115,7 +115,8 @@ def main():
                         ring_no_digit = no_digit
                     if packet["flags"] & FLAG_STACK_PREPARE:
                         request = None
-                        material_status = "stack ready 320x240"
+                        material_status = ("ring ready 640x480" if packet["mode"] == MODE_RING else
+                                           "stack ready 320x240")
                         material_detail = ""
                         material_metrics = ""
                         continue

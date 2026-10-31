@@ -302,6 +302,27 @@ class VisionMainTest(unittest.TestCase):
                           "trend_tolerance": None},
                          self.window_calls[-1].kwargs)
 
+    def test_ring_preparation_switches_without_detection_or_reply_then_samples_fresh(self):
+        prepare = encode(KIND_REQUEST, 0, MODE_RING, 0, 2, FLAG_STACK_PREPARE,
+                         [0, 0, 320, 240, 160, 120, 0, 0])
+        maix = self.run_camera([prepare, b"", b""], [0, 1.5, 3.0])
+        self.assertEqual([call(), call(80)],
+                         maix.camera.Camera.return_value.constrast.call_args_list)
+        self.assertEqual([], self.ring_calls)
+        self.assertEqual([], self.material_calls)
+        maix.uart.UART.return_value.write.assert_not_called()
+        maix = self.run_camera([prepare, b"", self.request(MODE_RING, 9, 2, 0),
+                                b"", b"", b"", b""],
+                               [0, 1.5, 2.0, 2.1, 2.2, 2.3, 2.4],
+                               found=(160, 120, 80, 40, 40))
+        self.assertEqual([call(), call(80)],
+                         maix.camera.Camera.return_value.constrast.call_args_list)
+        self.assertEqual(3, len(self.ring_calls))
+        replies = maix.uart.UART.return_value.write.call_args_list
+        self.assertEqual(1, len(replies))
+        packet = Parser().feed(replies[0].args[0])[0]
+        self.assertEqual((9, FLAG_VALID | FLAG_STABLE), (packet["token"], packet["flags"]))
+
     def test_stack_preparation_switches_before_travel_without_detection_or_reply(self):
         prepare = encode(KIND_REQUEST, 0, MODE_MATERIAL, 0, 2, FLAG_STACK_PREPARE,
                          [0, 0, 320, 240, 160, 120, 0, 0])

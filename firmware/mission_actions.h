@@ -127,10 +127,10 @@ static inline uint16_t missionBuildTaskPlace(MechanismAction *actions,
             if (rings[item] != 3U)
                 actions[ringPoses[item][0]].pose.horizontalDmm =
                     actions[ringPoses[item][0] - 1U].pose.horizontalDmm;
-    if (!coarse) return MISSION_PLACE_COUNT;
-    /* Go from observation straight to tray pickup, without returning to h=0. */
-    memmove(actions + 1, actions + 2, (MISSION_COARSE_PLACE_COUNT - 2U) * sizeof(*actions));
-    return MISSION_COARSE_PLACE_COUNT - 1U;
+    /* All stations go straight from observation to tray pickup, without h=0. */
+    memmove(actions + 1, actions + 2,
+            ((coarse ? MISSION_COARSE_PLACE_COUNT : MISSION_PLACE_COUNT) - 2U) * sizeof(*actions));
+    return (coarse ? MISSION_COARSE_PLACE_COUNT : MISSION_PLACE_COUNT) - 1U;
 }
 
 /* Raise before the first pickup; lower 20mm for each tray release, then raise. */

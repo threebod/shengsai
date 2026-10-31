@@ -19,7 +19,7 @@
 #define VISION_FLAG_RING_NO_DIGIT 0x04U /* Request only; selector is the fallback color. */
 #define VISION_FLAG_MATERIAL_LAYOUT 0x08U
 #define VISION_FLAG_COLOR_INFERRED 0x10U /* Result only. */
-#define VISION_FLAG_STACK_PREPARE 0x20U /* Request only; configure camera without detecting. */
+#define VISION_FLAG_STACK_PREPARE 0x20U /* Request only; prepare stack material or numbered ring 2, without detecting. */
 #define VISION_FLAG_LAYOUT_REFERENCE 0x40U /* Result only; actual center is a rotation reference. */
 #define VISION_FLAG_TRACKING 0x80U
 #define VISION_TRACK_START 1
@@ -361,12 +361,12 @@ static VisionEvent vision_layout_observe(VisionSession *session,
         (du >= -10 && du <= 10 && dv >= -10 && dv <= 10)) {
         if (!session->layoutPositioned) {
             session->layoutPositioned = 1U;
-            if (single) {
-                memset(session->layoutColors, 0, sizeof(session->layoutColors));
-                session->layoutInferred = 0U;
-                session->state = VISION_STATE_WAIT;
-                return VISION_EVENT_NONE;
-            }
+            /* The locating round only positions the chassis. Even a complete
+             * layout needs a fresh color-confirmation request before grasping. */
+            memset(session->layoutColors, 0, sizeof(session->layoutColors));
+            session->layoutInferred = 0U;
+            session->state = VISION_STATE_WAIT;
+            return VISION_EVENT_NONE;
         }
         for (index = 0U; index < 3U; ++index) {
             if (session->layoutColors[index] != (uint8_t)packet->value[5U + index]) wasReady = 0U;

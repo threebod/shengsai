@@ -54,10 +54,12 @@ class VisionProtocolTest(unittest.TestCase):
                 self.assertEqual([164, 122, 80, 30, 40, 5, signed, bounded], packet["values"])
         self.assertEqual([0, 0, 0, 0, 0, 0, 1, 20], tracking_values(None, 1, 20))
 
-    def test_stack_preparation_only_accepts_material_target_two(self):
+    def test_camera_preparation_only_accepts_stack_or_numbered_ring_two(self):
         for mode, target, flags, accepted in [(MODE_MATERIAL, 2, FLAG_STACK_PREPARE, True),
                 (MODE_MATERIAL, 0, FLAG_STACK_PREPARE, False),
-                (MODE_RING, 2, FLAG_STACK_PREPARE, False),
+                (MODE_RING, 2, FLAG_STACK_PREPARE, True),
+                (MODE_RING, 1, FLAG_STACK_PREPARE, False),
+                (MODE_RING, 3, FLAG_STACK_PREPARE, False),
                 (MODE_MATERIAL, 2, FLAG_STACK_PREPARE | FLAG_RING_NO_DIGIT, False)]:
             packet = Parser().feed(encode(KIND_REQUEST, 0, mode, 0, target,
                 flags, [0, 0, 320, 240, 160, 120, 0, 0]))[0]

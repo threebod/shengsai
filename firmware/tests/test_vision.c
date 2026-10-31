@@ -151,10 +151,22 @@ int main(void)
         result.flags = VISION_FLAG_MATERIAL_LAYOUT | VISION_FLAG_VALID | VISION_FLAG_STABLE;
         result.value[0] = 160; result.value[1] = 205;
         result.value[5] = 1; result.value[6] = 4; result.value[7] = 3;
-        if (!require(vision_layout_observe(&layout, &calibration, &result, 1U) == VISION_EVENT_ALIGNED &&
+        uint32_t locateToken = result.token;
+        if (!require(vision_layout_observe(&layout, &calibration, &result, 1U) == VISION_EVENT_NONE &&
                      layout.layoutPositioned && layout.iteration == 0U &&
+                     layout.state == VISION_STATE_WAIT &&
+                     vision_layout_pick_position(&layout, 4U) == VISION_PICK_POSITION_NONE,
+                     "locating round authorized a grasp from a complete layout")) return 1;
+        vision_session_make_request(&layout, &calibration, &request, 2U);
+        if (!require(request.token != locateToken && request.value[7] == VISION_LAYOUT_CONFIRM,
+                     "positioning did not start a fresh color confirmation request")) return 1;
+        if (!require(vision_layout_observe(&layout, &calibration, &result, 3U) == VISION_EVENT_NONE &&
+                     vision_layout_pick_position(&layout, 4U) == VISION_PICK_POSITION_NONE,
+                     "old locate token authorized a grasp")) return 1;
+        result.token = request.token;
+        if (!require(vision_layout_observe(&layout, &calibration, &result, 4U) == VISION_EVENT_ALIGNED &&
                      vision_layout_pick_position(&layout, 4U) == VISION_PICK_POSITION_LEFT_UP,
-                     "initial stable layout required a second confirmation")) return 1;
+                     "fresh complete layout did not authorize the requested grasp")) return 1;
     }
 
     {
