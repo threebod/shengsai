@@ -27,7 +27,7 @@ ApplicationWindow {
     readonly property int pageSpacing: mobile ? 14 : 20
     readonly property color blue: "#007AFF"
     readonly property bool motionReady: controller.connected && controller.confirmed && !controller.calibrating && !controller.axis6Testing && !controller.lateralTesting && !controller.straightTesting && !controller.turnTesting
-    readonly property var pageNames: ["比赛", "圆环", "视觉", "手动"]
+    readonly property var pageNames: ["比赛", "圆环", "视觉", "手动", "雷达"]
     font.family: Qt.platform.os === "windows" ? "Microsoft YaHei UI" : "sans-serif"
     font.pixelSize: 14
     palette.window: "#F5F5F7"
@@ -545,11 +545,20 @@ ApplicationWindow {
                         }
                     }
                 }
+                RadarView {
+                    objectName: "radarPage"; device: controller; visible: app.page === 4
+                    viewportHeight: scroll.availableHeight
+                    Layout.fillWidth: true
+                    Layout.leftMargin: app.mobile ? 14 : 28; Layout.rightMargin: app.mobile ? 14 : 28
+                }
                 Item { height: 12 }
             }
         }
     }
-    onPageChanged: controller.pauseManual()
+    onPageChanged: {
+        controller.pauseManual()
+        if (page === 4) Qt.callLater(() => { scroll.contentItem.contentY = 0 })
+    }
     component SafeDialog: Dialog {
         parent: Overlay.overlay
         readonly property real safeWidth: parent.width - parent.SafeArea.margins.left - parent.SafeArea.margins.right

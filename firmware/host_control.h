@@ -65,6 +65,7 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
     if(q->command==SS_HELLO) {
         if(q->length!=4) {r->data[0]=1;return;}
         if(hostSession!=ss_get32(q->data)) {
+            lidarSetEnabled(0U,0U);
             if(axis6TestActive() || lateralTestActive || straightTestActive || turnTestActive) {
                 hostCancelled=hostOperationFailed=1;stopServoMotion();stopAllMotors();
             }
@@ -75,9 +76,17 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
     if(q->command==SS_STATUS && !q->length) {hostSnapshot(r);return;}
     if(q->command==SS_GET_LOG) {taskLogRead(&taskLog,q,r);return;}
     if(q->command==SS_HEARTBEAT && !q->length) {hostHeartbeatActive=1;hostHeartbeatStamp=clockMs;return;}
+    if(q->command==SS_LIDAR_CONTROL) {
+        if(q->length!=3 || q->data[0]>1U || (q->data[0] && !ss_get16(q->data+1))) {r->data[0]=1;return;}
+        if(q->data[0] && (hostEStop || emergencyStop)) {r->data[0]=3;return;}
+        if(!lidarSetEnabled(q->data[0],ss_get16(q->data+1))) {r->data[0]=4;return;}
+        if(q->data[0]) {hostHeartbeatActive=1U;hostHeartbeatStamp=clockMs;}
+        r->length=4;r->data[1]=q->data[0];ss_put16(r->data+2,ss_get16(q->data+1));return;
+    }
     if((q->command==SS_STOP || q->command==SS_ESTOP) && !q->length) {
         hostCancelled=hostOperationFailed=1;
         stopServoMotion();stopAllMotors();hostDriveActive=0;
+        lidarSetEnabled(0U,0U);
         if(q->command==SS_ESTOP) {hostEStop=1;hostConfirmed=0;}
         return;
     }

@@ -11,6 +11,42 @@ public: QByteArray written;
 class ControllerTest:public QObject {
     Q_OBJECT
 private slots:
+    void lidarChunksAndSessionIsolation(){
+        Wire wire;Controller c;c.device_=&wire;
+        c.setLidarScanning(true);QVERIFY(wire.written.isEmpty());c.connected_=true;
+        c.setLidarScanning(true);auto q=wire.last();
+        QCOMPARE(int(q.command),int(SS_LIDAR_CONTROL));QCOMPARE(int(q.length),3);QVERIFY(c.lidarPending() && !c.lidarRunning());
+        c.setLidarScanning(true);QVERIFY(wire.written.isEmpty());
+        SsFrame r{};r.flags=SS_RESPONSE;r.command=q.command;r.sequence=q.sequence;r.length=4;
+        r.data[1]=1;ss_put16(r.data+2,ss_get16(q.data+1));c.handle(r);
+        QVERIFY(c.lidarRunning() && !c.lidarPending() && !c.lidarFresh());
+        auto chunk=[&](int scan,int offset,int n,int total=23){
+            SsFrame f{};f.flags=SS_EVENT;f.command=SS_LIDAR_SCAN;f.length=quint16(SS_LIDAR_HEADER+n*5);
+            ss_put16(f.data,c.lidarToken_);ss_put16(f.data+2,quint16(scan));ss_put16(f.data+4,quint16(offset));
+            ss_put16(f.data+6,quint16(total));ss_put16(f.data+8,167);
+            for(int i=0;i<n;++i){SsLidarPoint p{quint16((offset+i)*64),1000,15,2};ss_lidar_put_point(f.data+SS_LIDAR_HEADER+i*5,&p);}
+            return f;
+        };
+        c.handle(chunk(1,0,22));QVERIFY(c.lidarPoints().isEmpty());
+        c.handle(chunk(1,22,1));QCOMPARE(c.lidarPoints().size(),23);QVERIFY(c.lidarFresh());
+        const auto point=c.lidarPoints()[0].toMap();QCOMPARE(point["distance"].toInt(),1000);QCOMPARE(point["flag"].toInt(),2);
+        QCOMPARE(point["x"].toDouble(),0.0);QCOMPARE(point["y"].toDouble(),1000.0);
+        auto previous=c.lidarPoints();c.handle(chunk(2,0,20));c.handle(chunk(2,22,1));QCOMPARE(c.lidarPoints(),previous);
+        c.handle(chunk(3,0,22));auto bad=chunk(3,22,1);bad.length--;c.handle(bad);QCOMPARE(c.lidarPoints(),previous);
+        bad=chunk(4,0,22);ss_put16(bad.data,c.lidarToken_+1);c.handle(bad);QCOMPARE(c.lidarPoints(),previous);
+        c.handle(chunk(65535,0,22));c.handle(chunk(65535,22,1));
+        c.handle(chunk(0,0,22));c.handle(chunk(0,22,1));QVERIFY(c.lidarFresh());
+        bad=chunk(4,0,1,1);ss_put16(bad.data+12,2001);c.handle(bad);QCOMPARE(c.lidarPoints(),previous);
+        c.lidarLastScan_=c.clock_.elapsed()-2501;QVERIFY(!c.lidarFresh());
+        c.setLidarScanning(false);q=wire.last();QCOMPARE(int(q.data[0]),0);
+        c.handle(chunk(5,0,22));QCOMPARE(c.lidarPoints(),previous);
+        r.sequence=q.sequence;r.data[1]=0;ss_put16(r.data+2,ss_get16(q.data+1));c.handle(r);
+        QVERIFY(!c.lidarRunning() && !c.lidarPending());
+        c.setLidarScanning(true);q=wire.last();r.sequence=q.sequence;r.length=1;r.flags=SS_RESPONSE|SS_ERROR;r.data[0]=1;c.handle(r);
+        QVERIFY(!c.lidarRunning() && !c.lidarPending() && c.lidarStatus().contains("拒绝"));
+        c.disconnectDevice();QVERIFY(c.lidarPoints().isEmpty() && c.lidarAge()==-1);c.device_=nullptr;
+    }
+
     void pickupReadSaveAndFailure(){
         Wire wire;Controller c;c.device_=&wire;c.connected_=true;
         QVariantList values{QVariantMap{{"horizontal",-88.0},{"turret",272.1}},QVariantMap{{"horizontal",64.0},{"turret",291.1}},QVariantMap{{"horizontal",72.0},{"turret",254.1}}};

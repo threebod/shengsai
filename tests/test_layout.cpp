@@ -7,6 +7,7 @@
 #include <QQuickItem>
 #include <QQuickStyle>
 #include <QQuickWindow>
+#include <QtMath>
 #include "../upper_computer/Controller.h"
 
 class LayoutTest : public QObject {
@@ -59,7 +60,7 @@ private slots:
                 && rect.right() <= size.width() - insets.right() + 1
                 && rect.bottom() <= size.height() - insets.bottom() + 1;
         };
-        for (int page = 0; page < 4; ++page) {
+        for (int page = 0; page < 5; ++page) {
             window->setProperty("page", page);
             QTest::qWait(100);
             if (page == 0) {
@@ -203,6 +204,43 @@ private slots:
                 flickable->setProperty("contentY", qMax(0.0, flickable->property("contentHeight").toReal() - flickable->height()));
                 QTest::qWait(50);
             }
+            if (page == 4) {
+                auto *radar = window->findChild<QQuickItem *>("radarPage");
+                auto *start = window->findChild<QQuickItem *>("lidarStartButton");
+                auto *stop = window->findChild<QQuickItem *>("lidarStopButton");
+                auto *plot = window->findChild<QQuickItem *>("lidarPlot");
+                QVERIFY(radar && radar->isVisible() && start && stop && plot);
+                QVERIFY(!start->isEnabled() && !stop->isEnabled());
+                controller.connected_ = true;emit controller.changed();
+                QVERIFY(start->isEnabled() && !stop->isEnabled());
+                controller.lidarRunning_ = true;emit controller.lidarChanged();
+                QVERIFY(!start->isEnabled() && stop->isEnabled());
+                controller.lidarPending_ = true;emit controller.lidarChanged();
+                QVERIFY(!start->isEnabled() && !stop->isEnabled());
+                controller.lidarPending_ = controller.lidarRunning_ = controller.connected_ = false;
+                emit controller.changed();emit controller.lidarChanged();
+                QVERIFY(start->height() >= 44 && stop->height() >= 44);
+                QVERIFY(plot->width() > 0 && plot->height() >= 200);
+                if (!qEnvironmentVariable("SS_LAYOUT_CAPTURE_DIR").isEmpty()) {
+                    controller.lidarPoints_.clear();
+                    for (int i = 0; i < 100; ++i) {
+                        double x = -1600 + i * 32, y = 1700;
+                        controller.lidarPoints_.append(QVariantMap{{"x",x},{"y",y},
+                            {"distance",qSqrt(x*x+y*y)},{"angle",qRadiansToDegrees(qAtan2(x,y))},
+                            {"intensity",20+i*2},{"flag",0}});
+                    }
+                    for (int i = 0; i < 35; ++i) {
+                        double x = 850, y = -800 + i * 18;
+                        controller.lidarPoints_.append(QVariantMap{{"x",x},{"y",y},
+                            {"distance",qSqrt(x*x+y*y)},{"angle",qRadiansToDegrees(qAtan2(x,y))},
+                            {"intensity",12},{"flag",i%7==0?2:0}});
+                    }
+                    controller.lidarRunning_ = true;controller.lidarLastScan_ = controller.clock_.elapsed();
+                    controller.lidarPeriod_ = 167;
+                    controller.lidarStatus_ = QStringLiteral("布局测试 · 模拟点云，未连接实物雷达");
+                    emit controller.lidarPointsChanged();emit controller.lidarChanged();QTest::qWait(50);
+                }
+            }
             QVERIFY(insideSafeArea(top));
             QVERIFY(insideSafeArea(bottom));
             QVERIFY(insideSafeArea(scroll));
@@ -223,6 +261,18 @@ private slots:
                 QDir().mkpath(captureDir);
                 QVERIFY(window->grabWindow().save(captureDir + "/" + QTest::currentDataTag()
                                                   + QString("-%1.png").arg(page + 1)));
+            }
+            if (page == 4) {
+                if (!captureDir.isEmpty() && size.width() < 760) {
+                    auto *plot = window->findChild<QQuickItem *>("lidarPlot");
+                    auto *flickable = scroll->property("contentItem").value<QQuickItem *>();
+                    const auto y = flickable->property("contentY").toReal()
+                        + sceneRect(plot).top() - sceneRect(scroll).top() - 12;
+                    flickable->setProperty("contentY",qMax(0.0,y));QTest::qWait(50);
+                    QVERIFY(window->grabWindow().save(captureDir + "/" + QTest::currentDataTag() + "-radar-plot.png"));
+                    flickable->setProperty("contentY",0);
+                }
+                controller.resetLidar();
             }
         }
         for (const auto *name : {"connectionDialog", "logDialog", "safetyDialog"}) {

@@ -21,6 +21,11 @@ Controller::Controller(QObject *parent):QObject(parent) {
     });
     connect(&calibrationTimeout_,&QTimer::timeout,this,[this]{failCalibration(QStringLiteral("标定超时；未覆盖原比例"));});
     connect(&watchdog_,&QTimer::timeout,this,[this]{
+        if(lidarRunning_){
+            if(lidarLastScan_<0 && clock_.elapsed()-lidarWaitAt_>3000)lidarStatus_=QStringLiteral("尚未收到完整扫描，请检查雷达供电、PA9/PA10接线及跳线帽");
+            if(lidarLastScan_>=0 && !lidarFresh())lidarStatus_=QStringLiteral("点云已过期，请检查雷达接线和主控接收");
+            emit lidarChanged();
+        }
         bool expired=false;
         for(const auto &p:pending_)if(clock_.elapsed()-p.sent>5000){expired=true;break;}
         if(device_ && device_->isOpen() && (expired || clock_.elapsed()-lastRx_>3000)) {
@@ -87,6 +92,11 @@ void Controller::opened(){
     request(SS_HELLO,data);
 }
 void Controller::disconnectDevice(){
+    if(lidarRunning_ && device_ && device_->isOpen()){
+        QByteArray data(3,0);ss_put16(reinterpret_cast<uint8_t *>(data.data()+1),lidarToken_);
+        request(SS_LIDAR_CONTROL,data);
+    }
+    resetLidar();
     if(turnTesting()){
         if(device_ && device_->isOpen())request(SS_STOP);
         turnTestSequence_=-1;turnTestState_=QStringLiteral("连接已断开，转向结果未知；重连后读取日志");
@@ -131,6 +141,7 @@ void Controller::ingest(){
 }
 void Controller::handle(const SsFrame &f){
     if(f.flags==SS_EVENT){
+        if(f.command==SS_LIDAR_SCAN){handleLidarScan(f);return;}
         if(f.command==SS_LOG){log(QString::fromUtf8(reinterpret_cast<const char *>(f.data),f.length));return;}
         if(f.command==SS_TURN_TEST && f.length==1 && f.sequence==turnTestSequence_){
             turnTestSequence_=-1;
@@ -174,6 +185,10 @@ void Controller::handle(const SsFrame &f){
     if(!(f.flags&SS_RESPONSE) || !f.length || !pending_.contains(f.sequence) || pending_[f.sequence].command!=f.command)return;
     pending_.remove(f.sequence);
     if(f.data[0]){
+        if(f.command==SS_LIDAR_CONTROL){
+            lidarPending_=false;lidarStatus_=QStringLiteral("雷达请求被拒绝，请检查固件支持及急停状态");
+            emit lidarChanged();
+        }
         if(f.command==SS_GET_LOG){
             logsLoading_=false;taskLogBytes_.clear();
             logsState_=f.data[0]==5?QStringLiteral("日志已更新或被覆盖，请重新读取"):QStringLiteral("读取失败，请确认主控固件支持任务日志读取");
@@ -201,6 +216,17 @@ void Controller::handle(const SsFrame &f){
         if(calibrating())failCalibration(message);else setStatus(message);return;
     }
     switch(f.command){
+    case SS_LIDAR_CONTROL:
+        lidarPending_=false;
+        if(f.length!=4 || f.data[1]>1 || ss_get16(f.data+2)!=lidarToken_){
+            lidarRunning_=false;lidarStatus_=QStringLiteral("雷达应答无效，请检查主控固件");
+        }else{
+            lidarRunning_=f.data[1];
+            lidarWaitAt_=clock_.elapsed();
+            lidarStatus_=lidarRunning_?QStringLiteral("主控已发送启动命令，等待雷达完整扫描…"):QStringLiteral("已发送停止扫描命令");
+            if(!lidarRunning_){lidarPartial_.clear();lidarTotal_=0;}
+        }
+        emit lidarChanged();break;
     case SS_TURN_TEST:
         if(f.sequence==turnTestSequence_){
             if(f.length!=5 || !ss_get16(f.data+1) || !ss_get16(f.data+3)){
@@ -290,6 +316,8 @@ void Controller::handle(const SsFrame &f){
 }
 void Controller::confirmZero(){if(connected_)request(SS_CLEAR,QByteArray(1,1));}
 void Controller::stop(bool emergency){
+    lidarRunning_=lidarPending_=false;lidarPartial_.clear();++lidarToken_;
+    lidarStatus_=QStringLiteral("已请求停止；保留最后一圈供查看");emit lidarChanged();
     driveTimer_.stop();servoTimer_.stop();servoTargets_.clear();
     calibrationTimeout_.stop();calibrationStage_=0;++calibrationGeneration_;
     if(axis6Testing())axis6TestState_=QStringLiteral("正在停止测试…");

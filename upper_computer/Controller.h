@@ -6,6 +6,7 @@
 #include <QHash>
 #include <QPointF>
 #include <QIODevice>
+#include "../shared/lidar.h"
 #ifdef Q_OS_ANDROID
 #include <QBluetoothSocket>
 #include <QBluetoothDeviceDiscoveryAgent>
@@ -52,6 +53,14 @@ class Controller : public QObject {
     Q_PROPERTY(QVariantList servoAngles READ servoAngles NOTIFY changed)
     Q_PROPERTY(double forwardScale READ forwardScale NOTIFY changed)
     Q_PROPERTY(double rightScale READ rightScale NOTIFY changed)
+    Q_PROPERTY(bool lidarRunning READ lidarRunning NOTIFY lidarChanged)
+    Q_PROPERTY(bool lidarPending READ lidarPending NOTIFY lidarChanged)
+    Q_PROPERTY(bool lidarFresh READ lidarFresh NOTIFY lidarChanged)
+    Q_PROPERTY(QString lidarStatus READ lidarStatus NOTIFY lidarChanged)
+    Q_PROPERTY(QVariantList lidarPoints READ lidarPoints NOTIFY lidarPointsChanged)
+    Q_PROPERTY(int lidarPeriod READ lidarPeriod NOTIFY lidarChanged)
+    Q_PROPERTY(int lidarErrors READ lidarErrors NOTIFY lidarChanged)
+    Q_PROPERTY(int lidarAge READ lidarAge NOTIFY lidarChanged)
 public:
     explicit Controller(QObject *parent=nullptr);
     bool connected()const{return connected_;} bool busy()const{return busy_ || axis6Testing() || lateralTesting() || straightTesting() || turnTesting();}
@@ -82,6 +91,15 @@ public:
     QVariantList obstacleRegions()const;
     QVariantList servoAngles()const{return angles_;}
     double forwardScale()const{return forward_/1000.0;} double rightScale()const{return right_/1000.0;}
+    bool lidarRunning()const{return lidarRunning_;}
+    bool lidarPending()const{return lidarPending_;}
+    bool lidarFresh()const{return lidarRunning_ && lidarLastScan_>=0 && clock_.elapsed()-lidarLastScan_<=2500;}
+    QString lidarStatus()const{return lidarStatus_;}
+    QVariantList lidarPoints()const{return lidarPoints_;}
+    int lidarPeriod()const{return lidarPeriod_;}
+    int lidarErrors()const{return lidarErrors_;}
+    int lidarAge()const{return lidarLastScan_<0?-1:int(clock_.elapsed()-lidarLastScan_);}
+    Q_INVOKABLE void setLidarScanning(bool enabled);
     Q_INVOKABLE void scan();
     Q_INVOKABLE void connectDevice(const QString &address);
     Q_INVOKABLE void disconnectDevice();
@@ -113,6 +131,8 @@ signals:
     void lineReceived(QString line);
     void taskLogReceived(QString text);
     void requestAccepted(int command);
+    void lidarChanged();
+    void lidarPointsChanged();
 private:
     friend class ControllerTest;
     friend class LayoutTest;
@@ -122,6 +142,8 @@ private:
     void log(const QString &line);void failCalibration(const QString &reason);
     void sample();void calculate();void setStatus(const QString &text);
     void flushServos();
+    void handleLidarScan(const SsFrame &frame);
+    void resetLidar();
     static QByteArray pair(int a,int b);
     QIODevice *device_{};
 #ifdef Q_OS_ANDROID
@@ -160,4 +182,10 @@ private:
     int forward_{1111},right_{1143},driveDirection_{};
     int calibrationStage_{},sampleIndex_{},sampleId_{},calibrationGeneration_{};
     QPointF samples_[5];
+    bool lidarRunning_{},lidarPending_{};
+    quint16 lidarToken_{},lidarScanId_{},lidarTotal_{};
+    int lidarPeriod_{},lidarErrors_{};
+    qint64 lidarLastScan_{-1},lidarWaitAt_{};
+    QVariantList lidarPoints_,lidarPartial_;
+    QString lidarStatus_{QStringLiteral("连接主控后可启动雷达扫描")};
 };

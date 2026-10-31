@@ -101,6 +101,7 @@ extern volatile uint8_t jogCanFault;
 volatile uint32_t clockMs;
 static uint8_t hostHeartbeatActive;
 static uint32_t hostHeartbeatStamp;
+static uint8_t lidarSetEnabled(uint8_t enabled,uint16_t token);
 static uint8_t motorInvert[5];
 static uint16_t motorTrim[5] = {1000U, 1000U, 1000U, 1000U, 1000U};
 static int8_t yawSign = 1;
@@ -2903,6 +2904,7 @@ static void processCommand(const char *command)
 #include "straight_test.h"
 #include "turn_test.h"
 #include "host_control.h"
+#include "lidar_runtime.h"
 void UART5_IRQHandler(void)
 {
     uint16_t next;uint8_t b;
@@ -2928,6 +2930,7 @@ int main(void)
     qrUartInit();
     tjcDisplayInit();
     tjcDisplayResetCounts();
+    lidarUartInit();
 
     mechanismStateReset(&mechanismState);
     vision_session_init(&visionSession);
@@ -2988,6 +2991,7 @@ int main(void)
         serviceObstacleTurret();
         hostService();
         serviceHostWatchdog();
+        serviceLidar();
         serviceMissionButton();
         serviceMotion();
         serviceVision();
