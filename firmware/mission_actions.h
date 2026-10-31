@@ -6,7 +6,7 @@
 #include "placement_heights.h"
 
 /* User-specified ring defaults; stored poses take precedence. */
-static RingPose missionRingPoses[3] = {{130, 3080}, {-150, 2685}, {500, 2335}};
+static RingPose missionRingPoses[3] = {{130, 3080}, {-170, 2685}, {500, 2332}};
 
 /* 动作组/放置.json: three tray slots to three rings. Lift coordinates grow
  * downward; the second storage layer uses the configured placement depth. */
