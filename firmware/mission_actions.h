@@ -6,10 +6,10 @@
 #include "placement_heights.h"
 
 /* User-specified ring defaults; stored poses take precedence. */
-static RingPose missionRingPoses[3] = {{230, 3060}, {0, 2690}, {700, 2365}};
+static RingPose missionRingPoses[3] = {{130, 3080}, {-150, 2685}, {500, 2335}};
 
 /* 动作组/放置.json: three tray slots to three rings. Lift coordinates grow
- * downward; the second storage layer keeps its fixed 580 dmm depth. */
+ * downward; the second storage layer uses the configured placement depth. */
 static MechanismInitialState missionInitial =
     MECH_INITIAL_STATE(0, 0, 2600, 1000, 228, 2000, 248, 2200, 2700, 2200,
                        1, 1, 200, 155, 26, 146, 264);

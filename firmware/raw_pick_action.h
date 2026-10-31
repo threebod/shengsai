@@ -17,11 +17,11 @@ static const MechanismPose rawPickObservePose =
     { 650, 0, 2600, 1000, 228, 2000, 248, 2200 };
 
 static MechanismPose rawPickLowerPose =
-    { -900, 530, 2560, 1000, 228, 2000, 248, 2200 };
+    { -800, 530, 2560, 1000, 228, 2000, 248, 2200 };
 
 static MechanismPose rawPickUpperPoses[2] = {
-    { 649, 530, 2773, 1000, 228, 2000, 248, 2200 },
-    { 701, 530, 2384, 1000, 228, 2000, 248, 2200 }
+    { 750, 530, 2773, 1000, 228, 2000, 248, 2200 },
+    { 800, 530, 2384, 1000, 228, 2000, 248, 2200 }
 };
 
 static uint8_t pickupPosesSaved;
@@ -43,9 +43,9 @@ static const MechanismPose rawPickTravelPose =
 static const MechanismAction rawPickActions[] = {
     MECH_PLATFORM(1, 0),
     MECH_GRIPPER_OPEN(0),
-    MECH_POSE(-900, 530, 2560, 1000, 228, 2000, 248, 2200, 0),
+    MECH_POSE(-800, 530, 2560, 1000, 228, 2000, 248, 2200, 0),
     MECH_GRIPPER_CLOSE(200),
-    MECH_POSE(-900, 0, 2560, 1000, 228, 2000, 248, 2200, 0),
+    MECH_POSE(-800, 0, 2560, 1000, 228, 2000, 248, 2200, 0),
     MECH_POSE(-200, 0, 1200, 1000, 228, 2000, 248, 2200, 0),
     MECH_POSE(-500, 0, 1200, 1000, 228, 2000, 248, 2200, 0),
     MECH_POSE(-500, 170, 1200, 1000, 228, 2000, 248, 2200, 0),

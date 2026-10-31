@@ -315,7 +315,8 @@ static void pixelTolerance(void)
     unsigned index, mode;
     for(mode=VISION_MODE_MATERIAL;mode<=VISION_MODE_RING;++mode) {
         for(index=0;index<13;++index) {
-            unsigned aligned = index<9U;
+            unsigned aligned = offsets[index][0] >= 0 && offsets[index][0] <= 1 &&
+                offsets[index][1] >= 0 && offsets[index][1] <= 1;
             begin(30U,1200U,80.0f);
             if(mode==VISION_MODE_MATERIAL) {
                 tracking.mode=packet.mode=VISION_MODE_MATERIAL;

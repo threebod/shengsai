@@ -10,7 +10,7 @@ typedef struct {
     uint16_t returnTrayDmm;
 } PlacementHeights;
 
-static PlacementHeights placementHeights = {1270U, 580U, 170U, 200U};
+static PlacementHeights placementHeights = {1270U, 600U, 170U, 200U};
 
 static uint8_t placementHeightsValid(const PlacementHeights *heights)
 {

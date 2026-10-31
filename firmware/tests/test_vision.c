@@ -655,7 +655,8 @@ int main(void)
         uint8_t index, confirmation, mode;
         for (mode = VISION_MODE_MATERIAL; mode <= VISION_MODE_RING; ++mode) {
         for (index = 0U; index < 13U; ++index) {
-            uint8_t aligned = index < 9U;
+            uint8_t aligned = offsets[index][0] >= 0 && offsets[index][0] <= 1 &&
+                offsets[index][1] >= 0 && offsets[index][1] <= 1;
             vision_session_init(&session);
             vision_session_start(&session, mode, mode == VISION_MODE_MATERIAL ? 5U : 0U,
                                  2U, &calibration, 0U);
@@ -671,7 +672,7 @@ int main(void)
                 if (!require(vision_session_observe(&session, &calibration, &decoded, confirmation) ==
                              (!aligned ? VISION_EVENT_MOVE : confirmation == 0U ?
                               VISION_EVENT_REQUEST : VISION_EVENT_ALIGNED),
-                             "ring/storage accepts +/-1 twice; an axis at +/-2 must still correct")) return 1;
+                             "ring/storage accepts only center/right/down by 1 twice; other offsets must correct")) return 1;
             }
         }
         }

@@ -126,8 +126,8 @@ static VisionTrackingState vision_tracking_observe(VisionTracking *tracking,
     }
     tracking->sequence = sequence; tracking->sequenceValid = 1U;
     tracking->lastFrameAt = now - age;
-    if (du >= -VISION_ALIGN_TOLERANCE_PX && du <= VISION_ALIGN_TOLERANCE_PX &&
-        dv >= -VISION_ALIGN_TOLERANCE_PX && dv <= VISION_ALIGN_TOLERANCE_PX) {
+    if (du >= 0 && du <= VISION_ALIGN_TOLERANCE_PX &&
+        dv >= 0 && dv <= VISION_ALIGN_TOLERANCE_PX) {
         if (tracking->mode != VISION_MODE_RING || ++tracking->confirmations >= 2U)
             return vision_tracking_stop(tracking, VISION_TRACK_DONE, "TRACK_IN_RANGE");
         tracking->forwardMm = tracking->rightMm = 0.0f;

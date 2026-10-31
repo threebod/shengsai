@@ -17,9 +17,9 @@ static void checkTurretRemount(void)
     assert((int)rawPickUpperPoses[0].turretDdeg - observation == 173);
     assert((int)rawPickUpperPoses[1].turretDdeg - observation == -216);
     assert((int)rawPickTravelPose.turretDdeg - observation == -2070);
-    assert(missionRingPoses[0].horizontalDmm == 230 && missionRingPoses[0].turretDdeg == 3060U);
-    assert(missionRingPoses[1].horizontalDmm == 0 && missionRingPoses[1].turretDdeg == 2690U);
-    assert(missionRingPoses[2].horizontalDmm == 700 && missionRingPoses[2].turretDdeg == 2365U);
+    assert(missionRingPoses[0].horizontalDmm == 130 && missionRingPoses[0].turretDdeg == 3080U);
+    assert(missionRingPoses[1].horizontalDmm == -150 && missionRingPoses[1].turretDdeg == 2685U);
+    assert(missionRingPoses[2].horizontalDmm == 500 && missionRingPoses[2].turretDdeg == 2335U);
     assert((int)rawPickActions[5].pose.turretDdeg - observation == -1400);
     assert(rawPickActions[2].pose.turretDdeg == rawPickLowerPose.turretDdeg);
     assert(rawPickActions[11].pose.turretDdeg == observation);
@@ -34,6 +34,9 @@ static void checkTurretRemount(void)
     assert(rawPickInitial.gripperOpenDeg == 200U && rawPickInitial.gripperCloseDeg == 155U);
     assert(rawPickObservePose.horizontalDmm == 650 && rawPickLowerPose.liftDmm == 530U);
     assert(rawPickActions[7].pose.liftDmm == 170U);
+    assert(rawPickLowerPose.horizontalDmm == -800);
+    assert(placementHeights.firstLayerDmm == 1270U && placementHeights.secondLayerDmm == 600U);
+    assert(placementHeights.rawTrayDmm == 170U && placementHeights.returnTrayDmm == 200U);
 }
 
 static void checkUnchanged(const MechanismAction *before, const MechanismAction *after, uint16_t count)
@@ -59,7 +62,7 @@ static void checkUpperLeftExtension(void)
     uint8_t slot;
     for (slot = 1U; slot <= 3U; ++slot) {
         assert(rawPickActionsForPosition(actions,slot,2U));
-        assert(actions[2].pose.horizontalDmm == 649 && actions[4].pose.horizontalDmm == 649);
+        assert(actions[2].pose.horizontalDmm == 750 && actions[4].pose.horizontalDmm == 750);
         assert(actions[2].pose.turretDdeg == rawPickUpperPoses[0].turretDdeg);
         assert(actions[2].pose.liftDmm == rawPickUpperPoses[0].liftDmm && actions[4].pose.liftDmm == 0U);
         assert(actions[5].pose.horizontalDmm == -500 && actions[5].pose.liftDmm == 0U);
@@ -69,7 +72,7 @@ static void checkUpperLeftExtension(void)
         assert(actions[11].pose.horizontalDmm == (slot < 3U ? 650 : 0));
         assert(actions[11].pose.turretDdeg == (slot < 3U ? rawPickObservePose.turretDdeg : rawPickTravelPose.turretDdeg));
         assert(rawPickActionsForPosition(actions,slot,3U));
-        assert(actions[2].pose.horizontalDmm == 701 && actions[4].pose.horizontalDmm == 701);
+        assert(actions[2].pose.horizontalDmm == 800 && actions[4].pose.horizontalDmm == 800);
     }
 }
 
@@ -105,7 +108,7 @@ int main(void)
                     uint8_t ring = orders[order][item] - 1U;
                     assert(after[land[item] - coarse].pose.horizontalDmm == changed[ring].horizontalDmm);
                     assert(after[land[item] - coarse].pose.turretDdeg == changed[ring].turretDdeg);
-                    assert(after[land[item] - coarse].pose.liftDmm == (layer == 2U ? 580U : 1270U));
+                    assert(after[land[item] - coarse].pose.liftDmm == (layer == 2U ? 600U : 1270U));
                     {
                         unsigned down = land[item] - coarse;
                         const MechanismPose *turn = &after[down - 1U].pose;
@@ -158,7 +161,7 @@ int main(void)
         missionBuildStoragePlace(after, layer);
         checkUnchanged(before, after, MISSION_PLACE_COUNT);
         for (item = 0U; item < 3U; ++item) {
-            assert(after[land[item]].pose.liftDmm == (layer == 2U ? 580U : 1270U));
+            assert(after[land[item]].pose.liftDmm == (layer == 2U ? 600U : 1270U));
             assert(after[land[item] - 1U].pose.horizontalDmm == (layer == 2U || item == 1U ?
                    after[land[item]].pose.horizontalDmm : after[land[item] - 2U].pose.horizontalDmm));
             assert(after[land[item] - 1U].pose.liftDmm == 0U);
@@ -197,7 +200,7 @@ int main(void)
             assert(after[4].pose.liftDmm == 0U && after[10].pose.liftDmm == 0U);
             if (layer == 2U) {
                 assert(after[2].pose.turretDdeg == 2773U && after[4].pose.turretDdeg == 2773U);
-                assert(after[2].pose.horizontalDmm == 649 && after[4].pose.horizontalDmm == 649);
+                assert(after[2].pose.horizontalDmm == 750 && after[4].pose.horizontalDmm == 750);
             }
         }
     }

@@ -524,8 +524,8 @@ static VisionEvent vision_session_observe(VisionSession *session,
     absRight = right < 0.0f ? -right : right;
     aligned = (uint8_t)(absForward <= 3.0f && absRight <= 3.0f);
     if (session->mode == VISION_MODE_RING || session->target != 0U) {
-        aligned = (uint8_t)(du >= -VISION_ALIGN_TOLERANCE_PX && du <= VISION_ALIGN_TOLERANCE_PX &&
-                            dv >= -VISION_ALIGN_TOLERANCE_PX && dv <= VISION_ALIGN_TOLERANCE_PX);
+        aligned = (uint8_t)(du >= 0 && du <= VISION_ALIGN_TOLERANCE_PX &&
+                            dv >= 0 && dv <= VISION_ALIGN_TOLERANCE_PX);
     }
     if (session->mode == VISION_MODE_MATERIAL && session->pickupMode != 0U) {
         aligned = (uint8_t)(du >= -17 && du <= 17);
