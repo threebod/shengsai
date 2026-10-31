@@ -8,7 +8,7 @@
 int main(void)
 {
     static PresetRoute route;
-    unsigned zone, a, b, planned = 0U, middle = 0U;
+    unsigned zone, a, b, planned = 0U, middle = 0U, reverse = 0U;
     for (zone = 1U; zone <= 2U; ++zone)
         for (a = 1U; a <= 15U; ++a)
             for (b = a + 1U; b <= 15U; ++b) {
@@ -38,6 +38,28 @@ int main(void)
                             assert(step == 2U && leg.upMm == -1680 && leg.rightMm == 0 && leg.event);
                             assert(leg.departureHeading == 2 && leg.heading == -1);
                         }
+                    } else if (route.legs[index].templateId == 20U) {
+                        const PresetLeg *current = &route.legs[index];
+                        int16_t forward, right;
+                        assert(step == 0U && index > 0U);
+                        assert(current->taskIndex == 6U || current->taskIndex == 13U);
+                        assert(abs(presetHeadingChange(route.legs[index-1U].drive.heading,
+                                                       leg.departureHeading)) < 2);
+                        routeBody(leg.upMm, leg.rightMm, leg.departureHeading, &forward, &right);
+                        assert(forward < 0 && right == 0);
+                        if (leg.rightMm > 0) {
+                            ++reverse;
+                            assert(leg.rightMm == 651 && leg.upMm == 0 && !leg.event);
+                            assert(leg.departureHeading == 1 && leg.heading == 0 && current->arc == 1U);
+                            assert(route.legs[index-1U].drive.heading == leg.departureHeading);
+                            assert(presetArcClear(current,&route.legs[index+1U],route.regions));
+                        } else if (leg.upMm) {
+                            assert(leg.upMm == -1431 && leg.rightMm == 0 && !leg.event);
+                            assert(leg.departureHeading == 0 && leg.heading == 0 && !current->arc);
+                        } else {
+                            assert(leg.rightMm == -900 && leg.event && !current->arc);
+                            assert(leg.departureHeading == -1 && leg.heading == -1);
+                        }
                     } else {
                         RouteLeg original = presetActiveLeg(&route);
                         assert(step == 0U && leg.upMm == original.upMm && leg.rightMm == original.rightMm);
@@ -58,10 +80,10 @@ int main(void)
                 }
                 assert(stations == 8U && step == 0U);
             }
-    assert(planned == 208U && middle == 260U);
+    assert(planned == 208U && middle == 260U && reverse > 0U);
     /* A 50mm right bias touches the nominal boundary; one more mm hits fixed blocks. */
     assert(presetRectangleClear(1200, 300, 1250, 2080, 0U));
     assert(!presetRectangleClear(1200, 300, 1251, 2080, 0U));
-    puts("PASS RAW departure: down100/right50/down1680, headings, station events, two rounds/zones and unchanged other routes");
+    puts("PASS RAW departure: centre down100/right50/down1680, RC-3 reverse bend without U-turn, station events and two rounds/zones");
     return 0;
 }

@@ -121,10 +121,10 @@ static const PresetStep presetSteps19[] = {
     {400,400,-1740,0,2,2,-1,2},
     {1200,400,0,910,-1,-1,-1,0},
 };
-/* RC-3 */
+/* RC-3: reverse away from RAW and through the first bend; no departure U-turn. */
 static const PresetStep presetSteps20[] = {
-    {2100,2080,0,900,-1,-1,2,1},
-    {2100,400,-1680,0,2,2,2,0},
+    {2100,2080,0,900,1,1,0,1},
+    {2100,400,-1680,0,0,0,0,0},
     {1200,400,0,-900,-1,-1,-1,0},
 };
 /* CT-1 */
