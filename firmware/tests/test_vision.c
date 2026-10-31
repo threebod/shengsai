@@ -138,7 +138,7 @@ int main(void)
         }
     }
 
-    {
+    for (uint8_t moved = 0U; moved < 2U; ++moved) {
         VisionSession layout;
         VisionPacket result;
         vision_session_init(&layout);
@@ -151,9 +151,26 @@ int main(void)
         result.flags = VISION_FLAG_MATERIAL_LAYOUT | VISION_FLAG_VALID | VISION_FLAG_STABLE;
         result.value[0] = 160; result.value[1] = 205;
         result.value[5] = 1; result.value[6] = 4; result.value[7] = 3;
+        if (moved) {
+            result.value[0] = 180;
+            if (!require(vision_layout_observe(&layout, &calibration, &result, 0U) == VISION_EVENT_MOVE &&
+                         layout.iteration == 1U && !layout.layoutPositioned,
+                         "off-center layout did not request the first chassis correction")) return 1;
+            vision_session_make_request(&layout, &calibration, &request, 0U);
+            result.token = request.token;
+            result.value[0] = 160;
+            if (!require(vision_layout_observe(&layout, &calibration, &result, 0U) == VISION_EVENT_NONE &&
+                         !layout.layoutPositioned,
+                         "result during chassis correction counted as a parked round")) return 1;
+            vision_session_move_complete(&layout, 0U);
+            vision_session_tick(&layout, 0U);
+            layout.layoutPhase = VISION_LAYOUT_CONFIRM;
+            vision_session_make_request(&layout, &calibration, &request, 0U);
+            result.token = request.token;
+        }
         uint32_t locateToken = result.token;
         if (!require(vision_layout_observe(&layout, &calibration, &result, 1U) == VISION_EVENT_NONE &&
-                     layout.layoutPositioned && layout.iteration == 0U &&
+                     layout.layoutPositioned && layout.iteration == moved &&
                      layout.state == VISION_STATE_WAIT &&
                      vision_layout_pick_position(&layout, 4U) == VISION_PICK_POSITION_NONE,
                      "locating round authorized a grasp from a complete layout")) return 1;
