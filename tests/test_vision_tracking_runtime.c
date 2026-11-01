@@ -146,6 +146,15 @@ int main(void)
     reset();queueFrame(-40,-20,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(0);
     step(9);assert(!sentForward && !sentRight);
     step(1);assert(sentForward>0 && sentRight>0);
+    /* A fresh accepted axis stops immediately, before the next 10ms ramp tick. */
+    for (i = 0; i <= 1; ++i) {
+        reset(); run();
+        queueFrame((int)i,-20,2,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(1);
+        assert(!sentForward && sentRight > 0 && !failures && !visionTracking.confirmations);
+        reset(); run();
+        queueFrame(-40,(int)i,2,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(1);
+        assert(sentForward > 0 && !sentRight && !failures && !visionTracking.confirmations);
+    }
     reset(); step(20); assert(!enables && !sends && visionTracking.state == VISION_TRACK_WAIT);
     run(); farForward = sentForward; assert(farForward > 0 && sentRight > 0);
     for (i = 2; i <= 5; ++i) { queueFrame(-4,0,i,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20); }

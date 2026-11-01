@@ -83,7 +83,7 @@ static VisionTrackingState vision_tracking_observe(VisionTracking *tracking,
 {
     uint16_t sequence, advance;
     uint32_t age;
-    int16_t du, dv;
+    int16_t du, dv, controlDu, controlDv;
     if (tracking->state != VISION_TRACK_WAIT && tracking->state != VISION_TRACK_RUN &&
         tracking->state != VISION_TRACK_HOLD)
         return tracking->state;
@@ -112,9 +112,21 @@ static VisionTrackingState vision_tracking_observe(VisionTracking *tracking,
         return vision_tracking_stop(tracking, VISION_TRACK_FAILED, "TRACK_TARGET_INVALID");
     du = (int16_t)(packet->value[0] - calibration->anchorU);
     dv = (int16_t)(packet->value[1] - calibration->anchorV);
-    vision_map_error(calibration, du, dv, &tracking->forwardMm, &tracking->rightMm);
+    controlDu = du; controlDv = dv;
+    if (tracking->mode == VISION_MODE_RING) {
+        if (du >= 0 && du <= VISION_ALIGN_TOLERANCE_PX) controlDu = 0;
+        if (dv >= 0 && dv <= VISION_ALIGN_TOLERANCE_PX) controlDv = 0;
+    }
+    vision_map_error(calibration, controlDu, controlDv, &tracking->forwardMm, &tracking->rightMm);
     if (!vision_tracking_finite(tracking->forwardMm) || !vision_tracking_finite(tracking->rightMm))
         return vision_tracking_stop(tracking, VISION_TRACK_FAILED, "TRACK_CALIBRATION_INVALID");
+    /* Do not drive an accepted ring axis out of tolerance while aligning the other. */
+    if (tracking->mode == VISION_MODE_RING) {
+        if (tracking->forwardMm == 0.0f)
+            tracking->forwardRpm = tracking->driveForwardRpm = 0.0f;
+        if (tracking->rightMm == 0.0f)
+            tracking->rightRpm = tracking->driveRightRpm = 0.0f;
+    }
     if (tracking->state == VISION_TRACK_RUN && now - tracking->lastFrameAt > VISION_TRACK_FRESH_MS)
         tracking->confirmations = 0U;
     if (tracking->state == VISION_TRACK_HOLD) {

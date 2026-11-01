@@ -345,6 +345,65 @@ static void pixelTolerance(void)
     }
 }
 
+static void ringHoldsEachAcceptedAxis(void)
+{
+    VisionCalibration actual = {1U,{0,0,640,480},320,240,{-0.556f,0,0,-0.572f}};
+    for (unsigned axis = 0; axis < 2; ++axis) {
+        for (int offset = 0; offset <= 1; ++offset) {
+            VisionTracking native;
+            VisionPacket result = {0};
+            float f, r;
+            result.type = VISION_MESSAGE_RESULT; result.mode = VISION_MODE_RING;
+            result.token = 99U; result.target = 2U;
+            result.flags = VISION_FLAG_TRACKING | VISION_FLAG_VALID;
+            result.value[0] = 280; result.value[1] = 200; result.value[2] = 80;
+            result.value[6] = 1;
+            vision_tracking_begin(&native,99U,VISION_MODE_RING,0U,2U,20,20,15U,1000U,100U);
+            vision_tracking_observe(&native,&actual,&result,100U,100U);
+            vision_tracking_tick(&native,150U,1,1,&f,&r);
+            assert(f > 0 && r > 0);
+            result.value[axis] = (int16_t)((axis ? 240 : 320) + offset);
+            result.value[6] = 2;
+            vision_tracking_observe(&native,&actual,&result,151U,151U);
+            vision_tracking_tick(&native,151U,1,1,&f,&r);
+            assert(axis ? r == 0 && f > 0 : f == 0 && r > 0);
+            assert(native.state == VISION_TRACK_RUN && native.confirmations == 0);
+            result.value[axis] = (int16_t)((axis ? 240 : 320) - 1);
+            result.value[6] = 3;
+            vision_tracking_observe(&native,&actual,&result,200U,200U);
+            vision_tracking_tick(&native,200U,1,1,&f,&r);
+            assert(axis ? r > 0 : f > 0); /* Leaving tolerance resumes this axis. */
+            result.value[0] = 321; result.value[1] = 241;
+            for (unsigned sequence = 4; sequence <= 6; ++sequence) {
+                result.value[6] = (int16_t)sequence;
+                vision_tracking_observe(&native,&actual,&result,250U,250U);
+                assert(native.state == (sequence == 6 ? VISION_TRACK_DONE : VISION_TRACK_RUN));
+            }
+        }
+    }
+    {
+        VisionTracking native;
+        VisionPacket result = {0};
+        result.type = VISION_MESSAGE_RESULT; result.mode = VISION_MODE_RING;
+        result.token = 99U; result.target = 2U;
+        result.flags = VISION_FLAG_TRACKING | VISION_FLAG_VALID;
+        result.value[0] = 321; result.value[1] = 200; result.value[2] = 80;
+        result.value[6] = 1;
+        actual.matrix[1] = 0.25f; actual.matrix[2] = 0.5f;
+        vision_tracking_begin(&native,99U,VISION_MODE_RING,0U,2U,20,20,15U,1000U,100U);
+        vision_tracking_observe(&native,&actual,&result,100U,100U);
+        assert(fabsf(native.forwardMm + 10.0f) < 0.00001f);
+        assert(fabsf(native.rightMm - 22.88f) < 0.00001f);
+    }
+    /* Stacking material keeps its existing correction behavior. */
+    begin(30U,1000U,100.0f);
+    tracking.mode = packet.mode = VISION_MODE_MATERIAL;
+    tracking.selector = packet.selector = 3U; packet.value[5] = 3;
+    packet.value[0] = 161; packet.value[1] = 80;
+    receive(1U,100U);
+    assert(tracking.forwardMm == -1.0f && tracking.rightMm == 40.0f);
+}
+
 static void nativeRingPixels(void)
 {
     VisionTracking native;
@@ -375,6 +434,7 @@ static void nativeRingPixels(void)
 
 int main(void)
 {
+    ringHoldsEachAcceptedAxis();
     nativeRingPixels();
     handshakeAndIdentity(); frameValidation(); sequenceFreshness(); frameRecovery(); thirteenFpsCamera();
     speedAndDirection(); responseIndependentOfWatchdog(); completionAndBudget(); pixelTolerance();
