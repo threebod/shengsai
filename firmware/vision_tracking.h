@@ -22,10 +22,12 @@ typedef struct {
     VisionTrackingState state;
     const char *reason;
     uint32_t token, requestAt, durationMs, deadlineMs, updatedAt, controlAt, lastFrameAt;
+    uint32_t controlIntervalMs;
     uint16_t sequence, limitRpm;
     uint8_t mode, selector, target, sequenceValid, confirmations;
     float forwardMm, rightMm, forwardRpm, rightRpm;
     float driveForwardRpm, driveRightRpm, budgetMm, travelledMm;
+    float forwardRemainder, rightRemainder;
 } VisionTracking;
 
 static uint8_t vision_tracking_finite(float value)
@@ -39,6 +41,7 @@ static VisionTrackingState vision_tracking_stop(VisionTracking *tracking,
     tracking->reason = reason;
     tracking->forwardRpm = tracking->rightRpm = 0.0f;
     tracking->driveForwardRpm = tracking->driveRightRpm = 0.0f;
+    tracking->forwardRemainder = tracking->rightRemainder = 0.0f;
     return state;
 }
 
@@ -122,10 +125,14 @@ static VisionTrackingState vision_tracking_observe(VisionTracking *tracking,
         return vision_tracking_stop(tracking, VISION_TRACK_FAILED, "TRACK_CALIBRATION_INVALID");
     /* Do not drive an accepted ring axis out of tolerance while aligning the other. */
     if (tracking->mode == VISION_MODE_RING) {
-        if (tracking->forwardMm == 0.0f)
+        if (tracking->forwardMm == 0.0f) {
             tracking->forwardRpm = tracking->driveForwardRpm = 0.0f;
-        if (tracking->rightMm == 0.0f)
+            tracking->forwardRemainder = 0.0f;
+        }
+        if (tracking->rightMm == 0.0f) {
             tracking->rightRpm = tracking->driveRightRpm = 0.0f;
+            tracking->rightRemainder = 0.0f;
+        }
     }
     if (tracking->state == VISION_TRACK_RUN && now - tracking->lastFrameAt > VISION_TRACK_FRESH_MS)
         tracking->confirmations = 0U;
@@ -160,6 +167,19 @@ static float vision_tracking_ramp(float current, float target, uint32_t dt)
     if ((current > 0.0f && target < 0.0f) || (current < 0.0f && target > 0.0f)) return 0.0f;
     return routeSlew(current, target,
         fabsf(target) < fabsf(current) ? ROUTE_BRAKE_RPM_S : ROUTE_ACCEL_RPM_S, dt);
+}
+
+/* Preserve fractional average speed using the drive's integer RPM commands. */
+static float vision_tracking_quantize(float rpm, uint32_t dt, float *remainder)
+{
+    if (rpm == 0.0f || fabsf(rpm) >= 1.0f) {
+        *remainder = 0.0f;
+        return (float)routeRound(rpm);
+    }
+    *remainder += fabsf(rpm) * dt;
+    if (*remainder < dt) return 0.0f;
+    *remainder -= dt;
+    return rpm > 0.0f ? 1.0f : -1.0f;
 }
 
 /* Outputs are body-axis RPM, rounded here so the budget integrates sent commands. */
@@ -199,11 +219,13 @@ static VisionTrackingState vision_tracking_tick(VisionTracking *tracking, uint32
     if ((tracking->forwardRpm > 0.0f && tracking->forwardMm < 0.0f) ||
         (tracking->forwardRpm < 0.0f && tracking->forwardMm > 0.0f)) {
         tracking->forwardRpm = tracking->driveForwardRpm = 0.0f;
+        tracking->forwardRemainder = 0.0f;
         reversed = 1U;
     }
     if ((tracking->rightRpm > 0.0f && tracking->rightMm < 0.0f) ||
         (tracking->rightRpm < 0.0f && tracking->rightMm > 0.0f)) {
         tracking->rightRpm = tracking->driveRightRpm = 0.0f;
+        tracking->rightRemainder = 0.0f;
         reversed = 1U;
     }
     if (reversed) tracking->controlAt = now;
@@ -213,6 +235,7 @@ static VisionTrackingState vision_tracking_tick(VisionTracking *tracking, uint32
         return tracking->state;
     }
     tracking->controlAt = now;
+    tracking->controlIntervalMs = dt;
     forward = tracking->forwardMm * (60000.0f / (VISION_TRACK_RESPONSE_MS * ROUTE_MM_PER_REV)) / forwardScale;
     right = tracking->rightMm * (60000.0f / (VISION_TRACK_RESPONSE_MS * ROUTE_MM_PER_REV)) / lateralScale;
     total = fabsf(forward) + fabsf(right);
@@ -228,10 +251,10 @@ static VisionTrackingState vision_tracking_tick(VisionTracking *tracking, uint32
     }
     forward = (float)routeRound(tracking->forwardRpm);
     right = (float)routeRound(tracking->rightRpm);
-    /* Ring errors below half an RPM still need the drive's smallest integer command. */
+    /* Small ring errors must not be amplified into a continuous 1 RPM command. */
     if (tracking->mode == VISION_MODE_RING) {
-        if (forward == 0.0f && tracking->forwardMm != 0.0f) forward = tracking->forwardMm > 0.0f ? 1.0f : -1.0f;
-        if (right == 0.0f && tracking->rightMm != 0.0f) right = tracking->rightMm > 0.0f ? 1.0f : -1.0f;
+        forward = vision_tracking_quantize(tracking->forwardRpm,dt,&tracking->forwardRemainder);
+        right = vision_tracking_quantize(tracking->rightRpm,dt,&tracking->rightRemainder);
     }
     if (fabsf(forward) + fabsf(right) > tracking->limitRpm) {
         if (fabsf(forward) > fabsf(right)) forward += forward > 0.0f ? -1.0f : 1.0f;

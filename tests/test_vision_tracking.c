@@ -219,7 +219,14 @@ static void speedAndDirection(void)
     tick(131U); assert(forward<0);
     begin(15U,3000U,80.0f);calibration.matrix[0]=-0.1f;
     packet.value[0]=158;packet.value[1]=120;receive(1U,100U);tick(120U);
-    assert(forward==1 && right==0); /* Out-of-tolerance small errors still get the minimum RPM. */
+    assert(forward==0 && right==0);
+    previous = 0;
+    for (i=130U;i<=400U;i+=10U) {
+        receive((uint16_t)i,i); tick(i);
+        assert((forward==0 || forward==1) && right==0);
+        previous += forward;
+    }
+    assert(previous>0 && previous<10); /* Small errors advance without continuous minimum speed. */
 }
 
 static void responseIndependentOfWatchdog(void)
@@ -258,10 +265,13 @@ static void completionAndBudget(void)
     receive(5U,180U);assert(tracking.state==VISION_TRACK_DONE);
     /* Fresh ring tracking may continue past its former duration. */
     begin(15U,60U,80.0f); packet.value[0]=158; packet.value[1]=120; receive(1U,100U);
+    float motion = 0;
     for(now=120U;now<=1100U;now+=20U) {
         receive((uint16_t)now,now);
-        assert(tick(now)==VISION_TRACK_RUN && forward>0 && right==0);
+        assert(tick(now)==VISION_TRACK_RUN && forward>=0 && right==0);
+        motion += forward;
     }
+    assert(motion > 0);
     packet.value[0]=160;receive(1200U,1120U);assert(tracking.state==VISION_TRACK_RUN);
     receive(1201U,1140U);assert(tracking.state==VISION_TRACK_RUN && tracking.confirmations==2U);
     receive(1202U,1160U);assert(tracking.state==VISION_TRACK_DONE && !strcmp(tracking.reason,"TRACK_IN_RANGE"));
@@ -345,6 +355,80 @@ static void pixelTolerance(void)
     }
 }
 
+static void delayedRingPlant(void)
+{
+    /* Simulated gain variation is a robustness check, not measured vehicle calibration. */
+    for (int gain = 1; gain <= 3; ++gain) {
+        for (int initial = -5; initial <= 5; ++initial) {
+            if (initial == 0 || initial == 1) continue;
+            VisionTracking native;
+            VisionCalibration actual = {1U,{0,0,640,480},320,240,{-0.556f,0,0,-0.572f}};
+            VisionPacket result = {0};
+            float f, r, position = (float)initial, history[1001];
+            unsigned sequence = 0;
+            history[0] = position;
+            vision_tracking_begin(&native,99U,VISION_MODE_RING,0U,2U,0,10,15U,1000U,0U);
+            result.type = VISION_MESSAGE_RESULT; result.mode = VISION_MODE_RING;
+            result.token = 99U; result.target = 2U;
+            result.flags = VISION_FLAG_TRACKING | VISION_FLAG_VALID;
+            result.value[0] = 320; result.value[2] = 80;
+            result.value[7] = 100 - VISION_TRACK_WIRE_MS;
+            for (uint32_t now = 10U; now <= 10000U && native.state != VISION_TRACK_DONE; now += 10U) {
+                if (now >= 100U && (now - 100U) % 190U == 0U) {
+                    result.value[1] = (int16_t)(240 + routeRound(history[(now - 100U)/10U]));
+                    result.value[6] = (int16_t)++sequence;
+                    vision_tracking_observe(&native,&actual,&result,now,now);
+                }
+                vision_tracking_tick(&native,now,ROUTE_FORWARD_SCALE,ROUTE_LATERAL_SCALE,&f,&r);
+                assert(f == 0 && fabsf(r) <= 15 && native.state != VISION_TRACK_FAILED);
+                position += gain*r*ROUTE_LATERAL_SCALE*(ROUTE_MM_PER_REV/60000.0f)*10/0.572f;
+                history[now/10U] = position;
+            }
+            assert(native.state == VISION_TRACK_DONE && native.confirmations == 3);
+        }
+    }
+}
+
+static void fractionalRingSpeed(void)
+{
+    {
+        static const uint32_t intervals[] = {10,11,20,15,10};
+        float remainder = 0, requested = 0, sent = 0;
+        for (unsigned i = 0; i < 1000; ++i) {
+            uint32_t dt = intervals[i % 5];
+            float speed = vision_tracking_quantize(0.25f,dt,&remainder);
+            assert(speed == 0 || speed == 1);
+            requested += 0.25f*dt; sent += speed*dt;
+        }
+        assert(requested-sent >= 0 && requested-sent < 20);
+        assert(vision_tracking_quantize(0,10U,&remainder) == 0 && remainder == 0);
+        assert(vision_tracking_quantize(15,10U,&remainder) == 15 && remainder == 0);
+    }
+    for (unsigned axis = 0; axis < 2; ++axis) {
+        for (int offset = -1; offset <= 2; offset += 3) {
+            float sum = 0;
+            unsigned moving = 0, stopped = 0;
+            begin(15U,1000U,100.0f);
+            calibration.matrix[axis ? 3 : 0] = -ROUTE_MM_PER_REV/(480.0f*abs(offset));
+            packet.value[0] = 160; packet.value[1] = 120;
+            packet.value[axis] += (int16_t)offset;
+            receive(1U,100U);
+            for (uint32_t now = 110U; now <= 1100U; now += 10U) {
+                if (now % 100U == 0U) receive((uint16_t)now,now);
+                assert(tick(now) == VISION_TRACK_RUN);
+                assert(tracking.controlIntervalMs == 10U);
+                float speed = axis ? right : forward;
+                assert(speed == 0 || speed == (offset < 0 ? 1 : -1));
+                assert(axis ? forward == 0 : right == 0);
+                sum += fabsf(speed);
+                if (speed) ++moving; else ++stopped;
+            }
+            /* 0.25 RPM for 100 control ticks must not become 100 ticks at 1 RPM. */
+            assert(sum >= 24 && sum <= 26 && moving && stopped);
+        }
+    }
+}
+
 static void ringHoldsEachAcceptedAxis(void)
 {
     VisionCalibration actual = {1U,{0,0,640,480},320,240,{-0.556f,0,0,-0.572f}};
@@ -372,11 +456,17 @@ static void ringHoldsEachAcceptedAxis(void)
             result.value[6] = 3;
             vision_tracking_observe(&native,&actual,&result,200U,200U);
             vision_tracking_tick(&native,200U,1,1,&f,&r);
-            assert(axis ? r > 0 : f > 0); /* Leaving tolerance resumes this axis. */
+            assert(axis ? native.rightMm > 0 : native.forwardMm > 0);
+            float resumed = axis ? r : f;
+            for (uint32_t now = 210U; now <= 400U; now += 10U) {
+                vision_tracking_tick(&native,now,1,1,&f,&r);
+                resumed += axis ? r : f;
+            }
+            assert(resumed > 0); /* Leaving tolerance resumes fractional motion. */
             result.value[0] = 321; result.value[1] = 241;
             for (unsigned sequence = 4; sequence <= 6; ++sequence) {
                 result.value[6] = (int16_t)sequence;
-                vision_tracking_observe(&native,&actual,&result,250U,250U);
+                vision_tracking_observe(&native,&actual,&result,450U,450U);
                 assert(native.state == (sequence == 6 ? VISION_TRACK_DONE : VISION_TRACK_RUN));
             }
         }
@@ -434,6 +524,8 @@ static void nativeRingPixels(void)
 
 int main(void)
 {
+    delayedRingPlant();
+    fractionalRingSpeed();
     ringHoldsEachAcceptedAxis();
     nativeRingPixels();
     handshakeAndIdentity(); frameValidation(); sequenceFreshness(); frameRecovery(); thirteenFpsCamera();

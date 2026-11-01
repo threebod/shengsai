@@ -81,6 +81,7 @@ static void checkStationHeadingLog(void) {
 }
 
 static void checkPixelLog(void) {
+    const int16_t wheels[4] = {-1,2,-3,4};
     VisionPixelLog state={0};
     VisionPacket packet={0};
     VisionCalibration calibration={0};
@@ -89,19 +90,22 @@ static void checkPixelLog(void) {
     packet.token=42;packet.mode=2;packet.target=2;
     packet.value[0]=157;packet.value[1]=124;
     taskLogReset(&logBuffer);
-    visionPixelLogRecord(&logBuffer,&state,1010,1000,9,&packet,&calibration,"TRACK");
+    visionPixelLogRecord(&logBuffer,&state,1010,1000,9,&packet,&calibration,"TRACK",wheels,11U,2U);
     logBuffer.bytes[logBuffer.end]=0;
     assert(strstr((const char *)logBuffer.bytes,"u=157 v=124 au=160 av=120 du=-3 dv=4 age=10"));
+    assert(strstr((const char *)logBuffer.bytes,"cmd=1 m1=-1 m2=2 m3=-3 m4=4 ctrl_ms=11 tx_ms=2"));
     end=logBuffer.end;
-    visionPixelLogRecord(&logBuffer,&state,1050,1040,9,&packet,&calibration,"TRACK");
+    visionPixelLogRecord(&logBuffer,&state,1050,1040,9,&packet,&calibration,"TRACK",wheels,11U,2U);
     assert(logBuffer.end==end);
-    visionPixelLogRecord(&logBuffer,&state,1051,1041,9,&packet,&calibration,"IN_RANGE");
+    visionPixelLogRecord(&logBuffer,&state,1051,1041,9,&packet,&calibration,"IN_RANGE",0,10U,0U);
     assert(logBuffer.end>end); /* Preserve the last frame even inside the interval. */
+    logBuffer.bytes[logBuffer.end]=0;
+    assert(strstr((const char *)logBuffer.bytes,"cmd=0 m1=0 m2=0 m3=0 m4=0 ctrl_ms=10 tx_ms=0"));
     end=logBuffer.end;packet.token++;
-    visionPixelLogRecord(&logBuffer,&state,1052,1042,9,&packet,&calibration,"TRACK");
+    visionPixelLogRecord(&logBuffer,&state,1052,1042,9,&packet,&calibration,"TRACK",wheels,11U,2U);
     assert(logBuffer.end>end);
     taskLogReset(&logBuffer);
-    visionPixelLogRecord(&logBuffer,&state,1053,1043,9,&packet,&calibration,"TRACK");
+    visionPixelLogRecord(&logBuffer,&state,1053,1043,9,&packet,&calibration,"TRACK",wheels,11U,2U);
     assert(logBuffer.end); /* New task must not inherit throttling. */
 }
 

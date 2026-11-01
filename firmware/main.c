@@ -183,6 +183,7 @@ static uint16_t routeTurnRpmLimit = (uint16_t)ROUTE_TURN_RPM;
 static uint16_t routeLateralRpmLimit = ROUTE_LATERAL_RPM_MAX;
 static int16_t routeSent[4];
 static uint8_t routeSentValid;
+static uint32_t routeSendElapsedMs;
 static void sendRouteSpeeds(int16_t forward, int16_t right, int16_t turn);
 static void serialSendString(const char *text);
 static void serialSendUint32(uint32_t value);
@@ -1059,13 +1060,18 @@ static void printVisionMotionStatus(void)
     serialSendString("\r\n");
 }
 
-static void recordVisionPixels(const VisionPacket *packet, uint32_t sample, const char *phase)
-{
-    visionPixelLogRecord(&taskLog, &visionPixelLog, clockMs, sample, routeIndex,
-                         packet, visionCalibration(), phase);
-}
+static void recordVisionPixels(const VisionPacket *packet, uint32_t sample, const char *phase);
 
 #include "vision_tracking_runtime.h"
+
+static void recordVisionPixels(const VisionPacket *packet, uint32_t sample, const char *phase)
+{
+    uint8_t tracking = (uint8_t)((packet->flags & VISION_FLAG_TRACKING) != 0U);
+    visionPixelLogRecord(&taskLog, &visionPixelLog, clockMs, sample, routeIndex,
+                         packet, visionCalibration(), phase, routeSentValid ? routeSent : 0,
+                         tracking ? visionTracking.controlIntervalMs : 0U,
+                         routeSentValid ? routeSendElapsedMs : 0U);
+}
 
 static uint8_t startVisionMotion(float forwardMm, float rightMm,
                                  uint16_t rpm, uint8_t automatic)
@@ -1381,6 +1387,7 @@ static uint8_t processAuxMoveCommand(const char *command)
 
 static void sendRouteSpeeds(int16_t forward, int16_t right, int16_t turn)
 {
+    uint32_t sendAt;
     uint8_t id, direction;
     uint8_t changed = (uint8_t)!routeSentValid;
     int16_t speed, speeds[4];
@@ -1404,6 +1411,7 @@ static void sendRouteSpeeds(int16_t forward, int16_t right, int16_t turn)
     /* A velocity command persists in the drive. Re-send the synchronized batch
      * only when a wheel target changes, not every iteration at constant speed. */
     if (!changed) return;
+    sendAt = clockMs;
     for (id = 1U; id <= 4U; ++id) {
         if (motionInterrupted()) return;
         speed = speeds[id - 1U];
@@ -1415,6 +1423,7 @@ static void sendRouteSpeeds(int16_t forward, int16_t right, int16_t turn)
     if (!motionInterrupted()) {
         for (id = 0U; id < 4U; ++id) routeSent[id] = speeds[id];
         routeSentValid = 1U;
+        routeSendElapsedMs = clockMs - sendAt;
     }
 }
 
