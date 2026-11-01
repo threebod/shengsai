@@ -439,10 +439,10 @@ ApplicationWindow {
                         }
                         Card {
                             heading: "视觉比例"; Layout.alignment: Qt.AlignTop
-                            Label { text: "前后 mm/像素"; color: "#656570" }
-                            NumberField { id: scaleF; minimum: 0.05; maximum: 2; decimals: 3; text: "1.111"; enabled: !controller.busy && !controller.calibrating && !controller.parametersPending; onTextEdited: app.scaleDirty=true }
-                            Label { text: "左右 mm/像素"; color: "#656570" }
-                            NumberField { id: scaleR; minimum: 0.05; maximum: 2; decimals: 3; text: "1.143"; enabled: !controller.busy && !controller.calibrating && !controller.parametersPending; onTextEdited: app.scaleDirty=true }
+                            Label { text: "前后 mm/实际像素"; color: "#656570" }
+                            NumberField { id: scaleF; minimum: 0.025; maximum: 2; decimals: 3; text: "0.556"; enabled: !controller.busy && !controller.calibrating && !controller.parametersPending; onTextEdited: app.scaleDirty=true }
+                            Label { text: "左右 mm/实际像素"; color: "#656570" }
+                            NumberField { id: scaleR; minimum: 0.025; maximum: 2; decimals: 3; text: "0.572"; enabled: !controller.busy && !controller.calibrating && !controller.parametersPending; onTextEdited: app.scaleDirty=true }
                             Hint { text: app.scaleDirty ? "比例已修改，待应用或保存" : controller.scaleState }
                             RowLayout {
                                 Layout.fillWidth: true

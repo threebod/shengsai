@@ -16,11 +16,17 @@ static int require(int condition, const char *message)
 
 int main(void)
 {
-    if (!require(fabsf(visionRingCalibration[1].matrix[0] + 1.111f) < 0.00001f &&
-                 fabsf(visionRingCalibration[1].matrix[3] + 1.143f) < 0.00001f &&
+    if (!require(fabsf(visionRingCalibration[1].matrix[0] + 0.556f) < 0.00001f &&
+                 fabsf(visionRingCalibration[1].matrix[3] + 0.572f) < 0.00001f &&
                  fabsf(visionMaterialCalibration.matrix[0] + 0.667f) < 0.00001f &&
                  fabsf(visionMaterialCalibration.matrix[3] + 0.769f) < 0.00001f,
                  "formal ring 2 defaults or independent material defaults were incorrect")) return 1;
+    if (!require(visionRingCalibration[1].roi[2] == 640 &&
+                 visionRingCalibration[1].roi[3] == 480 &&
+                 visionRingCalibration[1].anchorU == 320 && visionRingCalibration[1].anchorV == 240 &&
+                 visionStackCalibration.roi[2] == 320 && visionStackCalibration.anchorU == 160 &&
+                 fabsf(visionStackCalibration.matrix[0] - 2*visionRingCalibration[1].matrix[0]) < 0.00001f,
+                 "native ring coordinates affected stacking calibration")) return 1;
     VisionPacket request;
     VisionPacket decoded;
     VisionParser parser;
@@ -32,6 +38,25 @@ int main(void)
     float forward;
     float right;
     VisionSession session;
+
+    {
+        VisionPacket native = {0};
+        uint16_t crc;
+        native.type = VISION_MESSAGE_RESULT; native.mode = VISION_MODE_RING;
+        native.target = 2U; native.value[0] = 321; native.value[1] = 241;
+        vision_packet_encode(&native, frame);
+        vision_parser_init(&parser);
+        if (!require(frame[2] == 2U &&
+                     vision_parser_feed(&parser, frame, VISION_FRAME_SIZE, &decoded) &&
+                     decoded.value[0] == 321 && decoded.value[1] == 241,
+                     "native ring frame lost actual pixel coordinates")) return 1;
+        frame[2] = 1U;
+        crc = vision_crc16(frame, 28U);
+        frame[28] = (uint8_t)crc; frame[29] = (uint8_t)(crc >> 8);
+        vision_parser_init(&parser);
+        if (!require(!vision_parser_feed(&parser, frame, VISION_FRAME_SIZE, &decoded),
+                     "legacy ring coordinates were accepted as actual pixels")) return 1;
+    }
 
     /* Layout first replies get 1000ms, while an established stream keeps its
      * existing 1800ms communication timeout. Each new token resets the ACK gate. */

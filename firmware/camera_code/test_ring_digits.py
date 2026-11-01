@@ -30,20 +30,20 @@ class RingDigitsTest(unittest.TestCase):
         maix = types.ModuleType("maix")
         maix.image = Mock()
         maix.image.image2cv.return_value = frame
-        request = {"target": target, "values": [0, 0, 320, 240, 160, 120, 0, 0]}
+        request = {"target": target, "values": [0, 0, 640, 480, 320, 240, 0, 0]}
         with patch.dict(sys.modules, {"maix": maix}):
             return find_ring(Mock(), request)
 
     def test_only_number_two_is_selected(self):
         found = self.detect(self.scene((1, 2, 3)))
         self.assertIsNotNone(found)
-        self.assertLessEqual(abs(found[0] - 160), 1)
-        self.assertLessEqual(abs(found[1] - 120), 1)
+        self.assertLessEqual(abs(found[0] - 320), 1)
+        self.assertLessEqual(abs(found[1] - 240), 1)
         # The requested center is the ring's center, not the glyph centroid.
         self.assertGreater(found[3], 60)
 
     def test_number_two_can_be_anywhere_in_the_row(self):
-        for digits, expected_x in (((2, 1, 3), 60), ((3, 1, 2), 260)):
+        for digits, expected_x in (((2, 1, 3), 120), ((3, 1, 2), 520)):
             with self.subTest(digits=digits):
                 found = self.detect(self.scene(digits))
                 self.assertIsNotNone(found)

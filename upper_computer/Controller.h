@@ -172,7 +172,7 @@ private:
     QString status_{QStringLiteral("未连接")},task_{QStringLiteral("待启动")};
     QString scaleState_{QStringLiteral("尚未读取主控比例")},ringState_{QStringLiteral("请先读取主控参数")},connectionName_;
     QVariantList devices_,rings_,angles_{0.0,0.0,0.0};
-    int forward_{1111},right_{1143},driveDirection_{};
+    int forward_{556},right_{572},driveDirection_{};
     int calibrationStage_{},sampleIndex_{},sampleId_{},calibrationGeneration_{};
     QPointF samples_[5];
     bool lidarRunning_{},lidarPending_{};

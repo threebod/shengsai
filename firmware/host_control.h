@@ -47,6 +47,9 @@ static void hostApplyScale(void) {
     visionRingCalibration[1].matrix[0]=-scaleForward/1000.0f;
     visionRingCalibration[1].matrix[3]=-scaleRight/1000.0f;
     visionRingCalibration[1].calibrated=1;
+    visionStackCalibration.matrix[0]=-scaleForward/500.0f;
+    visionStackCalibration.matrix[3]=-scaleRight/500.0f;
+    visionStackCalibration.calibrated=1;
 }
 static void hostScaleInit(void) { scaleSaved=scaleLoad(&scaleForward,&scaleRight);hostApplyScale(); }
 static void hostSnapshot(SsFrame *r) {

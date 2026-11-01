@@ -36,7 +36,7 @@ def crc16(data):
 def encode(kind, token, mode, selector, target, flags, values):
     if len(values) != 8:
         raise ValueError("values must contain eight int16 fields")
-    frame = struct.pack(FORMAT, b"\xA5\x5A", 1, kind, token, mode,
+    frame = struct.pack(FORMAT, b"\xA5\x5A", 2 if mode == MODE_RING else 1, kind, token, mode,
                         selector, target, flags, *values, 0)
     return frame[:28] + struct.pack("<H", crc16(frame[:28]))
 
@@ -66,7 +66,7 @@ class Parser:
                 break
             frame = bytes(self.buffer[:FRAME_SIZE])
             expected = struct.unpack_from("<H", frame, 28)[0]
-            if frame[2] != 1 or crc16(frame[:28]) != expected:
+            if frame[2] != (2 if frame[8] == MODE_RING else 1) or crc16(frame[:28]) != expected:
                 del self.buffer[0]
                 continue
             row = struct.unpack(FORMAT, frame)
@@ -162,6 +162,7 @@ def validate_request(packet):
     if tracking and packet["values"][7] == TRACKING_END:
         return True
     x, y, width, height, u, v, _, _ = packet["values"]
-    return (0 <= x < 320 and 0 <= y < 240 and width > 0 and height > 0 and
-            x + width <= 320 and y + height <= 240 and
+    image_width, image_height = (640, 480) if packet["mode"] == MODE_RING else (320, 240)
+    return (0 <= x < image_width and 0 <= y < image_height and width > 0 and height > 0 and
+            x + width <= image_width and y + height <= image_height and
             x <= u < x + width and y <= v < y + height)

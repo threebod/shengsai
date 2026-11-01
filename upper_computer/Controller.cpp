@@ -352,7 +352,7 @@ void Controller::saveHeights(const QVariantList &values){
 }
 void Controller::applyScale(double f,double r,bool save){
     if(!connected_ || busy_)return;
-    if(!qIsFinite(f) || !qIsFinite(r) || f<0.05 || f>2 || r<0.05 || r>2){setStatus(QStringLiteral("比例范围为 0.050～2.000 mm/像素"));return;}
+    if(!qIsFinite(f) || !qIsFinite(r) || f<0.025 || f>2 || r<0.025 || r>2){setStatus(QStringLiteral("比例范围为 0.025～2.000 mm/像素"));return;}
     const int a=qRound(f*1000),b=qRound(r*1000);
     scaleState_=QStringLiteral("等待主控确认");request(save?SS_SAVE_SCALE:SS_APPLY_SCALE,pair(a,b));emit changed();
 }
@@ -436,7 +436,7 @@ void Controller::log(const QString &line){
         const QRegularExpression re("^VISION MEASURE id=(\\d+) ring=2 token=(\\d+) du=(-?\\d+) dv=(-?\\d+) quality=(\\d+)$");
         const auto m=re.match(line);if(!m.hasMatch() || m.captured(1).toInt()!=sampleId_)return;
         const int du=m.captured(3).toInt(),dv=m.captured(4).toInt();
-        if(m.captured(5).toInt()<60 || du< -160 || du>159 || dv< -120 || dv>119){failCalibration(QStringLiteral("样本质量不足；未覆盖原比例"));return;}
+        if(m.captured(5).toInt()<60 || du< -320 || du>319 || dv< -240 || dv>239){failCalibration(QStringLiteral("样本质量不足；未覆盖原比例"));return;}
         calibrationTimeout_.stop();samples_[sampleIndex_]=QPointF(du,dv);
         if(sampleIndex_==4){calculate();return;}
         static const int forward[4]={20,-20,0,0},right[4]={0,0,20,-20};
@@ -450,12 +450,12 @@ void Controller::calculate(){
     const QPointF f1=samples_[1]-samples_[0],f2=samples_[1]-samples_[2],r1=samples_[3]-samples_[2],r2=samples_[3]-samples_[4];
     const double f=(f1.x()+f2.x())/2,r=(r1.y()+r2.y())/2;
     const QPointF fd=samples_[2]-samples_[0],rd=samples_[4]-samples_[2];
-    if(f<5 || r<5 || f1.x()<=0 || f2.x()<=0 || r1.y()<=0 || r2.y()<=0 ||
-       qAbs(fd.x())>3 || qAbs(fd.y())>3 || qAbs(rd.x())>3 || qAbs(rd.y())>3 ||
-       qAbs((f1.y()+f2.y())/2)>qMax(3.,f*.2) || qAbs((r1.x()+r2.x())/2)>qMax(3.,r*.2)){
+    if(f<10 || r<10 || f1.x()<=0 || f2.x()<=0 || r1.y()<=0 || r2.y()<=0 ||
+       qAbs(fd.x())>6 || qAbs(fd.y())>6 || qAbs(rd.x())>6 || qAbs(rd.y())>6 ||
+       qAbs((f1.y()+f2.y())/2)>qMax(6.,f*.2) || qAbs((r1.x()+r2.x())/2)>qMax(6.,r*.2)){
         failCalibration(QStringLiteral("往返偏差或轴间耦合过大；未覆盖原比例"));return;
     }
     const int a=qRound(20000/f),b=qRound(20000/r);
-    if(a<50 || a>2000 || b<50 || b>2000){failCalibration(QStringLiteral("计算比例超出有效范围"));return;}
+    if(a<25 || a>2000 || b<25 || b>2000){failCalibration(QStringLiteral("计算比例超出有效范围"));return;}
     calibrationStage_=4;calibrationTimeout_.start(6000);request(SS_APPLY_SCALE,pair(a,b));
 }

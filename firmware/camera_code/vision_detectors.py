@@ -1,7 +1,7 @@
 import math
 
 import vision_settings as settings
-from vision_protocol import FLAG_RING_NO_DIGIT, FLAG_TRACKING
+from vision_protocol import FLAG_RING_NO_DIGIT, FLAG_TRACKING, MODE_RING
 
 
 def _unique_near(candidates, anchor, radius):
@@ -17,6 +17,7 @@ def find_material(img, request, scale=1):
         height = min(y + height, 180) - y
         if height <= 0:
             return None
+    area_scale = 2 if request.get("mode") == MODE_RING else scale
     candidates = []
     mask = request["values"][6]
     for color, threshold in settings.COLOR_THRESHOLDS.items():
@@ -30,8 +31,8 @@ def find_material(img, request, scale=1):
             continue
         blob = max(blobs, key=lambda blob: blob.area())
         area = blob.area()
-        if not settings.MATERIAL_AREA[0] * scale ** 2 <= area <= \
-                settings.MATERIAL_AREA[1] * scale ** 2:
+        if not settings.MATERIAL_AREA[0] * area_scale ** 2 <= area <= \
+                settings.MATERIAL_AREA[1] * area_scale ** 2:
             continue
         if max(blob.w(), blob.h()) / min(blob.w(), blob.h()) > 1.4:
             continue
@@ -81,17 +82,14 @@ def find_ring(img, request, diagnostics=None, reference=None):
 
     x, y, width, height, anchor_u, anchor_v, _, _ = request["values"]
     gray = image.image2cv(img.to_format(image.Format.FMT_GRAYSCALE), False, False)
-    # Requests and results remain in the vehicle's 320x240 calibration coordinates.
-    scale = gray.shape[1] / 320
-    roi_x, roi_y = int(x * scale), int(y * scale)
-    roi = gray[roi_y:roi_y + int(height * scale),
-               roi_x:roi_x + int(width * scale)]
-    binary_block = int(settings.RING_BINARY_BLOCK * scale / 2) | 1
+    # Ring requests and results use actual image pixels without downscaling.
+    roi = gray[y:y + height, x:x + width]
+    binary_block = settings.RING_BINARY_BLOCK
     if min(roi.shape[:2]) < binary_block:
         return None
     filtered = cv2.GaussianBlur(roi, (3, 3), 0)
     if settings.RING_SHARPEN_AMOUNT > 0:
-        blur = cv2.GaussianBlur(filtered, (0, 0), settings.RING_SHARPEN_SIGMA * scale / 2)
+        blur = cv2.GaussianBlur(filtered, (0, 0), settings.RING_SHARPEN_SIGMA)
         filtered = cv2.addWeighted(filtered, 1 + settings.RING_SHARPEN_AMOUNT,
                                    blur, -settings.RING_SHARPEN_AMOUNT, 0)
     binary = cv2.adaptiveThreshold(filtered, 255,
@@ -102,10 +100,9 @@ def find_ring(img, request, diagnostics=None, reference=None):
     circles = []
     for contour in contours:
         area = cv2.contourArea(contour)
-        if area < math.pi * (settings.RING_MIN_RADIUS * scale) ** 2 * 0.5:
+        if area < math.pi * settings.RING_MIN_RADIUS ** 2 * 0.5:
             continue
         (center_x, center_y), radius = cv2.minEnclosingCircle(contour)
-        radius /= scale
         if not settings.RING_MIN_RADIUS <= radius <= settings.RING_MAX_RADIUS:
             continue
         perimeter = cv2.arcLength(contour, True)
@@ -115,8 +112,8 @@ def find_ring(img, request, diagnostics=None, reference=None):
         moments = cv2.moments(contour)
         if moments["m00"] == 0:
             continue
-        circles.append((x + moments["m10"] / moments["m00"] / scale,
-                        y + moments["m01"] / moments["m00"] / scale, radius))
+        circles.append((x + moments["m10"] / moments["m00"],
+                        y + moments["m01"] / moments["m00"], radius))
     targets = _cluster_rings(circles)
     if tracking:
         # Identity comes from the preceding stable sample, never from list order.
@@ -128,7 +125,7 @@ def find_ring(img, request, diagnostics=None, reference=None):
         if diagnostics is not None:
             diagnostics.update(circles=circles, targets=targets)
         if len(targets) > 1:
-            material = find_material(img, request, scale=scale)
+            material = find_material(img, dict(request, mode=MODE_RING), scale=1)
             if material is None:
                 return None
             return min(targets, key=lambda target: math.hypot(
@@ -139,7 +136,7 @@ def find_ring(img, request, diagnostics=None, reference=None):
     numbered_targets = []
     digits = []
     for target in targets:
-        digit, score = read_ring_digit(gray, target, scale)
+        digit, score = read_ring_digit(gray, target, 1)
         digits.append((target[0], target[1], digit, score))
         if digit == 2:
             numbered_targets.append(target)

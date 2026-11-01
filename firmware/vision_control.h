@@ -152,7 +152,7 @@ static void vision_packet_encode(const VisionPacket *packet,
     memset(frame, 0, VISION_FRAME_SIZE);
     frame[0] = 0xA5U;
     frame[1] = 0x5AU;
-    frame[2] = 1U;
+    frame[2] = packet->mode == VISION_MODE_RING ? 2U : 1U;
     frame[3] = packet->type;
     vision_write_u32(frame + 4, packet->token);
     frame[8] = packet->mode;
@@ -188,7 +188,7 @@ static uint8_t vision_parser_feed(VisionParser *parser, const uint8_t *data,
         parser->bytes[parser->length++] = byte;
         if (parser->length != VISION_FRAME_SIZE) continue;
         parser->length = 0U;
-        if (parser->bytes[2] != 1U ||
+        if (parser->bytes[2] != (parser->bytes[8] == VISION_MODE_RING ? 2U : 1U) ||
             vision_crc16(parser->bytes, 28U) !=
                 ((uint16_t)parser->bytes[28] | ((uint16_t)parser->bytes[29] << 8))) {
             continue;

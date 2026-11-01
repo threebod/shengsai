@@ -109,11 +109,14 @@ class VisionMainTest(unittest.TestCase):
 
     def request(self, mode, token, target=1, selector=1, mask=0):
         return encode(KIND_REQUEST, token, mode, selector, target, 0,
-                      [0, 0, 320, 240, 160, 120, mask, 0])
+                      ([0, 0, 640, 480, 320, 240] if mode == MODE_RING else
+                       [0, 0, 320, 240, 160, 120]) + [mask, 0])
 
     def tracking_request(self, token=9, mode=MODE_RING, selector=0, target=2, action=1):
         return encode(KIND_REQUEST, token, mode, selector, target, FLAG_TRACKING,
-                      ([0] * 6 if action == -1 else [0, 0, 320, 240, 160, 120]) + [0, action])
+                      ([0] * 6 if action == -1 else
+                       [0, 0, 640, 480, 320, 240] if mode == MODE_RING else
+                       [0, 0, 320, 240, 160, 120]) + [0, action])
 
     def tracking_responses(self, maix):
         return [Parser().feed(item.args[0])[0]
@@ -142,8 +145,8 @@ class VisionMainTest(unittest.TestCase):
         self.assertEqual(list(range(1, 7)), [packet["values"][6] for packet in packets])
         self.assertTrue(all(packet["values"][7] == 77 for packet in packets))
         self.assertEqual(1, sum(line.startswith("VISION TRACK TX") for line in self.logs))
-        self.assertIn("VISION APP version=1.0.24 ring_tracking=contours", self.logs)
-        self.assertIn("version: 1.0.24", pathlib.Path(__file__).with_name("app.yaml").read_text(encoding="utf-8"))
+        self.assertIn("VISION APP version=1.0.25 ring_tracking=contours coordinates=native640", self.logs)
+        self.assertIn("version: 1.0.25", pathlib.Path(__file__).with_name("app.yaml").read_text(encoding="utf-8"))
 
     def test_tracking_ring_reference_comes_from_matching_stable_sample_and_advances(self):
         seed = (150, 100, 80, 70, 70)
@@ -465,7 +468,7 @@ class VisionMainTest(unittest.TestCase):
                 captures = [index for index, item in enumerate(cam.mock_calls) if item == call.read()]
                 self.assertGreater(cam.mock_calls.index(call.set_resolution(320, 240)), captures[3])
 
-    def test_ring_resolution_switch_preserves_protocol_and_scales_overlay(self):
+    def test_ring_resolution_switch_uses_native_coordinates_and_overlay(self):
         maix = self.run_camera(
             [self.request(MODE_RING, 1), b"", b"", self.request(MODE_MATERIAL, 2)],
             [0, 0.1, 0.2, 0.3], [False, False, True, False],
@@ -481,7 +484,7 @@ class VisionMainTest(unittest.TestCase):
                          Parser().feed(response)[0]["values"])
         frame = cam.read.return_value
         frame.draw_rect.assert_any_call(0, 0, 640, 480, maix.image.COLOR_YELLOW, 1)
-        frame.draw_cross.assert_any_call(336, 248, maix.image.COLOR_GREEN, 8, 2)
+        frame.draw_cross.assert_any_call(168, 124, maix.image.COLOR_GREEN, 8, 2)
 
     def test_material_quality_is_diagnostic_only(self):
         for color in range(1, 7):
@@ -596,7 +599,7 @@ class VisionMainTest(unittest.TestCase):
                     else:
                         response = maix.uart.UART.return_value.write.call_args.args[0]
                         self.assertEqual(3, Parser().feed(response)[0]["flags"])
-                    self.assertEqual({"count": 3, "tolerance": 2, "minimum_ms": 180,
+                    self.assertEqual({"count": 3, "tolerance": 4, "minimum_ms": 180,
                                       "trend_tolerance": None}, self.window_calls[-1].kwargs)
 
     def test_three_ring_frames_still_require_180ms(self):
@@ -610,7 +613,7 @@ class VisionMainTest(unittest.TestCase):
 
     def test_ring_loss_or_jitter_restarts_three_frame_window(self):
         point = (160, 120, 80, 50, 50)
-        shifted = (163, 120, 80, 50, 50)
+        shifted = (165, 120, 80, 50, 50)
         for interruption, final_point in [(None, point), (shifted, shifted)]:
             with self.subTest(interruption=interruption):
                 found = [point] * 2 + [interruption] + [final_point] * 3

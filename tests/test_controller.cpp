@@ -11,6 +11,19 @@ public: QByteArray written;
 class ControllerTest:public QObject {
     Q_OBJECT
 private slots:
+    void nativeRingCalibrationUsesActualPixelSamples(){
+        Controller c;Wire wire;c.device_=&wire;c.connected_=true;
+        c.samples_[0]=QPointF(0,0);c.samples_[1]=QPointF(40,0);
+        c.samples_[2]=QPointF(0,0);c.samples_[3]=QPointF(0,50);c.samples_[4]=QPointF(0,0);
+        c.calculate();auto q=wire.last();
+        QCOMPARE(int(q.command),int(SS_APPLY_SCALE));
+        QCOMPARE(ss_get16(q.data),quint16(500));QCOMPARE(ss_get16(q.data+2),quint16(400));
+        c.calibrationStage_=1;c.sampleId_=17;c.sampleIndex_=0;
+        c.log("VISION MEASURE id=17 ring=2 token=1 du=201 dv=-131 quality=80");
+        QCOMPARE(c.calibrationStage_,2);QCOMPARE(c.samples_[0],QPointF(201,-131));
+        c.device_=nullptr;
+    }
+
     void lidarChunksAndSessionIsolation(){
         Wire wire;Controller c;c.device_=&wire;
         c.setLidarScanning(true);QVERIFY(wire.written.isEmpty());c.connected_=true;
@@ -236,7 +249,7 @@ private slots:
     void invalidScaleAndJogAreNotSent(){
         Wire wire;Controller c;c.device_=&wire;c.connected_=c.confirmed_=true;
         c.applyScale(std::numeric_limits<double>::quiet_NaN(),1,true);QVERIFY(wire.written.isEmpty());
-        c.applyScale(0.049,1,true);QVERIFY(wire.written.isEmpty());
+        c.applyScale(0.024,1,true);QVERIFY(wire.written.isEmpty());
         c.jogAxis(4,1);c.jogAxis(5,6);QVERIFY(wire.written.isEmpty());
         c.applyScale(1.111,1.143,true);auto q=wire.last();QCOMPARE(int(q.command),int(SS_SAVE_SCALE));QCOMPARE(ss_get16(q.data),quint16(1111));
         c.disconnectDevice();c.device_=nullptr;

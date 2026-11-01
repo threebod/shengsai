@@ -11,6 +11,29 @@ from vision_protocol import (FLAG_MATERIAL_LAYOUT, FLAG_RING_NO_DIGIT, FLAG_STAC
 
 
 class VisionProtocolTest(unittest.TestCase):
+    def test_ring_native_bounds_and_version_cannot_mix_with_legacy_coordinates(self):
+        import struct
+        from vision_protocol import crc16
+
+        frame = encode(KIND_REQUEST, 17, MODE_RING, 0, 2, 0,
+                       [0, 0, 640, 480, 320, 240, 0, 0])
+        self.assertEqual(2, frame[2])
+        self.assertTrue(validate_request(Parser().feed(frame)[0]))
+        for mode, version in ((MODE_RING, 1), (MODE_MATERIAL, 2)):
+            bad = bytearray(encode(KIND_REQUEST, 17, mode, 0, 2, 0,
+                                   [0, 0, 320, 240, 160, 120, 0, 0]))
+            bad[2] = version
+            bad[28:] = struct.pack("<H", crc16(bad[:28]))
+            self.assertEqual([], Parser().feed(bad))
+        material = Parser().feed(encode(KIND_REQUEST, 17, MODE_MATERIAL, 0, 2, 0,
+                                       [0, 0, 640, 480, 320, 240, 0, 0]))[0]
+        self.assertFalse(validate_request(material))
+        packet = Parser().feed(frame)[0]
+        for values in ([1, 0, 640, 480, 320, 240, 0, 0],
+                       [0, 0, 640, 480, 640, 240, 0, 0]):
+            packet["values"] = values
+            self.assertFalse(validate_request(packet))
+
     def tracking_request(self, mode=MODE_RING, target=2, selector=0, flags=FLAG_TRACKING,
                          action=1, roi=None):
         values = (roi if roi is not None else [0, 0, 320, 240, 160, 120]) + [0, action]

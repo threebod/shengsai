@@ -345,8 +345,37 @@ static void pixelTolerance(void)
     }
 }
 
+static void nativeRingPixels(void)
+{
+    VisionTracking native;
+    VisionCalibration actual = {1U,{0,0,640,480},320,240,{-0.556f,0,0,-0.572f}};
+    VisionPacket result = {0};
+    result.type = VISION_MESSAGE_RESULT; result.mode = VISION_MODE_RING;
+    result.token = 99U; result.target = 2U;
+    result.flags = VISION_FLAG_TRACKING | VISION_FLAG_VALID;
+    result.value[0] = 321; result.value[1] = 241; result.value[2] = 80;
+    vision_tracking_begin(&native,99U,VISION_MODE_RING,0U,2U,10,10,15U,1000U,100U);
+    for (unsigned sequence = 1; sequence <= 2; ++sequence) {
+        result.value[6] = (int16_t)sequence;
+        assert(vision_tracking_observe(&native,&actual,&result,100U,100U) == VISION_TRACK_RUN);
+    }
+    result.value[0] = 322; result.value[6] = 3;
+    assert(vision_tracking_observe(&native,&actual,&result,100U,100U) == VISION_TRACK_RUN);
+    assert(native.confirmations == 0 && fabsf(native.forwardMm + 1.112f) < 0.00001f);
+    result.value[0] = 319; result.value[6] = 4;
+    assert(vision_tracking_observe(&native,&actual,&result,100U,100U) == VISION_TRACK_RUN);
+    assert(native.confirmations == 0);
+    result.value[0] = 321;
+    for (unsigned sequence = 5; sequence <= 7; ++sequence) {
+        result.value[6] = (int16_t)sequence;
+        vision_tracking_observe(&native,&actual,&result,100U,100U);
+        assert(native.state == (sequence == 7 ? VISION_TRACK_DONE : VISION_TRACK_RUN));
+    }
+}
+
 int main(void)
 {
+    nativeRingPixels();
     handshakeAndIdentity(); frameValidation(); sequenceFreshness(); frameRecovery(); thirteenFpsCamera();
     speedAndDirection(); responseIndependentOfWatchdog(); completionAndBudget(); pixelTolerance();
     puts("PASS vision tracking: explicit ACK, strict frames, bounded fresh velocity, reversal stop, deadline/budget and cancellation");

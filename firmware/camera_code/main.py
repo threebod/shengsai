@@ -16,7 +16,7 @@ import vision_settings as settings
 
 
 def main():
-    print("VISION APP version=1.0.24 ring_tracking=contours")
+    print("VISION APP version=1.0.25 ring_tracking=contours coordinates=native640")
     err.check_raise(pinmap.set_pin_function("B25", "GPIOB25"), "illumination GPIO mapping")
     illuminator = gpio.GPIO("GPIOB25", gpio.Mode.OUT)
     illuminator.value(0)
@@ -133,7 +133,7 @@ def main():
                     if not packet["flags"] & FLAG_TRACKING:
                         stable = StableWindow(count=10 if pickup else
                                               3 if packet["mode"] == MODE_RING else 5,
-                                              tolerance=8 if pickup else 2,
+                                              tolerance=8 if pickup else 4 if packet["mode"] == MODE_RING else 2,
                                               minimum_ms=0 if pickup else
                                               500 if packet["mode"] == MODE_MATERIAL else 180,
                                               trend_tolerance=2 if pickup else None)
@@ -315,13 +315,15 @@ def main():
                     for index, line in enumerate((material_status, material_detail,
                                                    material_metrics)):
                         frame.draw_string(2, 2 + index * 18, line, image.COLOR_WHITE)
+                coordinate_scale = 1 if light_mode == MODE_RING else scale
                 if request is not None:
                     x, y, width, height, u, v, _, _ = request["values"]
-                    frame.draw_rect(x * scale, y * scale, width * scale, height * scale,
+                    frame.draw_rect(x * coordinate_scale, y * coordinate_scale,
+                                    width * coordinate_scale, height * coordinate_scale,
                                     image.COLOR_YELLOW, 1)
-                    frame.draw_cross(u * scale, v * scale, image.COLOR_RED, 8, 2)
+                    frame.draw_cross(u * coordinate_scale, v * coordinate_scale, image.COLOR_RED, 8, 2)
                 if found is not None:
-                    frame.draw_cross(int(found[0] * scale), int(found[1] * scale),
+                    frame.draw_cross(int(found[0] * coordinate_scale), int(found[1] * coordinate_scale),
                                      image.COLOR_GREEN, 8, 2)
                     if light_mode == MODE_RING:
                         frame.draw_string(2, 2, ring_label, image.COLOR_GREEN)

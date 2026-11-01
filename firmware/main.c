@@ -989,7 +989,7 @@ static const VisionCalibration *visionCalibration(void)
     if (visionPickActive) return rawPickAtStation ?
         &visionMaterialCalibration : &visionPickCalibration;
     if (missionActive && missionPhase == MISSION_TEMP_ALIGN && routeIndex == 16U) {
-        return &visionRingCalibration[1];
+        return &visionStackCalibration;
     }
     if (visionSession.mode == VISION_MODE_MATERIAL) {
         return &visionMaterialCalibration;
@@ -2573,7 +2573,7 @@ static void serviceMission(void)
             if (!vision_session_start(&visionSession,
                                       materialAlign ? VISION_MODE_MATERIAL : VISION_MODE_RING,
                                       materialAlign ? missionTask.colors[0][item] : 0U,
-                                      2U, &visionRingCalibration[1], clockMs)) {
+                                      2U, materialAlign ? &visionStackCalibration : &visionRingCalibration[1], clockMs)) {
                 missionAbort("ring_start");
                 return;
             }
