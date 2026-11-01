@@ -88,7 +88,7 @@ static const MechanismAction missionPlaceActions[] = {
     MECH_POSE(130, 1270, 3080, 1000, 228, 2000, 248, 2200, 0),
     MECH_GRIPPER_OPEN(0),
     MECH_POSE(130, 0, 3080, 1000, 228, 2000, 248, 2200, 0),
-    MECH_POSE(0, 0, 2600, 1000, 228, 2000, 248, 2200, 0)
+    MECH_POSE(0, 0, 530, 1000, 228, 2000, 248, 2200, 0)
 };
 
 #define MISSION_PLACE_COUNT \

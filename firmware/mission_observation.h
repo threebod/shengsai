@@ -54,10 +54,11 @@ static void serviceMissionObservation(const RouteLeg *leg, float remaining,
     task = presetRoute.legs[presetRoute.index].taskIndex;
     coarseCentre = (uint8_t)((task == 6U || task == 13U) &&
                              leg->upMm < 0 && !leg->rightMm && leg->heading == -1);
+    /* RAW return may unfold on its last straight before the station heading turn. */
     target = missionObservationPose(task);
     if (!target || missionObservationTask ||
         (leg->departureHeading != 4 && leg->departureHeading != routeHeading) ||
-        (!coarseCentre && leg->heading != 4 && leg->heading != routeHeading)) return;
+        (!coarseCentre && task != 10U && leg->heading != 4 && leg->heading != routeHeading)) return;
     if (!imuValid || clockMs - imuStamp > 250U || motionInterrupted() || hostEStop) {
         missionAbort("observation_fault");
         return;

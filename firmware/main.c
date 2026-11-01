@@ -2650,8 +2650,8 @@ static void serviceMission(void)
     if (!mechanismState.valid || mechanismState.current.horizontalDmm != 0 ||
         mechanismState.current.liftDmm != 0U ||
         (mechanismState.current.turretDdeg != 2600U &&
-          !((routeIndex == 4U || routeIndex == 7U ||
-             routeIndex == 11U || routeIndex == 14U) &&
+          !((routeIndex == 4U || routeIndex == 7U || routeIndex == 9U ||
+             routeIndex == 11U || routeIndex == 14U || routeIndex == 16U) &&
            mechanismState.current.turretDdeg == 530U))) {
         missionAbort("unsafe_recenter_pose");
         return;

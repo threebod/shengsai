@@ -223,9 +223,34 @@ static void coarseCentreBeforeArrivalTurn(void)
     serviceMissionObservation(&leg,1,100,0); assert(!starts && aborts == 1U);
 }
 
+static void rawReturnUnfoldNearArrival(void)
+{
+    float lead;
+    reset(10U);
+    routeHeading = leg.departureHeading = 2;
+    leg.upMm = 880; leg.rightMm = 0; leg.heading = 1;
+    mechanismState.current = rawPickTravelPose;
+    lead = missionObservationLeadDistance(missionObservationLeadMs(&rawPickObservePose),
+                                           150U,routeForwardScale);
+    serviceMissionObservation(&leg,lead+1.0f,150U,0U);
+    assert(!starts && mechanismState.current.horizontalDmm == 0);
+    assert(mechanismState.current.turretDdeg == rawPickTravelPose.turretDdeg);
+    serviceMissionObservation(&leg,lead-1.0f,150U,0U);
+    assert(starts == 1U && missionObservationTask == 10U);
+    assert(mechanismState.target.horizontalDmm == rawPickObservePose.horizontalDmm);
+    assert(mechanismState.target.turretDdeg == rawPickObservePose.turretDdeg);
+    assert(finishMissionObservation(11U) == 1);
+    finishPose(); routeWaiting = 1U;
+    assert(finishMissionObservation(11U) == 2);
+    reset(10U); leg.event = 0;
+    serviceMissionObservation(&leg,1,150U,0U); assert(!starts);
+    reset(19U); serviceMissionObservation(&leg,1,150U,0U); assert(!starts);
+}
+
 int main(void)
 {
     eligibility(); timing(); arrivalAndCancellation(); coarseCentreBeforeArrivalTurn();
+    rawReturnUnfoldNearArrival();
     puts("PASS mission observation: six stations, dynamic lead, no concurrent actions, feedback arrival and cancellation");
     return 0;
 }

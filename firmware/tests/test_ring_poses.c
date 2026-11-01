@@ -98,6 +98,13 @@ int main(void)
                 memcpy(missionRingPoses, original, sizeof(original));
                 count = missionBuildTaskPlace(before, orders[order], layer, coarse);
                 assert(count == (coarse ? MISSION_COARSE_PLACE_COUNT : MISSION_PLACE_COUNT) - 1U);
+                if (!coarse) {
+                    const MechanismPose *last = &before[count-1U].pose;
+                    assert(last->horizontalDmm == rawPickTravelPose.horizontalDmm);
+                    assert(last->liftDmm == rawPickTravelPose.liftDmm);
+                    assert(last->turretDdeg == rawPickTravelPose.turretDdeg);
+                    assert(before[count-2U].pose.liftDmm == 0U); /* Raise before folding. */
+                }
                 {
                     assert(before[0].type == MECHANISM_ACTION_PLATFORM && before[0].value == 1U);
                     assert(before[1].type == MECHANISM_ACTION_GRIPPER && before[1].value == 1U);
