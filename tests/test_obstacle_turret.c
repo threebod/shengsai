@@ -54,6 +54,7 @@ static void processCommand(const char *command)
     ++routeStarts;
     routeActive = 1U;
 }
+static uint8_t startPlacementTest(void) { return 1U; }
 #include "../firmware/obstacle_turret.h"
 
 static void reset(void)

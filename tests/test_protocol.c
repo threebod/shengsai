@@ -3,6 +3,11 @@
 #include "../shared/protocol.h"
 int main(void){
     SsFrame q={0},r;SsParser p={0};uint8_t bytes[SS_MAX_FRAME],bad[SS_MAX_FRAME];unsigned i,n,seen=0;
+    { uint8_t data[2]={0,0};
+      assert(ss_placement_test_valid(data,2));
+      assert(!ss_placement_test_valid(data,1));
+      assert(!ss_placement_test_valid(data,3));
+      data[1]=0x80;assert(!ss_placement_test_valid(data,2)); }
     assert(ss_crc((const uint8_t *)"123456789",9)==0x29b1);
     q.flags=SS_REQUEST;q.command=SS_SET_RINGS;q.sequence=255;q.length=12;
     ss_put16(q.data,(uint16_t)-320);ss_put16(q.data+2,2637);n=ss_encode(&q,bytes);

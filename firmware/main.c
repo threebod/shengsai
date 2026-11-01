@@ -11,6 +11,7 @@
 #include "route_plan.h"
 #include "arc_route_blend.h"
 #include "preset_route.h"
+#include "placement_test.h"
 #include "map_navigation.h"
 #include "mechanism_action.h"
 #include "raw_pick_action.h"
@@ -153,6 +154,8 @@ typedef enum {
 } MissionPhase;
 static uint8_t missionActive, missionActionStarted;
 static uint8_t missionObservationTask;
+static uint8_t placementTestActive, placementTestRetries;
+static PlacementHeadingGate placementHeadingGate;
 static MissionPhase missionPhase;
 static uint16_t missionGrabCount, missionPlaceCount;
 static uint32_t missionDeadline;
@@ -630,6 +633,9 @@ static void stopAuxMotors(void)
 
 static void stopAllMotors(void)
 {
+    if (placementTestActive) serialSendString("ERR ALIGN_TEST: aborted\r\n");
+    placementTestActive = 0U;
+    memset(&placementHeadingGate,0,sizeof(placementHeadingGate));
     cancelVisionTracking();
     cancelMissionObservation();
     obstacleTurretPending = obstacleTurretReady = 0U;
@@ -1051,6 +1057,11 @@ static void printVisionMotionStatus(void)
         serialSendString("="); serialSendUint32(visionMotionStatus[id - 1U]);
     }
     serialSendString("\r\n");
+}
+
+static float visionTrackingTargetYaw(void)
+{
+    return placementTestActive ? routeYaw : imuYaw;
 }
 
 static void recordVisionPixels(const VisionPacket *packet, uint32_t sample, const char *phase)
@@ -1702,7 +1713,14 @@ static void serviceRoute(void)
             routeStationAlignment = 0U;
             routeLegProgress = 0.0f;
             routeSettle = routeLegStart = clockMs;
-            if (!next) { finishFullRoute(); return; }
+            if (!next) {
+                if (placementTestActive && presetRoute.index == presetRoute.count &&
+                    presetRoute.legs[presetRoute.index-1U].taskIndex == 8U) {
+                    routeIndex = 9U; routeWaiting = 1U;
+                    missionBeginStation(routeIndex); return;
+                }
+                finishFullRoute(); return;
+            }
             routeWaiting = (uint8_t)(next == 2U && missionActive);
             if (routeWaiting) missionBeginStation(routeIndex);
             else routeIndex = presetRoute.legs[presetRoute.index].taskIndex;
@@ -1871,7 +1889,8 @@ static uint8_t processRouteCommand(const char *command)
             "ERR: fresh IMU and healthy CAN required\r\n");
         return 1U;
     }
-    if (!presetBuild(&presetRoute, (uint8_t)degrees, routeObstacleRegions)) {
+    if (!(placementTestActive ? placementTestBuild(&presetRoute,routeObstacleRegions) :
+          presetBuild(&presetRoute, (uint8_t)degrees, routeObstacleRegions))) {
         serialSendString("ERR ROUTE: NO_PATH; select two regions with clear station approaches\r\n");
         return 1U;
     }
@@ -2442,8 +2461,14 @@ static void recordStationHeading(uint8_t step, const char *stage)
                             routeYaw, yaw, (uint8_t)visionSession.state);
 }
 
+#include "placement_test_runtime.h"
+
 static void missionBeginStation(uint8_t nextIndex)
 {
+    if (placementTestActive) {
+        memset(&placementHeadingGate,0,sizeof(placementHeadingGate));
+        placementTestRetries = 0U;
+    }
     recordStationHeading(nextIndex, "ARRIVE");
     missionActionStarted = 0U;
     missionOffsetForward = missionOffsetRight = 0.0f;
@@ -2514,7 +2539,9 @@ static void serviceMission(void)
     if (missionPhase == MISSION_RING_ALIGN ||
         missionPhase == MISSION_TEMP_ALIGN) {
         if (!missionActionStarted) {
-            int8_t prepared = finishMissionObservation(routeIndex);
+            int8_t prepared;
+            if (placementTestActive && !placementTestHeadingReady()) return;
+            prepared = finishMissionObservation(routeIndex);
             if (prepared < 0 || prepared == 1) return;
             if (missionPhase == MISSION_TEMP_ALIGN && mechanismState.running) return;
             if (!mechanismState.valid || mechanismState.running ||
@@ -2563,6 +2590,20 @@ static void serviceMission(void)
         } else if (missionActionStarted == 2U &&
                    (visionSession.state == VISION_STATE_ALIGNED ||
                     visionSession.state == VISION_STATE_CORRECTION_LIMIT)) {
+            if (placementTestActive) {
+                if (visionSession.state != VISION_STATE_ALIGNED) {
+                    missionAbort("test_vision_not_aligned"); return;
+                }
+                if (!placementTestHeadingReady()) return;
+                if (placementHeadingGate.corrected) {
+                    if (++placementTestRetries > 3U) {
+                        missionAbort("test_heading_realign_limit"); return;
+                    }
+                    vision_session_init(&visionSession);
+                    missionActionStarted = 1U;
+                    return;
+                }
+            }
             recordStationHeading(routeIndex, "ALIGNED");
             /* Continue the next distance leg from the locally aligned station. */
             missionOffsetForward = missionOffsetRight = 0.0f;
@@ -2590,6 +2631,9 @@ static void serviceMission(void)
                 actions = missionPickBackActions;
                 initial = &missionCoarseInitial;
                 count = MISSION_PICK_BACK_COUNT;
+            }
+            if (placementTestActive && routeAbs(headingError(routeYaw,imuYaw)) > 0.5f) {
+                missionAbort("test_heading_before_action"); return;
             }
             if (missionPhase != MISSION_COARSE_PICK)
                 recordStationHeading(routeIndex, "PLACE");
@@ -2654,6 +2698,17 @@ static void serviceMission(void)
              routeIndex == 11U || routeIndex == 14U || routeIndex == 16U) &&
            mechanismState.current.turretDdeg == 530U))) {
         missionAbort("unsafe_recenter_pose");
+        return;
+    }
+    if (placementTestActive && routeIndex == 9U) {
+        recordStationHeading(routeIndex,"COMPLETE");
+        stopDriveMotors();
+        placementTestActive = 0U;
+        routeActive = routeWaiting = fullRouteRunning = presetRouteActive = missionActive = 0U;
+        presetRoute.count = presetRoute.index = 0U;
+        missionPhase = MISSION_IDLE;
+        vision_session_init(&visionSession);
+        serialSendString("ALIGN_TEST result=complete\r\n");
         return;
     }
     if (routeIndex == 4U || routeIndex == 11U) {
@@ -2991,6 +3046,7 @@ int main(void)
         serviceHostWatchdog();
         serviceLidar();
         serviceMissionButton();
+        servicePlacementTestSafety();
         serviceMotion();
         serviceVision();
         serviceQrScan();

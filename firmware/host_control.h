@@ -66,7 +66,7 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
         if(q->length!=4) {r->data[0]=1;return;}
         if(hostSession!=ss_get32(q->data)) {
             lidarSetEnabled(0U,0U);
-            if(axis6TestActive() || lateralTestActive) {
+            if(axis6TestActive() || lateralTestActive || placementTestActive || hostStartPending==SS_PLACEMENT_TEST) {
                 hostCancelled=hostOperationFailed=1;stopServoMotion();stopAllMotors();
             }
             memset(hostCache,0,sizeof(hostCache));hostConfirmed=0;hostSession=ss_get32(q->data);
@@ -185,6 +185,15 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
             r->length=3;ss_put16(r->data+1,routeRpm<routeLateralRpmLimit?routeRpm:routeLateralRpmLimit);
             return;
         }
+    case SS_PLACEMENT_TEST:
+        if(!ss_placement_test_valid(q->data,q->length)) break;
+        if(!mechanismState.valid || mechanismState.current.horizontalDmm!=0 ||
+           mechanismState.current.liftDmm!=0U) {r->data[0]=6;return;}
+        if(!imuValid || clockMs-imuStamp>250U || !prepareObstacleTurret()) {r->data[0]=4;return;}
+        routeObstacleRegions=ss_get16(q->data);
+        hostHeartbeatActive=1;hostHeartbeatStamp=clockMs;
+        hostStartPending=SS_PLACEMENT_TEST;hostStartZone=2;hostStartRpm=100;
+        return;
     case SS_PREPARE: case SS_MISSION: case SS_ROUTE:
         if(!ss_route_request_valid(q->data,q->length)) break;
         a=ss_get16(q->data+3);

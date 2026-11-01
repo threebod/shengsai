@@ -21,6 +21,8 @@ class Controller : public QObject {
     Q_OBJECT
     Q_PROPERTY(bool connected READ connected NOTIFY changed)
     Q_PROPERTY(bool busy READ busy NOTIFY changed)
+    Q_PROPERTY(bool placementTesting READ placementTesting NOTIFY changed)
+    Q_PROPERTY(QString placementTestState READ placementTestState NOTIFY changed)
     Q_PROPERTY(bool axis6Testing READ axis6Testing NOTIFY changed)
     Q_PROPERTY(QString axis6TestState READ axis6TestState NOTIFY changed)
     Q_PROPERTY(bool lateralTesting READ lateralTesting NOTIFY changed)
@@ -59,7 +61,9 @@ class Controller : public QObject {
     Q_PROPERTY(int lidarAge READ lidarAge NOTIFY lidarChanged)
 public:
     explicit Controller(QObject *parent=nullptr);
-    bool connected()const{return connected_;} bool busy()const{return busy_ || axis6Testing() || lateralTesting();}
+    bool connected()const{return connected_;} bool busy()const{return busy_ || axis6Testing() || lateralTesting() || placementTesting();}
+    bool placementTesting()const{return placementTestSequence_>=0;}
+    QString placementTestState()const{return placementTestState_;}
     bool axis6Testing()const{return axis6TestSequence_>=0;}
     QString axis6TestState()const{return axis6TestState_;}
     bool lateralTesting()const{return lateralTestSequence_>=0;}
@@ -110,6 +114,7 @@ public:
     Q_INVOKABLE void setServo(int channel,double angle,bool finalValue=false);
     Q_INVOKABLE void jogAxis(int motor,double mm);
     Q_INVOKABLE void testAxis6();
+    Q_INVOKABLE void testPlacement(int regions);
     Q_INVOKABLE void testLateral(int direction,double distanceMm);
     Q_INVOKABLE void drive(int direction);
     Q_INVOKABLE void run(int type,int zone,int regions,int rpm=240);
@@ -158,6 +163,8 @@ private:
     QString logsState_{QStringLiteral("连接后可读取主控最近任务日志；断电或重启清空")};
     QVariantList heights_;
     QString heightsState_{QStringLiteral("请先读取主控放置深度")};
+    int placementTestSequence_{-1};
+    QString placementTestState_{QStringLiteral("预装托盘三格物料，沿启停区2参考线摆正车体")};
     int axis6TestSequence_{-1};
     int lateralTestSequence_{-1},lateralTestDistance_{};
     QString lateralTestState_{QStringLiteral("尚未测试")};

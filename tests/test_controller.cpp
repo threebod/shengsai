@@ -66,6 +66,26 @@ private slots:
         c.disconnectDevice();QVERIFY(!c.pickupRead());c.device_=nullptr;
     }
 
+    void placementTestLifecycle(){
+        Controller c;Wire wire;c.device_=&wire;
+        c.testPlacement(0);QVERIFY(wire.written.isEmpty());
+        c.connected_=c.confirmed_=c.mechanismValid_=true;
+        c.testPlacement(0x8000);QVERIFY(wire.written.isEmpty());
+        c.testPlacement(0);auto q=wire.last();
+        QCOMPARE(int(q.command),int(SS_PLACEMENT_TEST));QCOMPARE(int(q.length),2);
+        QVERIFY(c.placementTesting() && c.busy());
+        int size=wire.written.size();c.testPlacement(0);QCOMPARE(wire.written.size(),size);
+        SsFrame r{};r.flags=SS_RESPONSE;r.command=q.command;r.sequence=q.sequence;r.length=1;
+        c.handle(r);QVERIFY(c.placementTesting()); /* Acceptance is not completion. */
+        c.pauseManual();QCOMPARE(int(wire.last().command),int(SS_STOP));
+        r.flags=SS_EVENT;r.sequence=q.sequence+1;c.handle(r);QVERIFY(c.placementTesting());
+        r.sequence=q.sequence;c.handle(r);QVERIFY(!c.placementTesting());
+        c.busy_=false;c.testPlacement(0);q=wire.last();
+        r.flags=SS_RESPONSE|SS_ERROR;r.command=q.command;r.sequence=q.sequence;r.data[0]=4;
+        c.handle(r);QVERIFY(!c.placementTesting());
+        c.testPlacement(0);QVERIFY(c.placementTesting());c.disconnectDevice();
+        QVERIFY(!c.placementTesting());
+    }
     void lateralTestRequiresSafeIdleAndCompletion(){
         Wire wire;Controller c;c.device_=&wire;
         c.testLateral(-1,1000);QVERIFY(wire.written.isEmpty());

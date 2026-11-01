@@ -148,6 +148,18 @@ private slots:
                 flickable->setProperty("contentY", qMax(0.0, flickable->property("contentHeight").toReal() - flickable->height()));
                 QTest::qWait(50);
             }
+            if (page == 0) {
+                auto *start = window->findChild<QQuickItem *>("placementTestStartButton");
+                auto *stop = window->findChild<QQuickItem *>("placementTestStopButton");
+                QVERIFY(start && stop && start->height() >= 44 && stop->height() >= 44);
+                QVERIFY(!start->isEnabled() && !stop->isEnabled());
+                controller.connected_=controller.confirmed_=controller.mechanismValid_=true;emit controller.changed();
+                QVERIFY(start->isEnabled());
+                controller.placementTestSequence_=4;emit controller.changed();
+                QVERIFY(!start->isEnabled() && stop->isEnabled());
+                controller.placementTestSequence_=-1;
+                controller.connected_=controller.confirmed_=controller.mechanismValid_=false;emit controller.changed();
+            }
             if (page == 3) {
                 auto *testButton = window->findChild<QQuickItem *>("axis6TestButton");
                 QVERIFY(testButton && testButton->isVisible());

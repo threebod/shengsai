@@ -97,6 +97,10 @@ void Controller::disconnectDevice(){
         request(SS_LIDAR_CONTROL,data);
     }
     resetLidar();
+    if(placementTesting()){
+        if(device_ && device_->isOpen())request(SS_STOP);
+        placementTestSequence_=-1;placementTestState_=QStringLiteral("连接已断开，测试结果未知；重连后读取日志");
+    }
     if(lateralTesting()){
         if(device_ && device_->isOpen())request(SS_STOP);
         lateralTestSequence_=-1;lateralTestState_=QStringLiteral("连接已断开，横移结果未知");
@@ -142,6 +146,13 @@ void Controller::handle(const SsFrame &f){
                 QStringLiteral("横移指令完成：%1%2mm，请记录实测距离").arg(lateralTestDistance_<0?QStringLiteral("左"):QStringLiteral("右")).arg(qAbs(lateralTestDistance_));
             emit changed();return;
         }
+        if(f.command==SS_PLACEMENT_TEST && f.length==1 && f.sequence==placementTestSequence_){
+            placementTestSequence_=-1;
+            if(f.data[0])mechanismValid_=false;
+            placementTestState_=f.data[0]?QStringLiteral("测试中止，请读取角度与像素日志"):
+                QStringLiteral("暂存第一层放置并收回完成，请读取日志并测量实际偏差");
+            emit changed();return;
+        }
         if(f.command==SS_ACTION && f.length==1 && f.sequence==axis6TestSequence_){
             axis6TestSequence_=-1;
             if(f.data[0])mechanismValid_=false;
@@ -181,6 +192,9 @@ void Controller::handle(const SsFrame &f){
         const QString message=errors.value(f.data[0],QStringLiteral("主控拒绝指令"));
         if(f.command==SS_LATERAL_TEST && f.sequence==lateralTestSequence_){
             lateralTestSequence_=-1;lateralTestState_=QStringLiteral("横移测试未启动：")+message;
+        }
+        if(f.command==SS_PLACEMENT_TEST && f.sequence==placementTestSequence_){
+            placementTestSequence_=-1;placementTestState_=QStringLiteral("测试未启动：")+message;
         }
         if(f.command==SS_ACTION && f.sequence==axis6TestSequence_){
             axis6TestSequence_=-1;axis6TestState_=QStringLiteral("测试未启动：")+message;
@@ -237,6 +251,9 @@ void Controller::handle(const SsFrame &f){
         if(f.data[2]!=SS_ROUTE_REVISION){disconnectDevice();setStatus(QStringLiteral("请更新支持15区障碍选择的主控固件"));return;}
         connected_=true;heartbeat_.start();setStatus(QStringLiteral("已连接，请确认机构零点和安全条件"));readScale();break;
     case SS_CLEAR:confirmed_=mechanismValid_=true;setStatus(QStringLiteral("安全条件已确认，机构坐标设为物理零点"));break;
+    case SS_PLACEMENT_TEST:
+        if(f.sequence==placementTestSequence_)placementTestState_=QStringLiteral("测试进行中：启停区2→加工区放置回收→暂存第一层放置");
+        emit changed();break;
     case SS_ACTION:
         if(f.sequence==axis6TestSequence_)axis6TestState_=QStringLiteral("测试进行中 · 正向5mm后返回起点");
         else setStatus(QStringLiteral("主控已接受指令，执行状态以反馈为准"));break;
@@ -278,12 +295,13 @@ void Controller::stop(bool emergency){
     lidarStatus_=QStringLiteral("已请求停止；保留最后一圈供查看");emit lidarChanged();
     driveTimer_.stop();servoTimer_.stop();servoTargets_.clear();
     calibrationTimeout_.stop();calibrationStage_=0;++calibrationGeneration_;
+    if(placementTesting())placementTestState_=QStringLiteral("正在停止测试…");
     if(axis6Testing())axis6TestState_=QStringLiteral("正在停止测试…");
     if(lateralTesting())lateralTestState_=QStringLiteral("正在停止横移测试…");
     request(emergency?SS_ESTOP:SS_STOP);confirmed_=emergency?false:confirmed_;emit changed();
 }
 void Controller::pauseManual(){
-    if(driveTimer_.isActive() || calibrating() || !servoTargets_.isEmpty() || axis6Testing() || lateralTesting())stop();
+    if(driveTimer_.isActive() || calibrating() || !servoTargets_.isEmpty() || axis6Testing() || lateralTesting() || placementTesting())stop();
     servoTimer_.stop();servoTargets_.clear();
 }
 void Controller::readRings(){if(connected_)request(SS_GET_RINGS);}
@@ -358,6 +376,15 @@ void Controller::testAxis6(){
     const int sequence=request(SS_ACTION,QByteArray(1,char(SS_ACTION_AXIS6_TEST)));
     if(sequence<0)return;
     axis6TestSequence_=sequence;axis6TestState_=QStringLiteral("等待主控开始测试");emit changed();
+}
+void Controller::testPlacement(int regions){
+    if(!connected_ || !confirmed_ || !mechanismValid_ || busy() || calibrating() ||
+       driveTimer_.isActive() || !servoTargets_.isEmpty() || regions<0 || regions>0x7fff)return;
+    QByteArray data(2,0);ss_put16(reinterpret_cast<uint8_t *>(data.data()),quint16(regions));
+    if(!ss_placement_test_valid(reinterpret_cast<const uint8_t *>(data.constData()),2))return;
+    const int sequence=request(SS_PLACEMENT_TEST,data);
+    if(sequence<0)return;
+    placementTestSequence_=sequence;placementTestState_=QStringLiteral("主控准备测试；请保持物料和场地状态");emit changed();
 }
 void Controller::testLateral(int direction,double distanceMm){
     if(!connected_ || !confirmed_ || busy() || calibrating() || driveTimer_.isActive() ||

@@ -52,7 +52,9 @@ static void serviceObstacleHostStart(void)
         char command[32];
         hostStartPending = 0U;
         if (!obstacleTurretReady) hostOperationFailed = 1U;
-        else if (startCommand == SS_MISSION) {
+        else if (startCommand == SS_PLACEMENT_TEST) {
+            if (!startPlacementTest()) hostOperationFailed = 1U;
+        } else if (startCommand == SS_MISSION) {
             missionButtonRpm = hostStartRpm;
             missionButtonReady = 1U;
             startButtonMission(hostStartZone);

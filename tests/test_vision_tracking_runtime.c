@@ -66,6 +66,7 @@ static void recordVisionPixels(const VisionPacket *packet, uint32_t sample, cons
     assert(sample <= clockMs && phase);
     ++pixelSamples;
 }
+static float visionTrackingTargetYaw(void) { return imuYaw; }
 #include "../firmware/vision_tracking_runtime.h"
 #include "../firmware/vision_motion_runtime.h"
 

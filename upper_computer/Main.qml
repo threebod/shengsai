@@ -26,7 +26,7 @@ ApplicationWindow {
     readonly property bool mobile: width - SafeArea.margins.left - SafeArea.margins.right < 760 || (Qt.platform.os === "android" && height < 500)
     readonly property int pageSpacing: mobile ? 14 : 20
     readonly property color blue: "#007AFF"
-    readonly property bool motionReady: controller.connected && controller.confirmed && !controller.calibrating && !controller.axis6Testing && !controller.lateralTesting
+    readonly property bool motionReady: controller.connected && controller.confirmed && !controller.calibrating && !controller.axis6Testing && !controller.lateralTesting && !controller.placementTesting
     readonly property var pageNames: ["比赛", "圆环", "视觉", "手动", "雷达"]
     font.family: Qt.platform.os === "windows" ? "Microsoft YaHei UI" : "sans-serif"
     font.pixelSize: 14
@@ -260,6 +260,16 @@ ApplicationWindow {
                             ActionButton { objectName: "missionStartButton"; text: "开始比赛"; primary: true; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy && app.obstacleCount <= 2; onClicked: controller.run(1, zone.currentIndex + 1, app.obstacleMask) }
                             ActionButton { objectName: "missionPrepareButton"; text: "离线按钮启动准备"; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy && app.obstacleCount <= 2; onClicked: controller.run(0, zone.currentIndex + 1, app.obstacleMask) }
                             Hint { text: "离线准备后，PC9 短按选择启停区1，长按选择启停区2。" }
+                        }
+                        Card {
+                            objectName: "placementTestCard"; heading: "第一层对齐放置实测 · 启停区2"
+                            Layout.columnSpan: app.mobile ? 1 : 2
+                            Hint { text: "预装托盘1/2/3格物料，固定放入1/2/3号圆环。车体在启停区2沿参考线摆正，机构回零后确认安全条件。" }
+                            Hint { text: "100RPM进站→加工区对齐、放置、回收→暂存区对齐、第一层放置并收回，随后结束。沿用上方障碍选区，不扫码或取料。" }
+                            Hint { text: "相对路线目标±0.5°内稳定200ms才放置；转正后重新对齐，动作中超差停止。读取PIX/STATION日志并人工测量实物偏差。" }
+                            ActionButton { objectName: "placementTestStartButton"; text: "从启停区2开始实测"; primary: true; Layout.fillWidth: true; enabled: app.motionReady && controller.mechanismValid && !controller.busy && app.obstacleCount <= 2; onClicked: controller.testPlacement(app.obstacleMask) }
+                            ActionButton { objectName: "placementTestStopButton"; text: "停止实测"; Layout.fillWidth: true; enabled: controller.connected && controller.placementTesting; onClicked: controller.stop() }
+                            Hint { text: controller.placementTestState }
                         }
                         Card {
                             heading: "单项执行"; Layout.columnSpan: app.mobile ? 1 : 2
