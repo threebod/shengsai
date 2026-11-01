@@ -28,6 +28,7 @@ static float routeForwardScale = ROUTE_FORWARD_SCALE, routeLateralScale = ROUTE_
 static int8_t yawSign = 1;
 static RouteHeadingPidGains routeHeadingGains = {ROUTE_HEADING_KP,ROUTE_HEADING_KI,ROUTE_HEADING_KD};
 static unsigned enables, stops, sends, requests, failures, queries;
+static unsigned pixelSamples;
 static int16_t sentForward, sentRight, sentTurn;
 static unsigned expectedWheelLimit = 15;
 static const char *failureReason;
@@ -59,6 +60,12 @@ static uint8_t jogCanTakeDriveStatus(uint8_t id, uint8_t *status)
 static void jogCanExpectDriveStatus(uint8_t id) { assert(id >= 1 && id <= 4); }
 static void Emm_V5_Read_Sys_Params(uint8_t id, int flag)
 { assert(id >= 1 && id <= 4 && flag == S_FLAG); ++queries; }
+static void recordVisionPixels(const VisionPacket *packet, uint32_t sample, const char *phase)
+{
+    assert(packet->flags == (VISION_FLAG_TRACKING|VISION_FLAG_VALID));
+    assert(sample <= clockMs && phase);
+    ++pixelSamples;
+}
 #include "../firmware/vision_tracking_runtime.h"
 #include "../firmware/vision_motion_runtime.h"
 
@@ -80,7 +87,7 @@ static void reset(void)
     missionActive = routeWaiting = missionOffline = fullRouteRunning = 0;
     missionPhase = MISSION_IDLE; hostHeartbeatActive = 1;
     visionPickActive = rawPickAtStation = statusReady = 0;
-    enables = stops = sends = requests = failures = queries = 0;
+    enables = stops = sends = requests = failures = queries = pixelSamples = 0;
     sentForward = sentRight = 0; failureReason = NULL;
     expectedWheelLimit = 15;
     for (unsigned id = 0; id <= 4; ++id) motorTrim[id] = 1000;
@@ -309,6 +316,15 @@ int main(void)
     visionSession.requestFlags = 0; visionSession.mode = VISION_MODE_MATERIAL; visionSession.selector = 4;
     assert(!visionTrackingEligible()); missionActive = 1; missionPhase = MISSION_TEMP_ALIGN; visionSession.maxCorrections = 2;
     assert(visionTrackingEligible());
+    reset(); assert(startVisionTracking(44.44f,22.86f));
+    queueFrame(-40,0,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID); receiveVisionTracking();
+    assert(pixelSamples == 1);
+    queueFrame(-40,0,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID); receiveVisionTracking();
+    assert(pixelSamples == 1); /* Duplicate frames must not look like new measurements. */
+    queueFrame(-40,0,2,VISION_FLAG_TRACKING|VISION_FLAG_VALID);
+    visionRxPacket.token++; receiveVisionTracking(); assert(pixelSamples == 1);
+    queueFrame(-40,0,2,VISION_FLAG_TRACKING); receiveVisionTracking();
+    assert(pixelSamples == 1 && failures); /* Invalid targets carry no measured error. */
     puts("PASS production vision tracking runtime ACK gate, live speed, stop/fault/watchdog, offsets and correction limits");
     return 0;
 }

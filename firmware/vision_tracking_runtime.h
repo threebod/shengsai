@@ -134,6 +134,8 @@ static void receiveVisionTracking(void)
 {
     VisionPacket packet;
     uint32_t stamp;
+    uint16_t sequence = visionTracking.sequence;
+    uint8_t sequenceValid = visionTracking.sequenceValid;
     if (!visionTrackingOpen || !visionTrackingDriveHealthy() || !visionRxReady) return;
     __disable_irq();
     packet = visionRxPacket; stamp = visionRxStamp; visionRxReady = 0U;
@@ -144,6 +146,9 @@ static void receiveVisionTracking(void)
         failVision("CAMERA_TRACKING_UNSUPPORTED"); return;
     }
     vision_tracking_observe(&visionTracking,visionCalibration(),&packet,stamp,clockMs);
+    if (visionTracking.sequenceValid && (!sequenceValid || sequence != visionTracking.sequence))
+        recordVisionPixels(&packet, visionTracking.lastFrameAt,
+                           visionTracking.state == VISION_TRACK_DONE ? "IN_RANGE" : "TRACK");
     if (visionTracking.state == VISION_TRACK_FAILED)
         failVision(visionTracking.reason ? visionTracking.reason : "TRACKING_FAILED");
     else if (visionTracking.state == VISION_TRACK_DONE) finishVisionTracking();

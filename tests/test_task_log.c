@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include "../firmware/route_heading_log.h"
+#include "../firmware/vision_pixel_log.h"
 
 static TaskLog logBuffer={1U};
 static SsFrame readLog(uint32_t task,uint32_t offset,uint32_t end) {
@@ -79,6 +80,31 @@ static void checkStationHeadingLog(void) {
     assert(strstr((const char *)logBuffer.bytes,"age=100"));
 }
 
+static void checkPixelLog(void) {
+    VisionPixelLog state={0};
+    VisionPacket packet={0};
+    VisionCalibration calibration={0};
+    uint32_t end;
+    calibration.anchorU=160;calibration.anchorV=120;
+    packet.token=42;packet.mode=2;packet.target=2;
+    packet.value[0]=157;packet.value[1]=124;
+    taskLogReset(&logBuffer);
+    visionPixelLogRecord(&logBuffer,&state,1010,1000,9,&packet,&calibration,"TRACK");
+    logBuffer.bytes[logBuffer.end]=0;
+    assert(strstr((const char *)logBuffer.bytes,"u=157 v=124 au=160 av=120 du=-3 dv=4 age=10"));
+    end=logBuffer.end;
+    visionPixelLogRecord(&logBuffer,&state,1050,1040,9,&packet,&calibration,"TRACK");
+    assert(logBuffer.end==end);
+    visionPixelLogRecord(&logBuffer,&state,1051,1041,9,&packet,&calibration,"IN_RANGE");
+    assert(logBuffer.end>end); /* Preserve the last frame even inside the interval. */
+    end=logBuffer.end;packet.token++;
+    visionPixelLogRecord(&logBuffer,&state,1052,1042,9,&packet,&calibration,"TRACK");
+    assert(logBuffer.end>end);
+    taskLogReset(&logBuffer);
+    visionPixelLogRecord(&logBuffer,&state,1053,1043,9,&packet,&calibration,"TRACK");
+    assert(logBuffer.end); /* New task must not inherit throttling. */
+}
+
 int main(void) {
     SsFrame r,q={0};uint32_t task,next,end;unsigned i,total;
     uint8_t line[128],collected[TASK_LOG_CAPACITY];
@@ -119,6 +145,7 @@ int main(void) {
     r=readLog(0,0,0);assert(!r.data[0] && !r.data[13] && ss_get32(r.data+9)==0);
     assert(ss_get32(r.data+1)!=task);
     checkHeadingLog();
+    checkPixelLog();
     checkStationHeadingLog();
     puts("task log, heading and PID command recording ok");return 0;
 }

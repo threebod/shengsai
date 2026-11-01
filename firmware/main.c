@@ -29,6 +29,7 @@
 #include "axis6_test.h"
 #include "task_log.h"
 #include "route_heading_log.h"
+#include "vision_pixel_log.h"
 
 #define COMMAND_BAUD_RATE  115200U
 
@@ -40,7 +41,7 @@
 #define VISION_MOVE_STATUS_POLL_MS  20U
 #define HOST_HEARTBEAT_TIMEOUT_MS  1000U
 #define MISSION_BUTTON_DEBOUNCE_MS 30U
-#define MISSION_BUTTON_LONG_PRESS_MS 1000U
+#define MISSION_BUTTON_LONG_PRESS_MS 500U
 
 #define SERVO_MIN_PULSE_US    500U
 #define SERVO_PULSE_RANGE_US  2000U
@@ -78,6 +79,7 @@ static uint8_t hostEStop;
 static void hostLogChar(char c);
 static TaskLog taskLog;
 static RouteHeadingLog routeHeadingLog;
+static VisionPixelLog visionPixelLog;
 static uint8_t armed;
 static uint8_t servoTimerReady;
 static volatile uint8_t servoChannelEnabled[3];
@@ -1049,6 +1051,12 @@ static void printVisionMotionStatus(void)
         serialSendString("="); serialSendUint32(visionMotionStatus[id - 1U]);
     }
     serialSendString("\r\n");
+}
+
+static void recordVisionPixels(const VisionPacket *packet, uint32_t sample, const char *phase)
+{
+    visionPixelLogRecord(&taskLog, &visionPixelLog, clockMs, sample, routeIndex,
+                         packet, visionCalibration(), phase);
 }
 
 #include "vision_tracking_runtime.h"
@@ -2220,6 +2228,7 @@ static void serviceVision(void)
     VisionEvent event;
     int16_t du;
     int16_t dv;
+    uint32_t packetStamp;
     flushVisionTrackingEnd();
     if (visionTrackingActive()) {
         receiveVisionTracking();
@@ -2321,6 +2330,7 @@ static void serviceVision(void)
     if (!visionRxReady) return;
     __disable_irq();
     packet = visionRxPacket;
+    packetStamp = visionRxStamp;
     visionRxReady = 0U;
     __enable_irq();
     if (rawPickAtStation &&
@@ -2334,6 +2344,10 @@ static void serviceVision(void)
     }
     event = vision_session_observe(&visionSession, calibration, &packet, clockMs);
     if (event == VISION_EVENT_NONE) return;
+    if (event == VISION_EVENT_MOVE || event == VISION_EVENT_ALIGNED ||
+        (event == VISION_EVENT_REQUEST && visionSession.confirmations))
+        recordVisionPixels(&packet, packetStamp,
+                           event == VISION_EVENT_ALIGNED ? "ALIGNED" : "OBS");
     du = (int16_t)(packet.value[0] - calibration->anchorU);
     dv = (int16_t)(packet.value[1] - calibration->anchorV);
     if (event == VISION_EVENT_SAMPLED) {
