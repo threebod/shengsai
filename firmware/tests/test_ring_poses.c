@@ -73,6 +73,9 @@ static void checkUpperLeftExtension(void)
         assert(actions[11].pose.turretDdeg == (slot < 3U ? rawPickObservePose.turretDdeg : rawPickTravelPose.turretDdeg));
         assert(rawPickActionsForPosition(actions,slot,3U));
         assert(actions[2].pose.horizontalDmm == 800 && actions[4].pose.horizontalDmm == 800);
+        assert(actions[4].pose.liftDmm == 0U);
+        assert(actions[5].pose.horizontalDmm == -500 && actions[5].pose.liftDmm == 0U);
+        assert(actions[5].pose.turretDdeg == actions[6].pose.turretDdeg);
     }
 }
 
