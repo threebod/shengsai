@@ -49,4 +49,21 @@ static void routeHeadingLogRecord(TaskLog *log, RouteHeadingLog *state,
     }
 }
 
+/* Station milestones bypass the periodic YAW throttle, including repeated IMU
+ * samples: age records whether the angle was fresh at each milestone. */
+static void stationHeadingLogRecord(TaskLog *log, uint32_t now, uint32_t sample,
+                                    uint8_t step, const char *area, const char *stage,
+                                    float target, float actual, uint8_t vision)
+{
+    char line[160];
+    int length = snprintf(line, sizeof(line),
+        "STATION ms=%lu step=%u area=%s stage=%s target=%ld actual=%ld error=%ld age=%lu vision=%u",
+        (unsigned long)now, (unsigned)step, area, stage,
+        routeHeadingLogCdeg(target), routeHeadingLogCdeg(actual),
+        routeHeadingLogCdeg(headingError(target, actual)),
+        (unsigned long)(now - sample), (unsigned)vision);
+    if (length > 0 && length < (int)sizeof(line))
+        taskLogAppend(log, (const uint8_t *)line, (unsigned)length);
+}
+
 #endif

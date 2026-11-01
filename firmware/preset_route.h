@@ -128,9 +128,6 @@ static uint8_t presetArcClear(const PresetLeg *before, const PresetLeg *after, u
     /* RC-3 keeps nominal station anchors, but its lower bend executes 50mm lower. */
     if (before->templateId == 20U && before->drive.upMm < 0)
         cornerY -= PRESET_RC3_EXTRA_DOWN_MM;
-    /* TR-3 keeps its calibrated up distance after the new 30mm departure. */
-    if (before->templateId == 34U && before->drive.upMm > 0)
-        cornerY += PRESET_TEMP_RIGHT_UP_MM;
     if (before->from.x != before->to.x || before->from.y != before->to.y) {
         int8_t incoming = presetHeadingChange(heading,presetDirection(before->from,before->to));
         int8_t outgoing = presetHeadingChange(after->from.heading,presetDirection(after->from,after->to));
@@ -184,6 +181,8 @@ static uint8_t presetTryTemplate(PresetRoute *route, const PresetGroup *group,
     if (!templateId || templateId > PRESET_TEMPLATE_COUNT) return 0U;
     candidate = &presetTemplates[templateId];
     if (!candidate->count || first+candidate->count > PRESET_LEG_CAPACITY) return 0U;
+    /* Visual alignment parks below the lane; the first up leg restores it. */
+    if (templateId == 33U || templateId == 34U) current.y -= PRESET_TEMP_RIGHT_UP_MM;
     for (i = 0U; i < candidate->count; ++i) {
         const PresetStep *step = &candidate->steps[i];
         PresetLeg *leg = &route->legs[first+i];
@@ -221,13 +220,6 @@ static uint8_t presetTryTemplate(PresetRoute *route, const PresetGroup *group,
                                   (leg->from.y < leg->to.y ? leg->from.y : leg->to.y) - PRESET_RC3_EXTRA_DOWN_MM,
                                   leg->from.x > leg->to.x ? leg->from.x : leg->to.x,
                                   leg->from.y > leg->to.y ? leg->from.y : leg->to.y, route->regions)) return 0U;
-        /* Unchanged up commands retain the TEMP departure offset at RAW arrival. */
-        if ((templateId == 33U || templateId == 34U) && i >= first+2U &&
-            !presetRectangleClear(leg->from.x < leg->to.x ? leg->from.x : leg->to.x,
-                                  leg->from.y < leg->to.y ? leg->from.y : leg->to.y,
-                                  leg->from.x > leg->to.x ? leg->from.x : leg->to.x,
-                                  (leg->from.y > leg->to.y ? leg->from.y : leg->to.y) + PRESET_TEMP_RIGHT_UP_MM,
-                                  route->regions)) return 0U;
         /* Calibrated motor commands are not nominal map displacements.
          * Select corridors by map endpoints; keep station alignment unchanged. */
         /* Station alignment and the fixed template define parking turns.

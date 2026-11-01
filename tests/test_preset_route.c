@@ -23,8 +23,6 @@ static uint8_t referenceArcClear(const PresetLeg *before, const PresetLeg *after
     float y = before->to.y-cosf(angle)*PRESET_ARC_TRIM;
     if (before->templateId == 20U && before->drive.upMm < 0)
         y -= PRESET_RC3_EXTRA_DOWN_MM;
-    if (before->templateId == 34U && before->drive.upMm > 0)
-        y += PRESET_TEMP_RIGHT_UP_MM;
     float distance = 0.0f, degrees, curvature, step;
     int8_t change = presetHeadingChange(before->from.heading,after->from.heading);
     if (change != 1 && change != -1) return 0U;
@@ -130,6 +128,9 @@ static void checkRoute(uint8_t zone)
         RouteLeg active;
         route.index = (uint16_t)i; active = presetActiveLeg(&route);
         assert(presetSegmentClear(leg->from,leg->to,route.regions));
+        if (i && route.legs[i-1U].drive.event &&
+            (leg->templateId == 33U || leg->templateId == 34U))
+            previous.y -= PRESET_TEMP_RIGHT_UP_MM; /* Visual TEMP stop below lane. */
         assert(previous.x == leg->from.x && previous.y == leg->from.y);
         assert((active.upMm == 0) != (active.rightMm == 0));
         if (leg->drive.event) {
@@ -264,7 +265,7 @@ static void fixedDistances(void)
         {7,9,8,2,"CT-1",{0,601},{-611,0}},
         {7,13,8,4,"CT-3",{0,1680,0,-637},{-50,0,-661,0}},
         {7,9,10,2,"TR-1",{631,0},{0,601}},
-        {1,5,10,4,"TR-3",{30,0,382,0},{0,1451,0,-651}},
+        {1,5,10,4,"TR-3",{50,0,382,0},{0,1451,0,-651}},
         {1,7,10,3,"TR-4",{-601,0,1431},{0,362,0}},
         {4,7,10,3,"TR-4",{-601,0,1431},{0,362,0}}
     };
@@ -589,14 +590,14 @@ static void noPivotClearance(void)
     assert(route.legs[first].templateId == templateId("Q-B3"));
     assert(route.legs[first].from.x == 2100 && route.legs[first].from.y == 1200);
     assert(route.legs[first].drive.upMm == -900 && route.legs[first].from.heading == 2);
-    /* Keep the right route after its explicit 30mm TEMP departure. */
+    /* Keep the right route after its explicit 50mm TEMP departure. */
     assert(presetBuild(&route,1U,mask(4,5)));
     first = taskBegin(&route,10U);
     assert(route.legs[first].templateId == templateId("TR-3"));
-    assert(route.legs[first].drive.upMm == 30 && !route.legs[first].drive.rightMm);
+    assert(route.legs[first].drive.upMm == 50 && !route.legs[first].drive.rightMm);
     assert(!route.legs[first].arc && route.legs[first].drive.departureHeading == 2);
     assert(route.legs[first+1U].drive.rightMm == 1700 && !route.legs[first+1U].drive.upMm);
-    assert(route.legs[first+1U].from.y == 1230 && route.legs[first+1U].to.y == 1230);
+    assert(route.legs[first+1U].from.y == 1200 && route.legs[first+1U].to.y == 1200);
     assert(route.legs[first+1U].arc == 1U && route.legs[first+2U].arc == 1U);
 }
 
@@ -613,13 +614,13 @@ static void tempRightDeparture(void)
             first = taskBegin(&route,10U); depart = &route.legs[first]; id = depart->templateId;
             if (id != 33U && id != 34U) continue;
             if (id == 33U) ++centre; else ++outside;
-            assert(depart->from.x == 400 && depart->from.y == 1200);
-            assert(depart->to.x == 400 && depart->to.y == 1230);
-            assert(depart->drive.upMm == 30 && !depart->drive.rightMm && !depart->drive.event && !depart->arc);
+            assert(depart->from.x == 400 && depart->from.y == 1150);
+            assert(depart->to.x == 400 && depart->to.y == 1200);
+            assert(depart->drive.upMm == 50 && !depart->drive.rightMm && !depart->drive.event && !depart->arc);
             assert(depart->drive.departureHeading == 2 && depart->drive.heading == 2);
-            routeBody(30,0,2,&forward,&right); assert(forward == -30 && right == 0);
+            routeBody(50,0,2,&forward,&right); assert(forward == -50 && right == 0);
             assert(route.legs[first+1U].drive.rightMm == (id == 33U ? 800 : 1700));
-            assert(route.legs[first+1U].from.y == 1230 && route.legs[first+1U].to.y == 1230);
+            assert(route.legs[first+1U].from.y == 1200 && route.legs[first+1U].to.y == 1200);
             assert(route.legs[first+2U].drive.upMm == 880);
             if (id == 33U) {
                 assert(route.legs[first+2U].drive.event && route.legs[first+2U].to.y == 2080);

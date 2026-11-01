@@ -2414,8 +2414,23 @@ static void missionContinue(void)
     routeTick = routeSettle = routeLegStart = clockMs;
 }
 
+static void recordStationHeading(uint8_t step, const char *stage)
+{
+    float yaw;
+    uint32_t sample, now;
+    const char *area;
+    if (step == 7U || step == 14U) area = "COARSE";
+    else if (step == 9U || step == 16U) area = "TEMP";
+    else return;
+    if (!imuValid) return;
+    __disable_irq(); yaw = imuYaw; sample = imuStamp; now = clockMs; __enable_irq();
+    stationHeadingLogRecord(&taskLog, now, sample, step, area, stage,
+                            routeYaw, yaw, (uint8_t)visionSession.state);
+}
+
 static void missionBeginStation(uint8_t nextIndex)
 {
+    recordStationHeading(nextIndex, "ARRIVE");
     missionActionStarted = 0U;
     missionOffsetForward = missionOffsetRight = 0.0f;
     vision_session_init(&visionSession);
@@ -2534,6 +2549,7 @@ static void serviceMission(void)
         } else if (missionActionStarted == 2U &&
                    (visionSession.state == VISION_STATE_ALIGNED ||
                     visionSession.state == VISION_STATE_CORRECTION_LIMIT)) {
+            recordStationHeading(routeIndex, "ALIGNED");
             /* Continue the next distance leg from the locally aligned station. */
             missionOffsetForward = missionOffsetRight = 0.0f;
             missionPhase = missionPhase == MISSION_TEMP_ALIGN ?
@@ -2561,6 +2577,8 @@ static void serviceMission(void)
                 initial = &missionCoarseInitial;
                 count = MISSION_PICK_BACK_COUNT;
             }
+            if (missionPhase != MISSION_COARSE_PICK)
+                recordStationHeading(routeIndex, "PLACE");
             if (!mechanismActionStart(initial, actions, count)) {
                 missionAbort("action_start");
                 return;
@@ -2572,6 +2590,8 @@ static void serviceMission(void)
                 missionAbort("action_failed");
                 return;
             }
+            if (missionPhase != MISSION_COARSE_PICK)
+                recordStationHeading(routeIndex, "DONE");
             if (missionPhase == MISSION_COARSE_PLACE) {
                 missionPhase = MISSION_COARSE_PICK;
                 missionActionStarted = 0U;

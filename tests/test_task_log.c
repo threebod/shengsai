@@ -60,6 +60,25 @@ static void checkHeadingLog(void) {
 }
 
 
+static void checkStationHeadingLog(void) {
+    const char *expected = "STATION ms=1010 step=9 area=TEMP stage=ARRIVE target=17900 actual=-17900 error=-200 age=10 vision=0\n";
+    uint32_t end;
+    taskLogReset(&logBuffer);
+    stationHeadingLogRecord(&logBuffer,1010,1000,9,"TEMP","ARRIVE",179,-179,0);
+    logBuffer.bytes[logBuffer.end]=0;
+    assert(!strcmp((const char *)logBuffer.bytes,expected));
+    end=logBuffer.end;
+    stationHeadingLogRecord(&logBuffer,1011,1000,9,"TEMP","ALIGNED",179,-179,7);
+    logBuffer.bytes[logBuffer.end]=0;
+    assert(logBuffer.end>end && strstr((const char *)logBuffer.bytes,"stage=ALIGNED"));
+    assert(strstr((const char *)logBuffer.bytes,"age=11 vision=7"));
+    taskLogReset(&logBuffer);
+    stationHeadingLogRecord(&logBuffer,49,UINT32_MAX-50U,14,"COARSE","DONE",0,0,0);
+    logBuffer.bytes[logBuffer.end]=0;
+    assert(strstr((const char *)logBuffer.bytes,"area=COARSE stage=DONE"));
+    assert(strstr((const char *)logBuffer.bytes,"age=100"));
+}
+
 int main(void) {
     SsFrame r,q={0};uint32_t task,next,end;unsigned i,total;
     uint8_t line[128],collected[TASK_LOG_CAPACITY];
@@ -100,5 +119,6 @@ int main(void) {
     r=readLog(0,0,0);assert(!r.data[0] && !r.data[13] && ss_get32(r.data+9)==0);
     assert(ss_get32(r.data+1)!=task);
     checkHeadingLog();
+    checkStationHeadingLog();
     puts("task log, heading and PID command recording ok");return 0;
 }
