@@ -1059,11 +1059,6 @@ static void printVisionMotionStatus(void)
     serialSendString("\r\n");
 }
 
-static float visionTrackingTargetYaw(void)
-{
-    return placementTestActive ? routeYaw : imuYaw;
-}
-
 static void recordVisionPixels(const VisionPacket *packet, uint32_t sample, const char *phase)
 {
     visionPixelLogRecord(&taskLog, &visionPixelLog, clockMs, sample, routeIndex,

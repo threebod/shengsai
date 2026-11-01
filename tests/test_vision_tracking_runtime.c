@@ -23,7 +23,7 @@ static uint8_t hostHeartbeatActive, visionPickActive, rawPickAtStation, routeSen
 static uint8_t visionMotionMotorMask, visionMotionQueryId, visionMotionSeenMask, visionMotionStatus[4];
 static uint8_t visionMotionAutomatic, statusReady, statusValues[4];
 static uint16_t motorTrim[5] = {1000,1000,1000,1000,1000};
-static float imuYaw, missionOffsetForward, missionOffsetRight;
+static float imuYaw, routeYaw, missionOffsetForward, missionOffsetRight;
 static float routeForwardScale = ROUTE_FORWARD_SCALE, routeLateralScale = ROUTE_LATERAL_SCALE;
 static int8_t yawSign = 1;
 static RouteHeadingPidGains routeHeadingGains = {ROUTE_HEADING_KP,ROUTE_HEADING_KI,ROUTE_HEADING_KD};
@@ -66,7 +66,6 @@ static void recordVisionPixels(const VisionPacket *packet, uint32_t sample, cons
     assert(sample <= clockMs && phase);
     ++pixelSamples;
 }
-static float visionTrackingTargetYaw(void) { return imuYaw; }
 #include "../firmware/vision_tracking_runtime.h"
 #include "../firmware/vision_motion_runtime.h"
 
@@ -83,7 +82,7 @@ static void reset(void)
     visionSession.state = VISION_STATE_MOVE; visionSession.mode = VISION_MODE_RING;
     visionSession.target = 2; visionSession.maxCorrections = 0; visionSession.iteration = 1;
     clockMs = imuStamp = hostHeartbeatStamp = 100;
-    imuValid = 1; imuYaw = 0;
+    imuValid = 1; imuYaw = routeYaw = 0;
     visionRxReady = emergencyStop = hostEStop = fault = motionMode = 0;
     missionActive = routeWaiting = missionOffline = fullRouteRunning = 0;
     missionPhase = MISSION_IDLE; hostHeartbeatActive = 1;
@@ -120,6 +119,30 @@ int main(void)
     uint32_t token;
     float expected;
     int16_t farForward;
+    /* Station tracking must correct an initial yaw error in both mission modes. */
+    for (i = 0; i < 4; ++i) {
+        reset(); cancelVisionTracking();
+        missionActive = routeWaiting = 1;
+        missionOffline = fullRouteRunning = (uint8_t)(i & 1U);
+        routeYaw = i < 2U ? 90.0f : -90.0f;
+        imuYaw = routeYaw - 2.0f;
+        if (i >= 2U) {
+            visionSession.mode = VISION_MODE_MATERIAL; visionSession.selector = 4;
+            visionSession.maxCorrections = 2; missionPhase = MISSION_TEMP_ALIGN;
+            expectedWheelLimit = 30;
+        }
+        assert(startVisionTracking(44.44f,22.86f));
+        assert(visionTrackingYaw == routeYaw);
+        run(); assert(!failures && sentTurn > 0);
+        imuYaw = routeYaw - 3.0f;
+        queueFrame(-40,-20,2,VISION_FLAG_TRACKING|VISION_FLAG_VALID); step(20);
+        assert(visionTrackingYaw == routeYaw && sentTurn > 0 && !failures);
+    }
+    /* Standalone alignment has no station target and holds its starting yaw. */
+    reset(); cancelVisionTracking(); routeYaw = 90.0f; imuYaw = 7.0f;
+    assert(startVisionTracking(44.44f,22.86f) && visionTrackingYaw == 7.0f);
+    imuYaw = 9.0f; run(); assert(!failures && sentTurn < 0);
+
     reset();queueFrame(-40,-20,1,VISION_FLAG_TRACKING|VISION_FLAG_VALID);step(0);
     step(9);assert(!sentForward && !sentRight);
     step(1);assert(sentForward>0 && sentRight>0);

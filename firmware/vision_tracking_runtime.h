@@ -76,7 +76,8 @@ static uint8_t startVisionTracking(float forwardMm, float rightMm)
     visionTrackingRequest.value[7] = VISION_TRACK_START;
     vision_tracking_begin(&visionTracking,visionTrackingRequest.token,visionSession.mode,
                           visionSession.selector,visionSession.target,forwardMm,rightMm,rpm,duration,clockMs);
-    visionTrackingYaw = visionTrackingTargetYaw();
+    /* Station alignment holds the route target; standalone alignment holds current yaw. */
+    visionTrackingYaw = missionActive && routeWaiting ? routeYaw : imuYaw;
     visionTrackingTick = clockMs;
     visionTrackingForward = visionTrackingRight = 0;
     visionTrackingStarted = 0U;
