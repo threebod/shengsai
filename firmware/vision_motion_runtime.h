@@ -2,6 +2,10 @@ static void serviceMotion(void)
 {
     uint32_t elapsed;
     uint8_t id,bit,status;
+    if (visionTrackingActive()) {
+        serviceVisionTrackingMotion();
+        return;
+    }
     if(motionMode!=4U || emergencyStop) return;
     elapsed=clockMs-motionStart;
 
@@ -25,12 +29,8 @@ static void serviceMotion(void)
     if (elapsed >= motionDuration) {
         stopDriveMotors();
         motionMode = 0U;
-        serialSendString("VISION MOVE DONE elapsed_ms=");
-        serialSendUint32(elapsed);
-        serialSendString("\r\n");
         if (visionMotionAutomatic) {
             vision_session_move_complete(&visionSession, clockMs);
-            printVisionState();
         } else {
             vision_session_pause(&visionSession);
             serialSendString("VISION PAUSED\r\n");

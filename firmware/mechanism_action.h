@@ -15,8 +15,8 @@
 #define MECHANISM_RPM_MAX 1200U
 #define MECHANISM_LIFT_RPM_MAX 2000U
 #define MECHANISM_ACCEL_MIN 1U
-#define MECHANISM_ACCEL_MAX 200U
-#define MECHANISM_LIFT_ACCEL_MAX 240U
+#define MECHANISM_ACCEL_MAX 228U
+#define MECHANISM_LIFT_ACCEL_MAX 248U
 #define MECHANISM_TURRET_SPEED_MIN 10U
 #define MECHANISM_TURRET_SPEED_MAX 2200U
 
@@ -41,6 +41,14 @@ typedef struct {
     uint16_t platformDps10;
     uint16_t platformDeg[3];
 } MechanismInitialState;
+
+static uint8_t mechanismGripperOpenCommandComplete(const MechanismInitialState *initial,
+                                                    uint8_t enabled, uint8_t moving,
+                                                    uint32_t current, uint32_t target)
+{
+    uint32_t open = (uint32_t)initial->gripperOpenDeg * 1000U;
+    return enabled && !moving && current == open && target == open;
+}
 
 typedef enum {
     MECHANISM_ACTION_POSE = 0,

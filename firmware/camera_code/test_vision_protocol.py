@@ -4,16 +4,85 @@ import unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
-from vision_protocol import (FLAG_RING_NO_DIGIT, FLAG_STACK_PREPARE, FLAG_STABLE, FLAG_VALID, KIND_REQUEST,
+from vision_protocol import (FLAG_MATERIAL_LAYOUT, FLAG_RING_NO_DIGIT, FLAG_STACK_PREPARE,
+                             FLAG_STABLE, FLAG_TRACKING, FLAG_VALID, KIND_REQUEST, KIND_RESULT,
                              MODE_MATERIAL, MODE_RING,
-                             Parser, StableWindow, encode, validate_request)
+                             Parser, StableWindow, encode, tracking_values, validate_request)
 
 
 class VisionProtocolTest(unittest.TestCase):
-    def test_stack_preparation_only_accepts_material_target_two(self):
+    def test_ring_native_bounds_and_version_cannot_mix_with_legacy_coordinates(self):
+        import struct
+        from vision_protocol import crc16
+
+        frame = encode(KIND_REQUEST, 17, MODE_RING, 0, 2, 0,
+                       [0, 0, 640, 480, 320, 240, 0, 0])
+        self.assertEqual(2, frame[2])
+        self.assertTrue(validate_request(Parser().feed(frame)[0]))
+        for mode, version in ((MODE_RING, 1), (MODE_MATERIAL, 2)):
+            bad = bytearray(encode(KIND_REQUEST, 17, mode, 0, 2, 0,
+                                   [0, 0, 320, 240, 160, 120, 0, 0]))
+            bad[2] = version
+            bad[28:] = struct.pack("<H", crc16(bad[:28]))
+            self.assertEqual([], Parser().feed(bad))
+        material = Parser().feed(encode(KIND_REQUEST, 17, MODE_MATERIAL, 0, 2, 0,
+                                       [0, 0, 640, 480, 320, 240, 0, 0]))[0]
+        self.assertFalse(validate_request(material))
+        packet = Parser().feed(frame)[0]
+        for values in ([1, 0, 640, 480, 320, 240, 0, 0],
+                       [0, 0, 640, 480, 640, 240, 0, 0]):
+            packet["values"] = values
+            self.assertFalse(validate_request(packet))
+
+    def tracking_request(self, mode=MODE_RING, target=2, selector=0, flags=FLAG_TRACKING,
+                         action=1, roi=None):
+        values = (roi if roi is not None else [0, 0, 320, 240, 160, 120]) + [0, action]
+        return Parser().feed(encode(KIND_REQUEST, 23, mode, selector, target, flags, values))[0]
+
+    def test_tracking_only_accepts_ring_or_stacking_material(self):
+        for mode, target, selector, accepted in (
+                (MODE_RING, 1, 0, True), (MODE_RING, 2, 0, True), (MODE_RING, 3, 0, True),
+                (MODE_RING, 0, 0, False), (MODE_RING, 4, 0, False),
+                (MODE_MATERIAL, 2, 0, True), (MODE_MATERIAL, 2, 6, True),
+                (MODE_MATERIAL, 2, 7, False), (MODE_MATERIAL, 0, 0, False),
+                (MODE_MATERIAL, 1, 1, False), (MODE_MATERIAL, 3, 1, False)):
+            with self.subTest(mode=mode, target=target, selector=selector):
+                self.assertEqual(accepted, validate_request(self.tracking_request(mode, target, selector)))
+
+    def test_tracking_rejects_flag_conflicts_and_unknown_actions(self):
+        for extra in (FLAG_MATERIAL_LAYOUT, FLAG_STACK_PREPARE, FLAG_VALID, FLAG_STABLE, 0x10, 0x40):
+            self.assertFalse(validate_request(self.tracking_request(flags=FLAG_TRACKING | extra)))
+        for action in (-2, 0, 2, 32767):
+            self.assertFalse(validate_request(self.tracking_request(action=action)))
+        self.assertTrue(validate_request(self.tracking_request(
+            selector=5, flags=FLAG_TRACKING | FLAG_RING_NO_DIGIT)))
+        self.assertFalse(validate_request(self.tracking_request(
+            MODE_MATERIAL, 2, 5, FLAG_TRACKING | FLAG_RING_NO_DIGIT)))
+
+    def test_tracking_end_needs_no_roi_but_still_validates_identity_fields(self):
+        empty = [0] * 6
+        self.assertTrue(validate_request(self.tracking_request(action=-1, roi=empty)))
+        self.assertFalse(validate_request(self.tracking_request(action=1, roi=empty)))
+        self.assertFalse(validate_request(self.tracking_request(MODE_MATERIAL, 0, action=-1, roi=empty)))
+        self.assertFalse(validate_request(self.tracking_request(
+            action=-1, flags=FLAG_TRACKING | FLAG_MATERIAL_LAYOUT, roi=empty)))
+
+    def test_tracking_values_round_trip_sequence_wrap_and_bounded_age(self):
+        for sequence, signed in ((0, 0), (32767, 32767), (32768, -32768),
+                                 (65535, -1), (65536, 0)):
+            for age, bounded in ((-1, 0), (35, 35), (32767, 32767), (40000, 32767)):
+                values = tracking_values((164, 122, 80, 30, 40, 5), sequence, age)
+                packet = Parser().feed(encode(KIND_RESULT, 23, MODE_MATERIAL, 5, 2,
+                                             FLAG_TRACKING | FLAG_VALID, values))[0]
+                self.assertEqual([164, 122, 80, 30, 40, 5, signed, bounded], packet["values"])
+        self.assertEqual([0, 0, 0, 0, 0, 0, 1, 20], tracking_values(None, 1, 20))
+
+    def test_camera_preparation_only_accepts_stack_or_numbered_ring_two(self):
         for mode, target, flags, accepted in [(MODE_MATERIAL, 2, FLAG_STACK_PREPARE, True),
                 (MODE_MATERIAL, 0, FLAG_STACK_PREPARE, False),
-                (MODE_RING, 2, FLAG_STACK_PREPARE, False),
+                (MODE_RING, 2, FLAG_STACK_PREPARE, True),
+                (MODE_RING, 1, FLAG_STACK_PREPARE, False),
+                (MODE_RING, 3, FLAG_STACK_PREPARE, False),
                 (MODE_MATERIAL, 2, FLAG_STACK_PREPARE | FLAG_RING_NO_DIGIT, False)]:
             packet = Parser().feed(encode(KIND_REQUEST, 0, mode, 0, target,
                 flags, [0, 0, 320, 240, 160, 120, 0, 0]))[0]

@@ -7,14 +7,15 @@ from unittest.mock import Mock, call, patch
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 
-from vision_protocol import (FLAG_RING_NO_DIGIT, FLAG_STACK_PREPARE, KIND_REQUEST,
+from vision_protocol import (FLAG_RING_NO_DIGIT, FLAG_STACK_PREPARE, FLAG_STABLE,
+                             FLAG_TRACKING, FLAG_VALID, KIND_REQUEST,
                              MODE_MATERIAL, MODE_RING, Parser, encode)
 
 
 class VisionMainTest(unittest.TestCase):
     def run_camera(self, incoming, times, confirmations=None, write_error=None,
                    found=None, frames=None, camera_contrast=50, contrast_read_loss=0,
-                   layout_found=None):
+                   layout_found=None, capture_delays_ms=None):
         maix = types.ModuleType("maix")
         for name in ("app", "camera", "display", "err", "gpio", "image", "pinmap", "uart"):
             setattr(maix, name, Mock())
@@ -52,6 +53,13 @@ class VisionMainTest(unittest.TestCase):
         maix.camera.Camera.return_value.constrast.side_effect = constrast
         if frames is not None:
             maix.camera.Camera.return_value.read.side_effect = frames
+        if capture_delays_ms is not None:
+            delays = iter(capture_delays_ms)
+            captures = iter(frames) if frames is not None else None
+            def capture():
+                current_time[0] += next(delays) / 1000
+                return next(captures) if captures is not None else maix.camera.Camera.return_value.read.return_value
+            maix.camera.Camera.return_value.read.side_effect = capture
         serial = maix.uart.UART.return_value
         serial.read.side_effect = incoming
         self.tx_times = []
@@ -83,7 +91,7 @@ class VisionMainTest(unittest.TestCase):
         with patch.object(entry.time, "monotonic", side_effect=lambda: current_time[0]), \
                 window_patch as constructor, \
                 patch.object(entry, "find_material", **material_args) as material_detector, \
-                patch.object(entry, "find_ring", **ring_args), \
+                patch.object(entry, "find_ring", **ring_args) as ring_detector, \
                 patch.object(entry, "find_material_layout", **layout_args) as layout_detector, \
                 patch("builtins.print") as output:
             if write_error:
@@ -92,14 +100,187 @@ class VisionMainTest(unittest.TestCase):
             else:
                 entry.main()
         self.window_calls = constructor.call_args_list
+        self.stability_updates = stable.update.call_count
         self.layout_calls = layout_detector.call_count
         self.material_calls = material_detector.call_args_list
+        self.ring_calls = ring_detector.call_args_list
         self.logs = [call.args[0] for call in output.call_args_list]
         return maix
 
     def request(self, mode, token, target=1, selector=1, mask=0):
         return encode(KIND_REQUEST, token, mode, selector, target, 0,
-                      [0, 0, 320, 240, 160, 120, mask, 0])
+                      ([0, 0, 640, 480, 320, 240] if mode == MODE_RING else
+                       [0, 0, 320, 240, 160, 120]) + [mask, 0])
+
+    def tracking_request(self, token=9, mode=MODE_RING, selector=0, target=2, action=1):
+        return encode(KIND_REQUEST, token, mode, selector, target, FLAG_TRACKING,
+                      ([0] * 6 if action == -1 else
+                       [0, 0, 640, 480, 320, 240] if mode == MODE_RING else
+                       [0, 0, 320, 240, 160, 120]) + [0, action])
+
+    def tracking_responses(self, maix):
+        return [Parser().feed(item.args[0])[0]
+                for item in maix.uart.UART.return_value.write.call_args_list]
+
+    def test_tracking_streams_raw_drifting_centers_with_rate_limit_and_new_frame_sequences(self):
+        centers = [(150 + index * 4, 100 + index * 3, 80, 40, 40) for index in range(8)]
+        maix = self.run_camera([self.tracking_request()] + [b""] * 9,
+                               [index * 0.04 for index in range(10)], confirmations=[], found=centers)
+        packets = self.tracking_responses(maix)
+        self.assertEqual([1, 3, 5, 7], [packet["values"][6] for packet in packets])
+        self.assertEqual([list(centers[index][:2]) for index in (0, 2, 4, 6)],
+                         [packet["values"][:2] for packet in packets])
+        self.assertTrue(all(packet["flags"] == FLAG_TRACKING | FLAG_VALID for packet in packets))
+        self.assertTrue(all(packet["token"] == 9 for packet in packets))
+        self.assertTrue(all(b - a >= 0.0499 for a, b in zip(self.tx_times, self.tx_times[1:])))
+        self.assertEqual(1, len(self.window_calls))
+        self.assertEqual(0, self.stability_updates)
+        self.assertFalse(any(line.startswith("VISION RING") for line in self.logs))
+
+    def test_tracking_at_thirteen_fps_sends_every_frame_instead_of_halving_rate(self):
+        maix = self.run_camera([self.tracking_request()] + [b""] * 7,
+                               [index / 13 for index in range(8)], confirmations=[],
+                               found=(150, 100, 80, 70, 70), capture_delays_ms=[77] * 8)
+        packets = self.tracking_responses(maix)
+        self.assertEqual(list(range(1, 7)), [packet["values"][6] for packet in packets])
+        self.assertTrue(all(packet["values"][7] == 77 for packet in packets))
+        self.assertEqual(1, sum(line.startswith("VISION TRACK TX") for line in self.logs))
+        self.assertIn("VISION APP version=1.0.25 ring_tracking=contours coordinates=native640", self.logs)
+        self.assertIn("version: 1.0.25", pathlib.Path(__file__).with_name("app.yaml").read_text(encoding="utf-8"))
+
+    def test_tracking_ring_reference_comes_from_matching_stable_sample_and_advances(self):
+        seed = (150, 100, 80, 70, 70)
+        moved = (155, 103, 80, 70, 70)
+        maix = self.run_camera(
+            [self.request(MODE_RING, 2, 2, 0), b"", b"", self.tracking_request(),
+             b"", b"", b"", b""],
+            [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
+            confirmations=[False, False, True], found=[seed, moved, None, None])
+        self.assertEqual([seed, moved, None],
+                         [item.kwargs["reference"] for item in self.ring_calls[1:]])
+        packets = self.tracking_responses(maix)
+        self.assertEqual([FLAG_VALID | FLAG_STABLE, FLAG_TRACKING | FLAG_VALID,
+                          FLAG_TRACKING, FLAG_TRACKING], [item["flags"] for item in packets])
+
+    def test_tracking_ring_reference_rejects_expired_or_different_requests(self):
+        seed = (150, 100, 80, 70, 70)
+        variants = [self.tracking_request(),
+                    self.tracking_request(selector=1),
+                    encode(KIND_REQUEST, 9, MODE_RING, 1, 2,
+                           FLAG_TRACKING | FLAG_RING_NO_DIGIT,
+                           [0, 0, 320, 240, 160, 120, 0, 1]),
+                    encode(KIND_REQUEST, 9, MODE_RING, 0, 2, FLAG_TRACKING,
+                           [10, 0, 310, 240, 160, 120, 0, 1])]
+        for index, tracking in enumerate(variants):
+            with self.subTest(index=index):
+                start = 2.1 if index == 0 else 0.3
+                self.run_camera([self.request(MODE_RING, 2, 2, 1 if index == 2 else 0), b"", b"",
+                                 tracking, b"", b""],
+                                [0, 0.1, 0.2, start, start + 0.1, start + 0.2],
+                                confirmations=[False, False, True], found=[seed, None])
+                self.assertIsNone(self.ring_calls[-1].kwargs["reference"])
+
+    def test_tracking_ring_cannot_reuse_sample_for_second_stream(self):
+        seed = (150, 100, 80, 70, 70)
+        self.run_camera([self.request(MODE_RING, 2, 2, 0), b"", b"",
+                         self.tracking_request(9), b"", b"", self.tracking_request(10),
+                         self.tracking_request(9, action=-1), b""],
+                        [index * 0.1 for index in range(9)],
+                        confirmations=[False, False, True], found=[seed, seed, None])
+        self.assertEqual([seed, None], [item.kwargs["reference"] for item in self.ring_calls[1:]])
+
+    def test_tracking_ring_new_failed_sample_invalidates_previous_reference(self):
+        seed = (150, 100, 80, 70, 70)
+        self.run_camera([self.request(MODE_RING, 2, 2, 0), b"", b"",
+                         self.request(MODE_RING, 3, 2, 0), b"", b"",
+                         self.tracking_request(), b"", b""],
+                        [index * 0.1 for index in range(9)],
+                        confirmations=[False, False, True, False, False, True],
+                        found=[seed, None, None])
+        self.assertIsNone(self.ring_calls[-1].kwargs["reference"])
+
+    def test_tracking_stacking_uses_320_resolution_and_preserves_material_color(self):
+        maix = self.run_camera([self.tracking_request(mode=MODE_MATERIAL, selector=5)] + [b""] * 4,
+                               [index * 0.1 for index in range(5)], confirmations=[],
+                               found=(170, 124, 80, 30, 40, 5))
+        maix.camera.Camera.return_value.set_resolution.assert_called_once_with(320, 240)
+        self.assertTrue(all(item.kwargs == {"scale": 1} for item in self.material_calls))
+        packets = self.tracking_responses(maix)
+        self.assertEqual([1, 2, 3], [packet["values"][6] for packet in packets])
+        self.assertTrue(all(packet["values"][:6] == [170, 124, 80, 30, 40, 5] for packet in packets))
+        self.assertTrue(all(not packet["flags"] & FLAG_STABLE for packet in packets))
+
+    def test_tracking_stacking_preserves_original_hundred_ms_rate_limit(self):
+        maix = self.run_camera([self.tracking_request(mode=MODE_MATERIAL, selector=5)] + [b""] * 7,
+                               [index * 0.04 for index in range(8)], confirmations=[],
+                               found=(170, 124, 80, 30, 40, 5))
+        self.assertEqual([1, 4], [item["values"][6] for item in self.tracking_responses(maix)])
+
+    def test_tracking_missing_captures_do_not_replay_positions_or_advance_sequence(self):
+        maix = self.run_camera([self.tracking_request()] + [b""] * 5,
+                               [0, 0.04, 0.08, 0.2, 0.3, 0.4], confirmations=[],
+                               frames=[Mock(), Mock(), Mock(), None, None, Mock()],
+                               found=[(150, 100, 80, 40, 40), (170, 120, 80, 40, 40)])
+        packets = self.tracking_responses(maix)
+        self.assertEqual([1, 2], [packet["values"][6] for packet in packets])
+        self.assertEqual([[150, 100], [170, 120]], [packet["values"][:2] for packet in packets])
+        self.assertEqual([0.08, 0.4], self.tx_times)
+
+    def test_tracking_new_frame_without_target_sends_invalid_and_clears_old_center(self):
+        maix = self.run_camera([self.tracking_request()] + [b""] * 3,
+                               [0, 0.1, 0.2, 0.31], confirmations=[],
+                               found=[(150, 100, 80, 40, 40), None])
+        packets = self.tracking_responses(maix)
+        self.assertEqual([FLAG_TRACKING | FLAG_VALID, FLAG_TRACKING], [packet["flags"] for packet in packets])
+        self.assertEqual([0, 0, 0, 0, 0, 0, 2, 0], packets[-1]["values"])
+
+    def test_tracking_end_only_cancels_matching_token_mode_selector_and_target(self):
+        incoming = [self.tracking_request(), b"", b"",
+                    self.tracking_request(token=8, action=-1),
+                    self.tracking_request(mode=MODE_MATERIAL, action=-1),
+                    self.tracking_request(selector=1, action=-1),
+                    self.tracking_request(target=1, action=-1),
+                    self.tracking_request(action=-1), b""]
+        maix = self.run_camera(incoming, [index * 0.11 for index in range(len(incoming))],
+                               confirmations=[], found=(150, 100, 80, 40, 40))
+        packets = self.tracking_responses(maix)
+        self.assertEqual([1, 2, 3, 4, 5], [packet["values"][6] for packet in packets])
+        self.assertTrue(all(packet["token"] == 9 for packet in packets))
+
+    def test_tracking_new_start_resets_discard_and_sequence_and_old_end_cannot_cancel_it(self):
+        incoming = [self.tracking_request(1), b"", b"", self.tracking_request(2), b"",
+                    self.tracking_request(1, action=-1), b"", self.tracking_request(2, action=-1)]
+        maix = self.run_camera(incoming, [0, 0.04, 0.08, 0.2, 0.24, 0.28, 0.4, 0.52],
+                               confirmations=[], found=(150, 100, 80, 40, 40))
+        packets = self.tracking_responses(maix)
+        self.assertEqual([1, 2, 2], [packet["token"] for packet in packets])
+        self.assertEqual([1, 1, 2], [packet["values"][6] for packet in packets])
+
+    def test_tracking_normal_request_replaces_stream_and_retains_ordinary_stability(self):
+        incoming = [self.tracking_request(1), b"", b"", self.request(MODE_RING, 2, 2, 0),
+                    self.tracking_request(1, action=-1), b"", b""]
+        maix = self.run_camera(incoming, [index * 0.11 for index in range(len(incoming))],
+                               confirmations=[False, False, True], found=(150, 100, 80, 40, 40))
+        packets = self.tracking_responses(maix)
+        self.assertEqual([1, 2], [packet["token"] for packet in packets])
+        self.assertEqual([FLAG_TRACKING | FLAG_VALID, FLAG_VALID | FLAG_STABLE],
+                         [packet["flags"] for packet in packets])
+        self.assertEqual(2, len(self.window_calls))
+
+    def test_tracking_reports_capture_processing_age_and_saturates_signed_field(self):
+        for delay, age in ((35, 35), (40000, 32767)):
+            with self.subTest(delay=delay):
+                maix = self.run_camera([self.tracking_request(), b"", b""], [0, 0.1, 0.2],
+                                       confirmations=[], found=(150, 100, 80, 40, 40),
+                                       capture_delays_ms=[0, 0, delay])
+                self.assertEqual(age, self.tracking_responses(maix)[0]["values"][7])
+
+    def test_tracking_short_uart_write_still_closes_uart_and_illumination(self):
+        maix = self.run_camera([self.tracking_request(), b"", b""], [0, 0.1, 0.2],
+                               confirmations=[], write_error=lambda response: len(response) - 1,
+                               found=(150, 100, 80, 40, 40))
+        maix.uart.UART.return_value.close.assert_called_once()
+        self.assertEqual(call(0), maix.gpio.GPIO.return_value.value.call_args_list[-1])
 
     def test_pickup_result_preserves_frame_size_and_color_with_median_center(self):
         maix = self.run_camera([self.request(MODE_MATERIAL, 9, 0, 0, 42), b"", b""],
@@ -123,6 +304,27 @@ class VisionMainTest(unittest.TestCase):
         self.assertEqual({"count": 5, "tolerance": 2, "minimum_ms": 500,
                           "trend_tolerance": None},
                          self.window_calls[-1].kwargs)
+
+    def test_ring_preparation_switches_without_detection_or_reply_then_samples_fresh(self):
+        prepare = encode(KIND_REQUEST, 0, MODE_RING, 0, 2, FLAG_STACK_PREPARE,
+                         [0, 0, 320, 240, 160, 120, 0, 0])
+        maix = self.run_camera([prepare, b"", b""], [0, 1.5, 3.0])
+        self.assertEqual([call(), call(80)],
+                         maix.camera.Camera.return_value.constrast.call_args_list)
+        self.assertEqual([], self.ring_calls)
+        self.assertEqual([], self.material_calls)
+        maix.uart.UART.return_value.write.assert_not_called()
+        maix = self.run_camera([prepare, b"", self.request(MODE_RING, 9, 2, 0),
+                                b"", b"", b"", b""],
+                               [0, 1.5, 2.0, 2.1, 2.2, 2.3, 2.4],
+                               found=(160, 120, 80, 40, 40))
+        self.assertEqual([call(), call(80)],
+                         maix.camera.Camera.return_value.constrast.call_args_list)
+        self.assertEqual(3, len(self.ring_calls))
+        replies = maix.uart.UART.return_value.write.call_args_list
+        self.assertEqual(1, len(replies))
+        packet = Parser().feed(replies[0].args[0])[0]
+        self.assertEqual((9, FLAG_VALID | FLAG_STABLE), (packet["token"], packet["flags"]))
 
     def test_stack_preparation_switches_before_travel_without_detection_or_reply(self):
         prepare = encode(KIND_REQUEST, 0, MODE_MATERIAL, 0, 2, FLAG_STACK_PREPARE,
@@ -266,7 +468,7 @@ class VisionMainTest(unittest.TestCase):
                 captures = [index for index, item in enumerate(cam.mock_calls) if item == call.read()]
                 self.assertGreater(cam.mock_calls.index(call.set_resolution(320, 240)), captures[3])
 
-    def test_ring_resolution_switch_preserves_protocol_and_scales_overlay(self):
+    def test_ring_resolution_switch_uses_native_coordinates_and_overlay(self):
         maix = self.run_camera(
             [self.request(MODE_RING, 1), b"", b"", self.request(MODE_MATERIAL, 2)],
             [0, 0.1, 0.2, 0.3], [False, False, True, False],
@@ -282,7 +484,7 @@ class VisionMainTest(unittest.TestCase):
                          Parser().feed(response)[0]["values"])
         frame = cam.read.return_value
         frame.draw_rect.assert_any_call(0, 0, 640, 480, maix.image.COLOR_YELLOW, 1)
-        frame.draw_cross.assert_any_call(336, 248, maix.image.COLOR_GREEN, 8, 2)
+        frame.draw_cross.assert_any_call(168, 124, maix.image.COLOR_GREEN, 8, 2)
 
     def test_material_quality_is_diagnostic_only(self):
         for color in range(1, 7):
@@ -397,7 +599,7 @@ class VisionMainTest(unittest.TestCase):
                     else:
                         response = maix.uart.UART.return_value.write.call_args.args[0]
                         self.assertEqual(3, Parser().feed(response)[0]["flags"])
-                    self.assertEqual({"count": 3, "tolerance": 2, "minimum_ms": 180,
+                    self.assertEqual({"count": 3, "tolerance": 4, "minimum_ms": 180,
                                       "trend_tolerance": None}, self.window_calls[-1].kwargs)
 
     def test_three_ring_frames_still_require_180ms(self):
@@ -411,7 +613,7 @@ class VisionMainTest(unittest.TestCase):
 
     def test_ring_loss_or_jitter_restarts_three_frame_window(self):
         point = (160, 120, 80, 50, 50)
-        shifted = (163, 120, 80, 50, 50)
+        shifted = (165, 120, 80, 50, 50)
         for interruption, final_point in [(None, point), (shifted, shifted)]:
             with self.subTest(interruption=interruption):
                 found = [point] * 2 + [interruption] + [final_point] * 3

@@ -99,7 +99,7 @@ int main(void)
                     314.159265f*ROUTE_LATERAL_SCALE) < 0.001f);
     assert(routeAbs(routeEstimateScaled(-60,1000,0.925f)+
                     314.159265f*0.925f) < 0.001f);
-    assert(routeAbs(ROUTE_LATERAL_SCALE-0.9f) < 0.0001f);
+    assert(routeAbs(ROUTE_LATERAL_SCALE-0.9f*(416.6f/400.0f)) < 0.0001f);
     assert(ROUTE_LATERAL_RPM_MAX == 150U);
     routeHeadingPidReset(&headingPid);
     assert(routeHeadingPidStep(&headingPid, &gains, 0, 179, 100, 20, 1) == 0);
@@ -154,7 +154,7 @@ int main(void)
         assert(routeTurnRamp(100, 5, 20) == 5);
         assert(routeTurnRamp(100, 0, 20) == 0);
         assert(routeTurnRamp(100, -5, 20) < 0);
-        assert(routeAbs(routeTurnRamp(0, 100, 20) - 2.0f) < 0.001f);
+        assert(routeAbs(routeTurnRamp(0, 100, 20) - 3.6f) < 0.001f);
     }
     assert(routeSpeed(1000,0,60)==0);
     assert(routeSpeed(1000,350,60)==30);

@@ -13,7 +13,7 @@ static uint8_t prepareObstacleTurret(void)
     obstacleTurretPending = 1U;
     servoSetTarget(2U, rawPickInitial.gripperCloseDeg, rawPickInitial.gripperDps10);
     servoSetTarget(3U, 26U, rawPickInitial.platformDps10);
-    servoSetTarget(4U, 53U, 1200U);
+    servoSetTarget(4U, 68U, 1200U);
     return 1U;
 }
 
@@ -28,18 +28,15 @@ static void serviceObstacleTurret(void)
     }
     if (servoChannelMoving[0] || servoChannelMoving[1] || servoChannelMoving[2]) return;
     if (currentAngleMdeg[0] != (uint32_t)rawPickInitial.gripperCloseDeg * 1000U ||
-        currentAngleMdeg[1] != 26000U || currentAngleMdeg[2] != 53000U) {
+        currentAngleMdeg[1] != 26000U || currentAngleMdeg[2] != 68000U) {
         hostOperationFailed = 1U;
         stopServoMotion();
         invalidateMechanism("obstacle_turret_interrupted");
         return;
     }
-    mechanismState.current.turretDdeg = 530U;
+    mechanismState.current.turretDdeg = 680U;
     obstacleTurretPending = 0U;
     obstacleTurretReady = 1U;
-    serialSendString("TASK PREPARE command_done gripper=");
-    serialSendUint(rawPickInitial.gripperCloseDeg);
-    serialSendString(" platform=26 turret=53\r\n");
 }
 
 static void serviceObstacleHostStart(void)
@@ -55,7 +52,9 @@ static void serviceObstacleHostStart(void)
         char command[32];
         hostStartPending = 0U;
         if (!obstacleTurretReady) hostOperationFailed = 1U;
-        else if (startCommand == SS_MISSION) {
+        else if (startCommand == SS_PLACEMENT_TEST) {
+            if (!startPlacementTest()) hostOperationFailed = 1U;
+        } else if (startCommand == SS_MISSION) {
             missionButtonRpm = hostStartRpm;
             missionButtonReady = 1U;
             startButtonMission(hostStartZone);

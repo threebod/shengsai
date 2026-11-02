@@ -21,6 +21,11 @@ Controller::Controller(QObject *parent):QObject(parent) {
     });
     connect(&calibrationTimeout_,&QTimer::timeout,this,[this]{failCalibration(QStringLiteral("标定超时；未覆盖原比例"));});
     connect(&watchdog_,&QTimer::timeout,this,[this]{
+        if(lidarRunning_){
+            if(lidarLastScan_<0 && clock_.elapsed()-lidarWaitAt_>3000)lidarStatus_=QStringLiteral("尚未收到完整扫描，请检查雷达供电、PA9/PA10接线及跳线帽");
+            if(lidarLastScan_>=0 && !lidarFresh())lidarStatus_=QStringLiteral("点云已过期，请检查雷达接线和主控接收");
+            emit lidarChanged();
+        }
         bool expired=false;
         for(const auto &p:pending_)if(clock_.elapsed()-p.sent>5000){expired=true;break;}
         if(device_ && device_->isOpen() && (expired || clock_.elapsed()-lastRx_>3000)) {
@@ -50,7 +55,7 @@ Controller::Controller(QObject *parent):QObject(parent) {
 }
 void Controller::setStatus(const QString &text){status_=text;emit changed();}
 bool Controller::parametersPending()const{
-    for(const auto &p:pending_)if(p.command>=SS_GET_RINGS && p.command<=SS_SAVE_SCALE)return true;
+    for(const auto &p:pending_)if(p.command>=SS_GET_RINGS && p.command<=SS_SET_PICKUP)return true;
     return false;
 }
 QByteArray Controller::pair(int a,int b){QByteArray bytes(4,0);ss_put16(reinterpret_cast<uint8_t *>(bytes.data()),quint16(a));ss_put16(reinterpret_cast<uint8_t *>(bytes.data()+2),quint16(b));return bytes;}
@@ -87,6 +92,19 @@ void Controller::opened(){
     request(SS_HELLO,data);
 }
 void Controller::disconnectDevice(){
+    if(lidarRunning_ && device_ && device_->isOpen()){
+        QByteArray data(3,0);ss_put16(reinterpret_cast<uint8_t *>(data.data()+1),lidarToken_);
+        request(SS_LIDAR_CONTROL,data);
+    }
+    resetLidar();
+    if(placementTesting()){
+        if(device_ && device_->isOpen())request(SS_STOP);
+        placementTestSequence_=-1;placementTestState_=QStringLiteral("连接已断开，测试结果未知；重连后读取日志");
+    }
+    if(lateralTesting()){
+        if(device_ && device_->isOpen())request(SS_STOP);
+        lateralTestSequence_=-1;lateralTestState_=QStringLiteral("连接已断开，横移结果未知");
+    }
     if(axis6Testing()){
         if(device_ && device_->isOpen())request(SS_STOP);
         axis6TestSequence_=-1;axis6TestState_=QStringLiteral("连接已断开，测试结果未知");
@@ -94,6 +112,10 @@ void Controller::disconnectDevice(){
     driveTimer_.stop();heartbeat_.stop();watchdog_.stop();servoTimer_.stop();servoTargets_.clear();
     calibrationTimeout_.stop();calibrationStage_=0;++calibrationGeneration_;
     connected_=confirmed_=ringsRead_=busy_=mechanismValid_=false;pending_.clear();parser_={};
+    if(logsLoading_)logsState_=QStringLiteral("读取中断，已显示的日志仍保留；重连后可重新读取");
+    logsLoading_=false;taskLogBytes_.clear();
+    pickupRead_=false;pickup_.clear();pickupState_=QStringLiteral("断线后请重新读取取料区参数");
+    heightsRead_=false;heights_.clear();heightsState_=QStringLiteral("断线后请重新读取放置深度");
     ringState_=QStringLiteral("断线后请重新读取");scaleState_=QStringLiteral("断线后请重新读取");
     if(device_ && device_->isOpen())device_->close();status_=QStringLiteral("未连接");emit changed();
 }
@@ -115,7 +137,22 @@ void Controller::ingest(){
 }
 void Controller::handle(const SsFrame &f){
     if(f.flags==SS_EVENT){
+        if(f.command==SS_LIDAR_SCAN){handleLidarScan(f);return;}
         if(f.command==SS_LOG){log(QString::fromUtf8(reinterpret_cast<const char *>(f.data),f.length));return;}
+        if(f.command==SS_LATERAL_TEST && f.length==1 && f.sequence==lateralTestSequence_){
+            lateralTestSequence_=-1;
+            if(f.data[0])mechanismValid_=false;
+            lateralTestState_=f.data[0]?QStringLiteral("横移测试中止，请检查主控日志"):
+                QStringLiteral("横移指令完成：%1%2mm，请记录实测距离").arg(lateralTestDistance_<0?QStringLiteral("左"):QStringLiteral("右")).arg(qAbs(lateralTestDistance_));
+            emit changed();return;
+        }
+        if(f.command==SS_PLACEMENT_TEST && f.length==1 && f.sequence==placementTestSequence_){
+            placementTestSequence_=-1;
+            if(f.data[0])mechanismValid_=false;
+            placementTestState_=f.data[0]?QStringLiteral("测试中止，请读取角度与像素日志"):
+                QStringLiteral("暂存第一层放置并收回完成，请读取日志并测量实际偏差");
+            emit changed();return;
+        }
         if(f.command==SS_ACTION && f.length==1 && f.sequence==axis6TestSequence_){
             axis6TestSequence_=-1;
             if(f.data[0])mechanismValid_=false;
@@ -137,21 +174,86 @@ void Controller::handle(const SsFrame &f){
     if(!(f.flags&SS_RESPONSE) || !f.length || !pending_.contains(f.sequence) || pending_[f.sequence].command!=f.command)return;
     pending_.remove(f.sequence);
     if(f.data[0]){
+        if(f.command==SS_LIDAR_CONTROL){
+            lidarPending_=false;lidarStatus_=QStringLiteral("雷达请求被拒绝，请检查固件支持及急停状态");
+            emit lidarChanged();
+        }
+        if(f.command==SS_GET_LOG){
+            logsLoading_=false;taskLogBytes_.clear();
+            logsState_=f.data[0]==5?QStringLiteral("日志已更新或被覆盖，请重新读取"):QStringLiteral("读取失败，请确认主控固件支持任务日志读取");
+            emit changed();return;
+        }
+        if(f.command==SS_GET_PICKUP || f.command==SS_SET_PICKUP)pickupState_=QStringLiteral("取料区参数读写失败，请检查主控状态后重试");
+        if(f.command==SS_SET_HEIGHTS || f.command==SS_GET_HEIGHTS)
+            heightsState_=QStringLiteral("放置深度读写失败，请检查主控状态后重试");
         if(f.command==SS_SET_RINGS)ringState_=QStringLiteral("固化失败，请检查主控状态后重试");
         if(f.command==SS_APPLY_SCALE || f.command==SS_SAVE_SCALE)scaleState_=QStringLiteral("写入失败，尚未获得主控确认");
         static const QStringList errors{QString(),QStringLiteral("参数或命令无效"),QStringLiteral("主控忙，请等待或停止"),QStringLiteral("急停锁定"),QStringLiteral("主控执行失败，请检查日志"),QStringLiteral("协议不匹配"),QStringLiteral("请先确认机构零点及安全条件")};
         const QString message=errors.value(f.data[0],QStringLiteral("主控拒绝指令"));
+        if(f.command==SS_LATERAL_TEST && f.sequence==lateralTestSequence_){
+            lateralTestSequence_=-1;lateralTestState_=QStringLiteral("横移测试未启动：")+message;
+        }
+        if(f.command==SS_PLACEMENT_TEST && f.sequence==placementTestSequence_){
+            placementTestSequence_=-1;placementTestState_=QStringLiteral("测试未启动：")+message;
+        }
         if(f.command==SS_ACTION && f.sequence==axis6TestSequence_){
             axis6TestSequence_=-1;axis6TestState_=QStringLiteral("测试未启动：")+message;
         }
         if(calibrating())failCalibration(message);else setStatus(message);return;
     }
     switch(f.command){
+    case SS_LIDAR_CONTROL:
+        lidarPending_=false;
+        if(f.length!=4 || f.data[1]>1 || ss_get16(f.data+2)!=lidarToken_){
+            lidarRunning_=false;lidarStatus_=QStringLiteral("雷达应答无效，请检查主控固件");
+        }else{
+            lidarRunning_=f.data[1];
+            lidarWaitAt_=clock_.elapsed();
+            lidarStatus_=lidarRunning_?QStringLiteral("主控已发送启动命令，等待雷达完整扫描…"):QStringLiteral("已发送停止扫描命令");
+            if(!lidarRunning_){lidarPartial_.clear();lidarTotal_=0;}
+        }
+        emit lidarChanged();break;
+    case SS_LATERAL_TEST:
+        if(f.sequence==lateralTestSequence_){
+            if(f.length!=3){
+                stop();lateralTestSequence_=-1;lateralTestState_=QStringLiteral("横移应答无效，请检查固件版本");
+            }else lateralTestState_=QStringLiteral("横移测试进行中 · 巡航上限%1RPM").arg(ss_get16(f.data+1));
+        }
+        break;
+    case SS_GET_LOG: {
+        if(!logsLoading_)return;
+        const quint32 task=f.length>=14?ss_get32(f.data+1):0;
+        const quint32 next=f.length>=14?ss_get32(f.data+5):0;
+        const quint32 end=f.length>=14?ss_get32(f.data+9):0;
+        const int size=int(f.length)-14;
+        if(f.length<14 || !task || f.data[13]>1 || next>end || size<0 ||
+           next<quint32(size) || end-(next-quint32(size))>32768U ||
+           (logTask_ && (task!=logTask_ || end!=logEnd_ || next!=logOffset_+quint32(size))) ||
+           (!size && next!=end) || taskLogBytes_.size()+size>32768){
+            logsLoading_=false;taskLogBytes_.clear();logsState_=QStringLiteral("日志应答无效，请重新读取");break;
+        }
+        logTask_=task;logOffset_=next;logEnd_=end;logTruncated_=logTruncated_ || f.data[13];
+        taskLogBytes_.append(reinterpret_cast<const char *>(f.data+14),size);
+        if(next<end){
+            QByteArray data(12,0);auto *p=reinterpret_cast<uint8_t *>(data.data());
+            ss_put32(p,task);ss_put32(p+4,next);ss_put32(p+8,end);
+            if(request(SS_GET_LOG,data)<0){logsLoading_=false;logsState_=QStringLiteral("日志读取发送失败，请重试");}
+        }else{
+            logsLoading_=false;
+            logsState_=logTruncated_?QStringLiteral("已读取最近任务日志（前部已覆盖，保留最新32KiB）"):QStringLiteral("已读取主控最近任务日志");
+            emit taskLogReceived(taskLogBytes_.isEmpty()?QStringLiteral("主控尚无最近任务日志\n"):QString::fromUtf8(taskLogBytes_));
+            taskLogBytes_.clear();
+        }
+        break;
+    }
     case SS_HELLO:
         if(f.length!=4 || f.data[1]!=1 || f.data[3]!=1){disconnectDevice();setStatus(QStringLiteral("固件版本或协议不匹配"));return;}
         if(f.data[2]!=SS_ROUTE_REVISION){disconnectDevice();setStatus(QStringLiteral("请更新支持15区障碍选择的主控固件"));return;}
         connected_=true;heartbeat_.start();setStatus(QStringLiteral("已连接，请确认机构零点和安全条件"));readScale();break;
     case SS_CLEAR:confirmed_=mechanismValid_=true;setStatus(QStringLiteral("安全条件已确认，机构坐标设为物理零点"));break;
+    case SS_PLACEMENT_TEST:
+        if(f.sequence==placementTestSequence_)placementTestState_=QStringLiteral("测试进行中：启停区2→加工区放置回收→暂存第一层放置");
+        emit changed();break;
     case SS_ACTION:
         if(f.sequence==axis6TestSequence_)axis6TestState_=QStringLiteral("测试进行中 · 正向5mm后返回起点");
         else setStatus(QStringLiteral("主控已接受指令，执行状态以反馈为准"));break;
@@ -160,6 +262,25 @@ void Controller::handle(const SsFrame &f){
         for(int i=0;i<3;++i)rings_.append(QVariantMap{{"horizontal",qint16(ss_get16(f.data+2+i*4))/10.0},{"turret",ss_get16(f.data+4+i*4)/10.0}});
         ringsRead_=true;ringState_=f.data[1]?QStringLiteral("已读取主控固化参数"):QStringLiteral("已读取固件默认参数");break;
     case SS_SET_RINGS:ringState_=QStringLiteral("主控已确认固化成功");readRings();break;
+    case SS_GET_PICKUP:
+        if(f.length!=14 || f.data[1]>1){pickupRead_=false;pickupState_=QStringLiteral("取料区应答无效，请重新读取");emit changed();return;}
+        for(int i=0;i<3;++i){
+            int h=qint16(ss_get16(f.data+2+i*4)),t=ss_get16(f.data+4+i*4);
+            if(h< -1220 || h>850 || t>3600){pickupRead_=false;pickupState_=QStringLiteral("取料区参数超出机械范围");emit changed();return;}
+        }
+        pickup_.clear();for(int i=0;i<3;++i)pickup_.append(QVariantMap{{"horizontal",qint16(ss_get16(f.data+2+i*4))/10.0},{"turret",ss_get16(f.data+4+i*4)/10.0}});
+        pickupRead_=true;pickupState_=f.data[1]?QStringLiteral("已读取主控固化参数"):QStringLiteral("已读取固件默认参数");break;
+    case SS_SET_PICKUP:
+        if(f.length!=1){pickupState_=QStringLiteral("固化应答无效，请重新读取确认");emit changed();return;}
+        pickupState_=QStringLiteral("主控已确认固化成功");readPickup();break;
+    case SS_GET_HEIGHTS:
+        if(f.length!=10 || f.data[1]>1){heightsRead_=false;heightsState_=QStringLiteral("主控返回的放置深度无效");emit changed();return;}
+        for(int i=0;i<4;++i)if(ss_get16(f.data+2+i*2)>1500){heightsRead_=false;heightsState_=QStringLiteral("主控返回的放置深度超出范围");emit changed();return;}
+        heights_.clear();for(int i=0;i<4;++i)heights_.append(ss_get16(f.data+2+i*2)/10.0);
+        heightsRead_=true;heightsState_=f.data[1]?QStringLiteral("已读取主控固化深度"):QStringLiteral("已读取固件默认深度");break;
+    case SS_SET_HEIGHTS:
+        if(f.length!=1){heightsState_=QStringLiteral("固化应答无效，请重新读取确认");emit changed();return;}
+        heightsState_=QStringLiteral("主控已确认固化成功");readHeights();break;
     case SS_GET_SCALE:case SS_APPLY_SCALE:case SS_SAVE_SCALE:
         if(f.length!=6)return;forward_=ss_get16(f.data+2);right_=ss_get16(f.data+4);
         scaleState_=f.data[1]?QStringLiteral("与主控一致 · 已掉电保存"):QStringLiteral("与主控一致 · 本次上电有效");
@@ -170,16 +291,27 @@ void Controller::handle(const SsFrame &f){
 }
 void Controller::confirmZero(){if(connected_)request(SS_CLEAR,QByteArray(1,1));}
 void Controller::stop(bool emergency){
+    lidarRunning_=lidarPending_=false;lidarPartial_.clear();++lidarToken_;
+    lidarStatus_=QStringLiteral("已请求停止；保留最后一圈供查看");emit lidarChanged();
     driveTimer_.stop();servoTimer_.stop();servoTargets_.clear();
     calibrationTimeout_.stop();calibrationStage_=0;++calibrationGeneration_;
+    if(placementTesting())placementTestState_=QStringLiteral("正在停止测试…");
     if(axis6Testing())axis6TestState_=QStringLiteral("正在停止测试…");
+    if(lateralTesting())lateralTestState_=QStringLiteral("正在停止横移测试…");
     request(emergency?SS_ESTOP:SS_STOP);confirmed_=emergency?false:confirmed_;emit changed();
 }
 void Controller::pauseManual(){
-    if(driveTimer_.isActive() || calibrating() || !servoTargets_.isEmpty() || axis6Testing())stop();
+    if(driveTimer_.isActive() || calibrating() || !servoTargets_.isEmpty() || axis6Testing() || lateralTesting() || placementTesting())stop();
     servoTimer_.stop();servoTargets_.clear();
 }
 void Controller::readRings(){if(connected_)request(SS_GET_RINGS);}
+void Controller::readTaskLog(){
+    if(!connected_ || logsLoading_)return;
+    taskLogBytes_.clear();logTask_=logOffset_=logEnd_=0;logTruncated_=false;
+    logsLoading_=true;logsState_=QStringLiteral("正在读取主控最近任务日志…");
+    if(request(SS_GET_LOG,QByteArray(12,0))<0){logsLoading_=false;logsState_=QStringLiteral("日志读取发送失败，请重试");}
+    emit changed();
+}
 void Controller::saveRings(const QVariantList &values){
     if(!connected_ || !ringsRead_ || values.size()!=3 || busy_)return;
     QByteArray data(12,0);
@@ -190,9 +322,37 @@ void Controller::saveRings(const QVariantList &values){
     ringState_=QStringLiteral("等待主控固化确认");request(SS_SET_RINGS,data);emit changed();
 }
 void Controller::readScale(){if(connected_)request(SS_GET_SCALE);}
+void Controller::readPickup(){if(connected_ && !busy() && !parametersPending())request(SS_GET_PICKUP);}
+void Controller::savePickup(const QVariantList &values){
+    if(!connected_ || !pickupRead_ || busy() || parametersPending() || values.size()!=3)return;
+    QByteArray data(12,0);
+    for(int i=0;i<3;++i){
+        const auto map=values[i].toMap();bool hOk,tOk;
+        double h=map["horizontal"].toDouble(&hOk),t=map["turret"].toDouble(&tOk);
+        if(!hOk || !tOk || !qIsFinite(h) || !qIsFinite(t) || h< -122 || h>85 || t<0 || t>360){pickupState_=QStringLiteral("取料区参数超出机械范围");emit changed();return;}
+        ss_put16(reinterpret_cast<uint8_t *>(data.data()+i*4),quint16(qRound(h*10)));
+        ss_put16(reinterpret_cast<uint8_t *>(data.data()+i*4+2),quint16(qRound(t*10)));
+    }
+    pickupState_=QStringLiteral("等待主控固化确认");
+    if(request(SS_SET_PICKUP,data)<0)pickupState_=QStringLiteral("发送失败，未固化");
+    emit changed();
+}
+void Controller::readHeights(){if(connected_ && !busy() && !parametersPending())request(SS_GET_HEIGHTS);}
+void Controller::saveHeights(const QVariantList &values){
+    if(!connected_ || !heightsRead_ || busy() || parametersPending() || values.size()!=4)return;
+    QByteArray data(8,0);
+    for(int i=0;i<4;++i){
+        bool ok;const double value=values[i].toDouble(&ok);
+        if(!ok || !qIsFinite(value) || value<0 || value>150){heightsState_=QStringLiteral("放置深度范围为0～150mm");emit changed();return;}
+        ss_put16(reinterpret_cast<uint8_t *>(data.data()+i*2),quint16(qRound(value*10)));
+    }
+    heightsState_=QStringLiteral("等待主控固化确认");
+    if(request(SS_SET_HEIGHTS,data)<0)heightsState_=QStringLiteral("发送失败，未固化");
+    emit changed();
+}
 void Controller::applyScale(double f,double r,bool save){
     if(!connected_ || busy_)return;
-    if(!qIsFinite(f) || !qIsFinite(r) || f<0.05 || f>2 || r<0.05 || r>2){setStatus(QStringLiteral("比例范围为 0.050～2.000 mm/像素"));return;}
+    if(!qIsFinite(f) || !qIsFinite(r) || f<0.025 || f>2 || r<0.025 || r>2){setStatus(QStringLiteral("比例范围为 0.025～2.000 mm/像素"));return;}
     const int a=qRound(f*1000),b=qRound(r*1000);
     scaleState_=QStringLiteral("等待主控确认");request(save?SS_SAVE_SCALE:SS_APPLY_SCALE,pair(a,b));emit changed();
 }
@@ -216,6 +376,25 @@ void Controller::testAxis6(){
     const int sequence=request(SS_ACTION,QByteArray(1,char(SS_ACTION_AXIS6_TEST)));
     if(sequence<0)return;
     axis6TestSequence_=sequence;axis6TestState_=QStringLiteral("等待主控开始测试");emit changed();
+}
+void Controller::testPlacement(int regions){
+    if(!connected_ || !confirmed_ || !mechanismValid_ || busy() || calibrating() ||
+       driveTimer_.isActive() || !servoTargets_.isEmpty() || regions<0 || regions>0x7fff)return;
+    QByteArray data(2,0);ss_put16(reinterpret_cast<uint8_t *>(data.data()),quint16(regions));
+    if(!ss_placement_test_valid(reinterpret_cast<const uint8_t *>(data.constData()),2))return;
+    const int sequence=request(SS_PLACEMENT_TEST,data);
+    if(sequence<0)return;
+    placementTestSequence_=sequence;placementTestState_=QStringLiteral("主控准备测试；请保持物料和场地状态");emit changed();
+}
+void Controller::testLateral(int direction,double distanceMm){
+    if(!connected_ || !confirmed_ || busy() || calibrating() || driveTimer_.isActive() ||
+       !servoTargets_.isEmpty() || (direction!=1 && direction!=-1) || !qIsFinite(distanceMm) ||
+       distanceMm<SS_LATERAL_TEST_MIN_MM || distanceMm>SS_LATERAL_TEST_MAX_MM || distanceMm!=qRound(distanceMm))return;
+    lateralTestDistance_=direction*qRound(distanceMm);
+    QByteArray data(2,0);ss_put16(reinterpret_cast<uint8_t *>(data.data()),quint16(lateralTestDistance_));
+    const int sequence=request(SS_LATERAL_TEST,data);
+    if(sequence<0)return;
+    lateralTestSequence_=sequence;lateralTestState_=QStringLiteral("等待主控开始横移测距");emit changed();
 }
 void Controller::drive(int direction){
     if(!connected_ || !confirmed_ || calibrating() || (direction!=1 && direction!=-1))return;
@@ -257,7 +436,7 @@ void Controller::log(const QString &line){
         const QRegularExpression re("^VISION MEASURE id=(\\d+) ring=2 token=(\\d+) du=(-?\\d+) dv=(-?\\d+) quality=(\\d+)$");
         const auto m=re.match(line);if(!m.hasMatch() || m.captured(1).toInt()!=sampleId_)return;
         const int du=m.captured(3).toInt(),dv=m.captured(4).toInt();
-        if(m.captured(5).toInt()<60 || du< -160 || du>159 || dv< -120 || dv>119){failCalibration(QStringLiteral("样本质量不足；未覆盖原比例"));return;}
+        if(m.captured(5).toInt()<60 || du< -320 || du>319 || dv< -240 || dv>239){failCalibration(QStringLiteral("样本质量不足；未覆盖原比例"));return;}
         calibrationTimeout_.stop();samples_[sampleIndex_]=QPointF(du,dv);
         if(sampleIndex_==4){calculate();return;}
         static const int forward[4]={20,-20,0,0},right[4]={0,0,20,-20};
@@ -271,12 +450,12 @@ void Controller::calculate(){
     const QPointF f1=samples_[1]-samples_[0],f2=samples_[1]-samples_[2],r1=samples_[3]-samples_[2],r2=samples_[3]-samples_[4];
     const double f=(f1.x()+f2.x())/2,r=(r1.y()+r2.y())/2;
     const QPointF fd=samples_[2]-samples_[0],rd=samples_[4]-samples_[2];
-    if(f<5 || r<5 || f1.x()<=0 || f2.x()<=0 || r1.y()<=0 || r2.y()<=0 ||
-       qAbs(fd.x())>3 || qAbs(fd.y())>3 || qAbs(rd.x())>3 || qAbs(rd.y())>3 ||
-       qAbs((f1.y()+f2.y())/2)>qMax(3.,f*.2) || qAbs((r1.x()+r2.x())/2)>qMax(3.,r*.2)){
+    if(f<10 || r<10 || f1.x()<=0 || f2.x()<=0 || r1.y()<=0 || r2.y()<=0 ||
+       qAbs(fd.x())>6 || qAbs(fd.y())>6 || qAbs(rd.x())>6 || qAbs(rd.y())>6 ||
+       qAbs((f1.y()+f2.y())/2)>qMax(6.,f*.2) || qAbs((r1.x()+r2.x())/2)>qMax(6.,r*.2)){
         failCalibration(QStringLiteral("往返偏差或轴间耦合过大；未覆盖原比例"));return;
     }
     const int a=qRound(20000/f),b=qRound(20000/r);
-    if(a<50 || a>2000 || b<50 || b>2000){failCalibration(QStringLiteral("计算比例超出有效范围"));return;}
+    if(a<25 || a>2000 || b<25 || b>2000){failCalibration(QStringLiteral("计算比例超出有效范围"));return;}
     calibrationStage_=4;calibrationTimeout_.start(6000);request(SS_APPLY_SCALE,pair(a,b));
 }

@@ -41,13 +41,13 @@ def find_material_layout(img, request, scale=2):
     candidates = points
     if not candidates:
         return None
-    if not recheck and (len(candidates) == 1 or request["values"][7] in (LAYOUT_LOCATE, LAYOUT_TRACK)):
-        # Initial positioning follows the lowest real candidate before the slot
-        # layout is visible. Unknown upper colors stay zero, even when the
-        # target has not yet reached the lower half of the image.
+    initial = None
+    if not recheck:
         point = max(candidates, key=lambda point: point[1])
-        return {"points": (point, None, None), "colors": (point[5], 0, 0),
-                "inferred": False, "visible_points": tuple(candidates)}
+        initial = {"points": (point, None, None), "colors": (point[5], 0, 0),
+                   "inferred": False, "visible_points": tuple(candidates)}
+    if not recheck and (len(candidates) == 1 or request["values"][7] == LAYOUT_TRACK):
+        return initial
     # Slot order: bottom, left upper, right upper. A rotating intermediate layout
     # must not be mistaken for the three fixed grasp positions.
     points = [None, None, None]
@@ -56,21 +56,26 @@ def find_material_layout(img, request, scale=2):
         if point[1] >= 120:
             slot = 0
             if point is not bottom:
-                return None
+                return initial if request["values"][7] == LAYOUT_LOCATE else None
         elif point[0] < 160:
             slot = 1
         elif point[0] > 160:
             slot = 2
         else:
-            return None
+            return initial if request["values"][7] == LAYOUT_LOCATE else None
         if points[slot] is not None:
-            return None
+            return initial if request["values"][7] == LAYOUT_LOCATE else None
         points[slot] = point
+    if not recheck and request["values"][7] == LAYOUT_LOCATE and points[0] is None:
+        return initial
     colors = [point[5] if point else 0 for point in points]
     inferred = not recheck and len(candidates) == 2
     if inferred:
         colors[colors.index(0)] = next(iter(expected - set(colors)))
-    return {"points": tuple(points), "colors": tuple(colors), "inferred": inferred}
+    result = {"points": tuple(points), "colors": tuple(colors), "inferred": inferred}
+    if not recheck and request["values"][7] == LAYOUT_LOCATE:
+        result["visible_points"] = tuple(candidates)
+    return result
 
 
 class LayoutMemory:
@@ -118,6 +123,7 @@ class LayoutWindow:
     def reset(self):
         self.samples = []
         self.signature = None
+        self.moving = False
 
     def update(self, layout, target_color=0):
         target_slot = (layout["colors"].index(target_color)
@@ -133,19 +139,21 @@ class LayoutWindow:
             self.reset()
             self.signature = signature
         self.samples.append(layout["points"])
-        self.samples = self.samples[-10:]
-        if len(self.samples) < 10:
+        self.samples = self.samples[-6:]
+        if len(self.samples) < 6:
             return False
-        return any(
+        still = any(
             all(max(row[slot][axis] for row in self.samples) -
                 min(row[slot][axis] for row in self.samples) <= 8 and
-                abs(sorted(row[slot][axis] for row in self.samples[:5])[2] -
-                    sorted(row[slot][axis] for row in self.samples[-5:])[2]) <= 2
+                abs(sorted(row[slot][axis] for row in self.samples[:3])[1] -
+                    sorted(row[slot][axis] for row in self.samples[-3:])[1]) <= 2
                 for axis in (0, 1))
             for slot, point in enumerate(layout["points"]) if point is not None)
+        self.moving = not still
+        return still
 
     def center(self, target_color=0):
         slot = self.signature[2]
-        return [int(round((sorted(row[slot][axis] for row in self.samples)[4] +
-                           sorted(row[slot][axis] for row in self.samples)[5]) / 2))
+        return [int(round((sorted(row[slot][axis] for row in self.samples)[2] +
+                           sorted(row[slot][axis] for row in self.samples)[3]) / 2))
                 for axis in (0, 1)]

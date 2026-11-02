@@ -2,43 +2,57 @@
 #define MECANUM_JOG_RAW_PICK_ACTION_H
 
 #include "mechanism_action.h"
+#include "placement_heights.h"
+#include "ring_pose.h"
 
-/* Turret remount: recorded angles - 12 degrees (observation 272 -> 260). */
+/* Turret remount: previous angles + 15 degrees (observation 260 -> 275). */
 
 /* Single-item bench sequence from 动作组/夹取.json. The operator places the
  * selected color at this sequence's fixed pickup position. */
 static MechanismInitialState rawPickInitial =
-    MECH_INITIAL_STATE(0, 0, 2600, 1000, 200, 2000, 240, 2200, 3600, 1800,
+    MECH_INITIAL_STATE(0, 0, 2750, 1000, 228, 2000, 248, 2200, 3600, 2200,
                        1, 1, 200, 155, 26, 146, 264);
 
 static const MechanismPose rawPickObservePose =
-    { 650, 0, 2600, 1000, 200, 2000, 240, 2200 };
+    { 650, 0, 2750, 1000, 228, 2000, 248, 2200 };
 
-static const MechanismPose rawPickLowerPose =
-    { -900, 530, 2560, 1000, 200, 2000, 240, 2200 };
+static MechanismPose rawPickLowerPose =
+    { -800, 530, 2710, 1000, 228, 2000, 248, 2200 };
 
-static const MechanismPose rawPickUpperPoses[2] = {
-    { 549, 530, 2773, 1000, 200, 2000, 240, 2200 },
-    { 701, 530, 2384, 1000, 200, 2000, 240, 2200 }
+static MechanismPose rawPickUpperPoses[2] = {
+    { 750, 530, 2903, 1000, 228, 2000, 248, 2200 },
+    { 800, 530, 2534, 1000, 228, 2000, 248, 2200 }
 };
 
+static uint8_t pickupPosesSaved;
+
+static void applyPickupPoses(const RingPose poses[3])
+{
+    uint8_t i;
+    for (i = 0U; i < 3U; ++i) {
+        MechanismPose *pose = i == 0U ? &rawPickLowerPose : &rawPickUpperPoses[i - 1U];
+        pose->horizontalDmm = poses[i].horizontalDmm;
+        pose->turretDdeg = poses[i].turretDdeg;
+    }
+}
+
 static const MechanismPose rawPickTravelPose =
-    { 0, 0, 530, 1000, 200, 2000, 240, 2200 };
+    { 0, 0, 680, 1000, 228, 2000, 248, 2200 };
 
 /* Let the grip settle for 200ms after commanded closure before lifting. */
 static const MechanismAction rawPickActions[] = {
     MECH_PLATFORM(1, 0),
     MECH_GRIPPER_OPEN(0),
-    MECH_POSE(-900, 530, 2560, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(-800, 530, 2710, 1000, 228, 2000, 248, 2200, 0),
     MECH_GRIPPER_CLOSE(200),
-    MECH_POSE(-900, 0, 2560, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(-200, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(-500, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(-500, 120, 1200, 1000, 200, 2000, 240, 2200, 0),
+    MECH_POSE(-800, 0, 2710, 1000, 228, 2000, 248, 2200, 0),
+    MECH_POSE(-200, 0, 1350, 1000, 228, 2000, 248, 2200, 0),
+    MECH_POSE(-400, 0, 1350, 1000, 228, 2000, 248, 2200, 0),
+    MECH_POSE(-400, 170, 1350, 1000, 228, 2000, 248, 2200, 0),
     MECH_GRIPPER_OPEN(0),
     MECH_PLATFORM(2, 0),
-    MECH_POSE(-500, 0, 1200, 1000, 200, 2000, 240, 2200, 0),
-    MECH_POSE(0, 0, 2600, 1000, 200, 2000, 240, 2200, 0)
+    MECH_POSE(-400, 0, 1350, 1000, 228, 2000, 248, 2200, 0),
+    MECH_POSE(0, 0, 2750, 1000, 228, 2000, 248, 2200, 0)
 };
 
 #define RAW_PICK_ACTION_COUNT \
@@ -47,7 +61,15 @@ static const MechanismAction rawPickActions[] = {
 static void rawPickActionsForSlot(MechanismAction *actions, uint8_t slot)
 {
     memcpy(actions, rawPickActions, sizeof(rawPickActions));
+    actions[2].pose = rawPickLowerPose;
+    actions[4].pose = rawPickLowerPose;
+    actions[4].pose.liftDmm = 0U;
+    actions[7].pose.liftDmm = placementHeights.rawTrayDmm;
     actions[0].value = slot;
+    if (slot < 3U) {
+        actions[10].pose.horizontalDmm = rawPickObservePose.horizontalDmm;
+        actions[11].pose = rawPickObservePose;
+    }
     actions[9].value = slot < 3U ? (uint16_t)(slot + 1U) : 3U;
     if (slot == 3U) actions[11].pose = rawPickTravelPose;
 }
@@ -63,6 +85,8 @@ static uint8_t rawPickActionsForPosition(MechanismAction *actions, uint8_t slot,
     actions[2].pose = *pickup;
     actions[4].pose = *pickup;
     actions[4].pose.liftDmm = 0U;
+    /* Upper pickups: retract to the tray while turning, without the -20mm stop. */
+    if (position == 2U || position == 3U) actions[5].pose = actions[6].pose;
     return 1U;
 }
 

@@ -6,19 +6,27 @@
 #define SS_ROUTE_REVISION 1U
 #define SS_MAX_PAYLOAD 128
 #define SS_MAX_FRAME 138
+#define SS_LATERAL_TEST_MIN_MM 100
+#define SS_LATERAL_TEST_MAX_MM 2000
 enum { SS_REQUEST=1, SS_RESPONSE=2, SS_EVENT=4, SS_ERROR=8 };
 enum {
     SS_HELLO=1, SS_STATUS, SS_HEARTBEAT, SS_STOP, SS_ESTOP, SS_CLEAR,
     SS_GET_RINGS=0x10, SS_SET_RINGS, SS_GET_SCALE, SS_APPLY_SCALE, SS_SAVE_SCALE,
-    SS_SERVO=0x20, SS_AUX, SS_DRIVE,
+    SS_GET_HEIGHTS=0x15, SS_SET_HEIGHTS,
+    SS_GET_LOG=0x17, SS_GET_PICKUP=0x18, SS_SET_PICKUP, SS_LIDAR_CONTROL=0x1a,
+    SS_SERVO=0x20, SS_AUX, SS_DRIVE, SS_LATERAL_TEST,
+    SS_PLACEMENT_TEST=0x26,
     SS_PREPARE=0x30, SS_MISSION, SS_ROUTE, SS_ACTION,
     SS_SAMPLE=0x40, SS_VISION_JOG, SS_ALIGN,
-    SS_LOG=0x80, SS_STATE
+    SS_LOG=0x80, SS_STATE, SS_LIDAR_SCAN=0x82
 };
 enum { SS_ACTION_AXIS6_TEST=3 };
 typedef struct { uint8_t flags, sequence, command; uint16_t length; uint8_t data[SS_MAX_PAYLOAD]; } SsFrame;
 typedef struct { uint8_t data[SS_MAX_FRAME]; uint16_t count; } SsParser;
 static uint16_t ss_get16(const uint8_t *p) { return (uint16_t)(p[0] | ((uint16_t)p[1]<<8)); }
+static uint8_t ss_placement_test_valid(const uint8_t *data, unsigned length) {
+    return (uint8_t)(length == 2U && ss_obstacle_regions_valid(ss_get16(data)));
+}
 static uint8_t ss_route_request_valid(const uint8_t *data, unsigned length) {
     return (uint8_t)(length==5U && data[0]>=1U && data[0]<=2U &&
         ss_obstacle_regions_valid(ss_get16(data+1)) && ss_get16(data+3)>=10U && ss_get16(data+3)<=250U);

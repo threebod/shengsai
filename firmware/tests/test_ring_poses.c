@@ -9,17 +9,17 @@ static void checkTurretRemount(void)
 {
     const int observation = rawPickObservePose.turretDdeg;
     uint16_t i;
-    assert(observation == 2600);
+    assert(observation == 2750);
     assert(rawPickInitial.pose.turretDdeg == observation);
     assert(missionInitial.pose.turretDdeg == observation && missionCoarseInitial.pose.turretDdeg == observation);
     /* Preserve the recorded geometry relative to the observation direction. */
-    assert((int)rawPickLowerPose.turretDdeg - observation == -40);
-    assert((int)rawPickUpperPoses[0].turretDdeg - observation == 173);
-    assert((int)rawPickUpperPoses[1].turretDdeg - observation == -216);
+    assert(rawPickLowerPose.horizontalDmm == -800 && rawPickLowerPose.turretDdeg == 2710U);
+    assert(rawPickUpperPoses[0].horizontalDmm == 750 && rawPickUpperPoses[0].turretDdeg == 2903U);
+    assert(rawPickUpperPoses[1].horizontalDmm == 800 && rawPickUpperPoses[1].turretDdeg == 2534U);
     assert((int)rawPickTravelPose.turretDdeg - observation == -2070);
-    assert((int)missionRingPoses[0].turretDdeg - observation == 358);
-    assert((int)missionRingPoses[1].turretDdeg - observation == -83);
-    assert((int)missionRingPoses[2].turretDdeg - observation == -420);
+    assert(missionRingPoses[0].horizontalDmm == 120 && missionRingPoses[0].turretDdeg == 3070U);
+    assert(missionRingPoses[1].horizontalDmm == -170 && missionRingPoses[1].turretDdeg == 2665U);
+    assert(missionRingPoses[2].horizontalDmm == 510 && missionRingPoses[2].turretDdeg == 2312U);
     assert((int)rawPickActions[5].pose.turretDdeg - observation == -1400);
     assert(rawPickActions[2].pose.turretDdeg == rawPickLowerPose.turretDdeg);
     assert(rawPickActions[11].pose.turretDdeg == observation);
@@ -33,6 +33,10 @@ static void checkTurretRemount(void)
     assert(rawPickInitial.platformDeg[0] == 26U && rawPickInitial.platformDeg[1] == 146U && rawPickInitial.platformDeg[2] == 264U);
     assert(rawPickInitial.gripperOpenDeg == 200U && rawPickInitial.gripperCloseDeg == 155U);
     assert(rawPickObservePose.horizontalDmm == 650 && rawPickLowerPose.liftDmm == 530U);
+    assert(rawPickActions[7].pose.liftDmm == 170U);
+    assert(rawPickLowerPose.horizontalDmm == -800);
+    assert(placementHeights.firstLayerDmm == 1270U && placementHeights.secondLayerDmm == 600U);
+    assert(placementHeights.rawTrayDmm == 170U && placementHeights.returnTrayDmm == 200U);
 }
 
 static void checkUnchanged(const MechanismAction *before, const MechanismAction *after, uint16_t count)
@@ -52,6 +56,29 @@ static void checkUnchanged(const MechanismAction *before, const MechanismAction 
     }
 }
 
+static void checkUpperLeftExtension(void)
+{
+    MechanismAction actions[RAW_PICK_ACTION_COUNT];
+    uint8_t slot;
+    for (slot = 1U; slot <= 3U; ++slot) {
+        assert(rawPickActionsForPosition(actions,slot,2U));
+        assert(actions[2].pose.horizontalDmm == 750 && actions[4].pose.horizontalDmm == 750);
+        assert(actions[2].pose.turretDdeg == rawPickUpperPoses[0].turretDdeg);
+        assert(actions[2].pose.liftDmm == rawPickUpperPoses[0].liftDmm && actions[4].pose.liftDmm == 0U);
+        assert(actions[5].pose.horizontalDmm == -400 && actions[5].pose.liftDmm == 0U);
+        assert(actions[5].pose.turretDdeg == actions[6].pose.turretDdeg);
+        assert(actions[10].pose.liftDmm == 0U && actions[10].pose.turretDdeg == actions[7].pose.turretDdeg);
+        assert(actions[10].pose.horizontalDmm == (slot < 3U ? 650 : -400));
+        assert(actions[11].pose.horizontalDmm == (slot < 3U ? 650 : 0));
+        assert(actions[11].pose.turretDdeg == (slot < 3U ? rawPickObservePose.turretDdeg : rawPickTravelPose.turretDdeg));
+        assert(rawPickActionsForPosition(actions,slot,3U));
+        assert(actions[2].pose.horizontalDmm == 800 && actions[4].pose.horizontalDmm == 800);
+        assert(actions[4].pose.liftDmm == 0U);
+        assert(actions[5].pose.horizontalDmm == -400 && actions[5].pose.liftDmm == 0U);
+        assert(actions[5].pose.turretDdeg == actions[6].pose.turretDdeg);
+    }
+}
+
 int main(void)
 {
     static const uint8_t orders[6][3] = {{1,2,3},{1,3,2},{2,1,3},{2,3,1},{3,1,2},{3,2,1}};
@@ -60,23 +87,69 @@ int main(void)
     MechanismAction before[MISSION_PICK_BACK_COUNT], after[MISSION_PICK_BACK_COUNT];
     uint8_t order, layer, coarse, item;
     checkTurretRemount();
+    checkUpperLeftExtension();
+    for (item = 1U; item <= 3U; ++item) {
+        rawPickActionsForSlot(after, item);
+        assert(after[6].pose.horizontalDmm == -400 && after[7].pose.horizontalDmm == -400);
+        assert(after[7].pose.liftDmm == placementHeights.rawTrayDmm);
+    }
+    missionBuildPickBack(after);
+    for (item = 0U; item < 3U; ++item) {
+        assert(after[8U + item * 11U].pose.horizontalDmm == -400);
+        assert(after[9U + item * 11U].pose.horizontalDmm == -400);
+        assert(after[11U + item * 11U].pose.horizontalDmm == -400);
+    }
     assert(missionInitial.gripperOpenDeg == missionCoarseInitial.gripperOpenDeg);
     memcpy(original, missionRingPoses, sizeof(original));
     assert(ringPosesValid(changed));
     for (order = 0U; order < 6U; ++order) {
         for (layer = 1U; layer <= 2U; ++layer)
             for (coarse = 0U; coarse < 2U; ++coarse) {
-                uint16_t count = coarse ? MISSION_COARSE_PLACE_COUNT : MISSION_PLACE_COUNT;
+                uint16_t count;
                 memcpy(missionRingPoses, original, sizeof(original));
-                missionBuildTaskPlace(before, orders[order], layer, coarse);
+                count = missionBuildTaskPlace(before, orders[order], layer, coarse);
+                assert(count == (coarse ? MISSION_COARSE_PLACE_COUNT : MISSION_PLACE_COUNT) - 1U);
+                if (!coarse) {
+                    const MechanismPose *last = &before[count-1U].pose;
+                    assert(last->horizontalDmm == rawPickTravelPose.horizontalDmm);
+                    assert(last->liftDmm == rawPickTravelPose.liftDmm);
+                    assert(last->turretDdeg == rawPickTravelPose.turretDdeg);
+                    assert(before[count-2U].pose.liftDmm == 0U); /* Raise before folding. */
+                }
+                {
+                    assert(before[0].type == MECHANISM_ACTION_PLATFORM && before[0].value == 1U);
+                    assert(before[1].type == MECHANISM_ACTION_GRIPPER && before[1].value == 1U);
+                    assert(before[2].type == MECHANISM_ACTION_POSE && before[2].pose.horizontalDmm == -500);
+                    assert(before[2].pose.liftDmm == 0U && before[3].pose.liftDmm == 300U);
+                }
                 memcpy(missionRingPoses, changed, sizeof(changed));
                 missionBuildTaskPlace(after, orders[order], layer, coarse);
                 checkUnchanged(before, after, count);
                 for (item = 0U; item < 3U; ++item) {
                     uint8_t ring = orders[order][item] - 1U;
-                    assert(after[land[item]].pose.horizontalDmm == changed[ring].horizontalDmm);
-                    assert(after[land[item]].pose.turretDdeg == changed[ring].turretDdeg);
-                    assert(after[land[item]].pose.liftDmm == (layer == 2U ? 570U : 1250U));
+                    assert(after[land[item] - 1U].pose.horizontalDmm == changed[ring].horizontalDmm);
+                    assert(after[land[item] - 1U].pose.turretDdeg == changed[ring].turretDdeg);
+                    assert(after[land[item] - 1U].pose.liftDmm == (layer == 2U ? 600U : 1270U));
+                    {
+                        unsigned down = land[item] - 1U;
+                        const MechanismPose *turn = &after[down - 1U].pose;
+                        assert(turn->horizontalDmm == (layer == 2U || ring == 2U ? changed[ring].horizontalDmm :
+                                                       after[down - 2U].pose.horizontalDmm));
+                        assert(turn->liftDmm == 0U && turn->turretDdeg == after[down].pose.turretDdeg);
+                        if (ring == 2U) {
+                            /* Raise, then turn/extend together, then lower only. */
+                            assert(turn->horizontalDmm == after[down].pose.horizontalDmm);
+                            if (item == 2U) {
+                                assert(after[down - 2U].pose.horizontalDmm == after[down - 3U].pose.horizontalDmm);
+                                assert(after[down - 2U].pose.turretDdeg == after[down - 3U].pose.turretDdeg);
+                            }
+                        }
+                        assert(after[down + 1U].type == MECHANISM_ACTION_GRIPPER && after[down + 1U].value == 1U);
+                        if (!coarse || item < 2U) {
+                            assert(after[down + 2U].pose.horizontalDmm == changed[ring].horizontalDmm);
+                            assert(after[down + 2U].pose.liftDmm == 0U);
+                        }
+                    }
                 }
             }
         memcpy(missionRingPoses, original, sizeof(original));
@@ -89,6 +162,17 @@ int main(void)
             assert(pose->horizontalDmm == changed[orders[order][item] - 1U].horizontalDmm);
             assert(pose->turretDdeg == changed[orders[order][item] - 1U].turretDdeg);
             assert(pose->liftDmm == 1250U);
+            {
+                const MechanismPose *raised = &after[6U + item * 11U].pose;
+                const MechanismPose *turn = &after[7U + item * 11U].pose;
+                const MechanismPose *tray = &after[8U + item * 11U].pose;
+                assert(raised->horizontalDmm == pose->horizontalDmm && raised->liftDmm == 0U);
+                assert(raised->turretDdeg == pose->turretDdeg);
+                assert(turn->liftDmm == 0U && turn->turretDdeg == 1350U);
+                assert(turn->horizontalDmm == (orders[order][item] == 1U ? -450 : pose->horizontalDmm));
+                assert(tray->horizontalDmm == -450 && tray->liftDmm == 0U && tray->turretDdeg == 1350U);
+            }
+            assert(after[9U + item * 11U].pose.liftDmm == 200U);
         }
     }
     for (layer = 1U; layer <= 2U; ++layer) {
@@ -97,6 +181,61 @@ int main(void)
         memcpy(missionRingPoses, changed, sizeof(changed));
         missionBuildStoragePlace(after, layer);
         checkUnchanged(before, after, MISSION_PLACE_COUNT);
+        for (item = 0U; item < 3U; ++item) {
+            assert(after[land[item]].pose.liftDmm == (layer == 2U ? 600U : 1270U));
+            assert(after[land[item] - 1U].pose.horizontalDmm == (layer == 2U || item == 1U ?
+                   after[land[item]].pose.horizontalDmm : after[land[item] - 2U].pose.horizontalDmm));
+            assert(after[land[item] - 1U].pose.liftDmm == 0U);
+            if (layer == 2U && item == 2U) {
+                assert(after[26].pose.turretDdeg == after[25].pose.turretDdeg);
+                assert(after[26].pose.horizontalDmm == after[25].pose.horizontalDmm);
+            }
+            assert(after[land[item] + 2U].pose.horizontalDmm == after[land[item]].pose.horizontalDmm);
+            assert(after[land[item] + 2U].pose.liftDmm == 0U);
+        }
+    }
+    placementHeights = (PlacementHeights){1280U, 590U, 180U, 210U};
+    for (order = 0U; order < 6U; ++order) {
+        for (layer = 1U; layer <= 2U; ++layer) {
+            for (coarse = 0U; coarse < 2U; ++coarse) {
+                missionBuildTaskPlace(after, orders[order], layer, coarse);
+                for (item = 0U; item < 3U; ++item) {
+                    assert(after[land[item] - 1U].pose.liftDmm == (layer == 2U ? 590U : 1280U));
+                    assert(after[(item == 0U ? 4U : item == 1U ? 13U : 22U) - 1U].pose.liftDmm == 300U);
+                }
+            }
+            missionBuildStoragePlace(after, layer);
+            for (item = 0U; item < 3U; ++item)
+                assert(after[land[item]].pose.liftDmm == (layer == 2U ? 590U : 1280U));
+        }
+        missionBuildTaskPickBack(after, orders[order], -450);
+        for (item = 0U; item < 3U; ++item) {
+            assert(after[4U + item * 11U].pose.liftDmm == 1250U);
+            assert(after[9U + item * 11U].pose.liftDmm == 210U);
+        }
+    }
+    for (item = 1U; item <= 3U; ++item) {
+        for (layer = 1U; layer <= 3U; ++layer) {
+            assert(rawPickActionsForPosition(after, item, layer));
+            assert(after[2].pose.liftDmm == 530U && after[7].pose.liftDmm == 180U);
+            assert(after[4].pose.liftDmm == 0U && after[10].pose.liftDmm == 0U);
+            if (layer == 2U) {
+                assert(after[2].pose.turretDdeg == 2903U && after[4].pose.turretDdeg == 2903U);
+                assert(after[2].pose.horizontalDmm == 750 && after[4].pose.horizontalDmm == 750);
+            }
+        }
+    }
+    {
+        const RingPose pickup[3]={{-870,2721},{640,2911},{720,2541}};
+        applyPickupPoses(pickup);
+        for(item=1U;item<=3U;++item) {
+            assert(rawPickActionsForPosition(after,1U,item));
+            assert(after[2].pose.horizontalDmm==pickup[item-1U].horizontalDmm);
+            assert(after[4].pose.turretDdeg==pickup[item-1U].turretDdeg);
+            assert(after[2].pose.liftDmm==530U && after[4].pose.liftDmm==0U);
+        }
+        rawPickActionsForSlot(after,1U);
+        assert(after[2].pose.horizontalDmm==pickup[0].horizontalDmm);
     }
     return 0;
 }

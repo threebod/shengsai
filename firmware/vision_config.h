@@ -11,12 +11,19 @@ static VisionCalibration visionMaterialCalibration = {
      -VISION_MATERIAL_RIGHT_MILLI / 1000.0f}
 };
 
+/* Stacking remains in the material camera's 320x240 coordinates. */
+static VisionCalibration visionStackCalibration = {
+    0U, {0, 0, 320, 240}, 160, 120,
+    {-VISION_RING2_FORWARD_MILLI / 500.0f, 0.0f, 0.0f,
+     -VISION_RING2_RIGHT_MILLI / 500.0f}
+};
+
 static VisionCalibration visionRingCalibration[3] = {
-    {0U, {0, 0, 320, 240}, 160, 120, {0.0f, 0.0f, 0.0f, 0.0f}},
-    {0U, {0, 0, 320, 240}, 160, 120,
+    {0U, {0, 0, 640, 480}, 320, 240, {0.0f, 0.0f, 0.0f, 0.0f}},
+    {0U, {0, 0, 640, 480}, 320, 240,
      {-VISION_RING2_FORWARD_MILLI / 1000.0f, 0.0f, 0.0f,
       -VISION_RING2_RIGHT_MILLI / 1000.0f}},
-    {0U, {0, 0, 320, 240}, 160, 120, {0.0f, 0.0f, 0.0f, 0.0f}}
+    {0U, {0, 0, 640, 480}, 320, 240, {0.0f, 0.0f, 0.0f, 0.0f}}
 };
 
 #endif

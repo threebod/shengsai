@@ -22,10 +22,8 @@ static HostCached hostCache[16];static uint8_t hostCacheIndex;
 
 #include "obstacle_turret.h"
 
-static void hostSend(const SsFrame *f) {
-    uint8_t bytes[SS_MAX_FRAME];unsigned i,n=ss_encode(f,bytes);
-    for(i=0;i<n;++i) { while(USART_GetFlagStatus(UART5,USART_FLAG_TXE)==RESET) {} USART_SendData(UART5,bytes[i]); }
-}
+#define HOST_TX_BARRIER() __DMB()
+#include "host_tx.h"
 static void hostLogChar(char c) {
     SsFrame f;
     if(c=='\r') return;
@@ -35,7 +33,8 @@ static void hostLogChar(char c) {
                (hostLogLength>=12 && memcmp(hostLog,"VISION ERROR",12)==0) ||
                (hostLogLength>=12 && memcmp(hostLog,"BUTTON ERROR",12)==0)) { hostError=1;hostOperationFailed=1; }
             f.flags=SS_EVENT;f.command=SS_LOG;f.sequence=0;f.length=hostLogLength;
-            memcpy(f.data,hostLog,hostLogLength);hostSend(&f);hostLogLength=0;
+            taskLogAppend(&taskLog,hostLog,hostLogLength);
+            memcpy(f.data,hostLog,hostLogLength);hostSendOptional(&f);hostLogLength=0;
         }
     }
     if(c!='\n') hostLog[hostLogLength++]=(uint8_t)c;
@@ -48,6 +47,9 @@ static void hostApplyScale(void) {
     visionRingCalibration[1].matrix[0]=-scaleForward/1000.0f;
     visionRingCalibration[1].matrix[3]=-scaleRight/1000.0f;
     visionRingCalibration[1].calibrated=1;
+    visionStackCalibration.matrix[0]=-scaleForward/500.0f;
+    visionStackCalibration.matrix[3]=-scaleRight/500.0f;
+    visionStackCalibration.calibrated=1;
 }
 static void hostScaleInit(void) { scaleSaved=scaleLoad(&scaleForward,&scaleRight);hostApplyScale(); }
 static void hostSnapshot(SsFrame *r) {
@@ -66,7 +68,8 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
     if(q->command==SS_HELLO) {
         if(q->length!=4) {r->data[0]=1;return;}
         if(hostSession!=ss_get32(q->data)) {
-            if(axis6TestActive()) {
+            lidarSetEnabled(0U,0U);
+            if(axis6TestActive() || lateralTestActive || placementTestActive || hostStartPending==SS_PLACEMENT_TEST) {
                 hostCancelled=hostOperationFailed=1;stopServoMotion();stopAllMotors();
             }
             memset(hostCache,0,sizeof(hostCache));hostConfirmed=0;hostSession=ss_get32(q->data);
@@ -74,10 +77,19 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
         r->length=4;r->data[1]=1;r->data[2]=SS_ROUTE_REVISION;r->data[3]=1;return;
     }
     if(q->command==SS_STATUS && !q->length) {hostSnapshot(r);return;}
+    if(q->command==SS_GET_LOG) {taskLogRead(&taskLog,q,r);return;}
     if(q->command==SS_HEARTBEAT && !q->length) {hostHeartbeatActive=1;hostHeartbeatStamp=clockMs;return;}
+    if(q->command==SS_LIDAR_CONTROL) {
+        if(q->length!=3 || q->data[0]>1U || (q->data[0] && !ss_get16(q->data+1))) {r->data[0]=1;return;}
+        if(q->data[0] && (hostEStop || emergencyStop)) {r->data[0]=3;return;}
+        if(!lidarSetEnabled(q->data[0],ss_get16(q->data+1))) {r->data[0]=4;return;}
+        if(q->data[0]) {hostHeartbeatActive=1U;hostHeartbeatStamp=clockMs;}
+        r->length=4;r->data[1]=q->data[0];ss_put16(r->data+2,ss_get16(q->data+1));return;
+    }
     if((q->command==SS_STOP || q->command==SS_ESTOP) && !q->length) {
         hostCancelled=hostOperationFailed=1;
         stopServoMotion();stopAllMotors();hostDriveActive=0;
+        lidarSetEnabled(0U,0U);
         if(q->command==SS_ESTOP) {hostEStop=1;hostConfirmed=0;}
         return;
     }
@@ -93,8 +105,23 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
         r->length=14;r->data[1]=ringPosesSaved;
         for(i=0;i<3;++i) {ss_put16(r->data+2+i*4,(uint16_t)missionRingPoses[i].horizontalDmm);ss_put16(r->data+4+i*4,missionRingPoses[i].turretDdeg);}return;
     }
+    if(q->command==SS_GET_PICKUP && !q->length) {
+        r->length=14;r->data[1]=pickupPosesSaved;
+        for(i=0;i<3;++i) {
+            const MechanismPose *pose=i==0?&rawPickLowerPose:&rawPickUpperPoses[i-1];
+            ss_put16(r->data+2+i*4,(uint16_t)pose->horizontalDmm);
+            ss_put16(r->data+4+i*4,pose->turretDdeg);
+        }return;
+    }
     if(q->command==SS_GET_SCALE && !q->length) {
         r->length=6;r->data[1]=scaleSaved;ss_put16(r->data+2,scaleForward);ss_put16(r->data+4,scaleRight);return;
+    }
+    if(q->command==SS_GET_HEIGHTS && !q->length) {
+        r->length=10;r->data[1]=placementHeightsSaved;
+        ss_put16(r->data+2,placementHeights.firstLayerDmm);
+        ss_put16(r->data+4,placementHeights.secondLayerDmm);
+        ss_put16(r->data+6,placementHeights.rawTrayDmm);
+        ss_put16(r->data+8,placementHeights.returnTrayDmm);return;
     }
     if(hostBusy() && !(q->command==SS_DRIVE && hostDriveActive) &&
        !(q->command==SS_SERVO && !hostStartPending && !obstacleTurretPending &&
@@ -102,6 +129,32 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
          !mechanismActionActive && !visionSessionActive())) {r->data[0]=2;return;}
     hostError=hostCancelled=0;command[0]=0;
     switch(q->command) {
+    case SS_SET_PICKUP:
+        if(q->length!=12) break;
+        if(hostEStop || emergencyStop) {r->data[0]=3;return;}
+        {
+            RingPose poses[3];
+            for(i=0;i<3;++i) {
+                poses[i].horizontalDmm=(int16_t)ss_get16(q->data+i*4);
+                poses[i].turretDdeg=ss_get16(q->data+2+i*4);
+            }
+            if(!ringPosesValid(poses)) break;
+            if(!poseSettingsSave(poses,RAW_PICK_RECORD)) {r->data[0]=4;return;}
+            applyPickupPoses(poses);pickupPosesSaved=1U;return;
+        }
+    case SS_SET_HEIGHTS:
+        if(q->length!=8) break;
+        if(hostEStop) {r->data[0]=3;return;}
+        {
+            PlacementHeights heights;
+            heights.firstLayerDmm=ss_get16(q->data);
+            heights.secondLayerDmm=ss_get16(q->data+2);
+            heights.rawTrayDmm=ss_get16(q->data+4);
+            heights.returnTrayDmm=ss_get16(q->data+6);
+            if(!placementHeightsValid(&heights)) break;
+            if(!placementHeightsSave(&heights)) {r->data[0]=4;return;}
+            placementHeights=heights;placementHeightsSaved=1U;return;
+        }
     case SS_SET_RINGS:
         if(q->length!=12) break;
         sprintf(command,"ring poses %d %u %d %u %d %u",(int16_t)ss_get16(q->data),ss_get16(q->data+2),(int16_t)ss_get16(q->data+4),ss_get16(q->data+6),(int16_t)ss_get16(q->data+8),ss_get16(q->data+10));break;
@@ -126,6 +179,24 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
         if(!hostDriveActive) {invalidateNavigation("manual_drive");setAllMotorsEnabled(true);}
         hostDriveActive=1;hostDriveAt=clockMs;motionMode=8;
         sendRouteSpeeds(q->data[0]==1?30:-30,0,0);return;
+    case SS_LATERAL_TEST:
+        if(q->length!=2) break;
+        {
+            int16_t distance=(int16_t)ss_get16(q->data);
+            if(abs(distance)<SS_LATERAL_TEST_MIN_MM || abs(distance)>SS_LATERAL_TEST_MAX_MM) break;
+            if(!startLateralTest(distance)) {r->data[0]=4;return;}
+            r->length=3;ss_put16(r->data+1,routeRpm<routeLateralRpmLimit?routeRpm:routeLateralRpmLimit);
+            return;
+        }
+    case SS_PLACEMENT_TEST:
+        if(!ss_placement_test_valid(q->data,q->length)) break;
+        if(!mechanismState.valid || mechanismState.current.horizontalDmm!=0 ||
+           mechanismState.current.liftDmm!=0U) {r->data[0]=6;return;}
+        if(!imuValid || clockMs-imuStamp>250U || !prepareObstacleTurret()) {r->data[0]=4;return;}
+        routeObstacleRegions=ss_get16(q->data);
+        hostHeartbeatActive=1;hostHeartbeatStamp=clockMs;
+        hostStartPending=SS_PLACEMENT_TEST;hostStartZone=2;hostStartRpm=100;
+        return;
     case SS_PREPARE: case SS_MISSION: case SS_ROUTE:
         if(!ss_route_request_valid(q->data,q->length)) break;
         a=ss_get16(q->data+3);
@@ -147,7 +218,7 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
                 r->data[0]=4;return;
             }
             hostHeartbeatActive=1;hostHeartbeatStamp=clockMs;
-            serialSendString("AXIS6 TEST START delta_dmm=50 rpm=30 accel=50\r\n");return;
+            return;
         }
         if(q->data[0]==0) {
             rawPickActionsForSlot(rawPickRouteActions,1);
@@ -155,8 +226,8 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
         }
         if(q->data[0]==1 || q->data[0]==2) {
             const uint8_t rings[3]={1,2,3};
-            missionBuildTaskPlace(missionWorkActions,rings,1,q->data[0]==1);
-            if(!mechanismActionStart(q->data[0]==1?&missionCoarseInitial:&missionInitial,missionWorkActions,q->data[0]==1?MISSION_COARSE_PLACE_COUNT:MISSION_PLACE_COUNT)) r->data[0]=2;
+            uint16_t count=missionBuildTaskPlace(missionWorkActions,rings,1,q->data[0]==1);
+            if(!mechanismActionStart(q->data[0]==1?&missionCoarseInitial:&missionInitial,missionWorkActions,count)) r->data[0]=2;
             return;
         }
         break;
@@ -174,44 +245,5 @@ static void hostExecute(const SsFrame *q,SsFrame *r) {
     armed=1;hostExecuting=1;processCommand(command);hostExecuting=0;
     if(hostError || jogCanFault) r->data[0]=4;
 }
-static void hostService(void) {
-    static uint8_t operationActive,operationSequence,operationCommand;
-    SsFrame q,r;unsigned i;
-    if(hostOverflow) {
-        hostOperationFailed=1;
-        __disable_irq();hostTail=hostHead;hostOverflow=0;__enable_irq();hostParser.count=0;
-        stopServoMotion();stopAllMotors();hostDriveActive=0;
-    }
-    if(hostDriveActive && (!motionMode || clockMs-hostDriveAt>300)) {
-        hostOperationFailed=1;
-        stopServoMotion();stopAllMotors();hostDriveActive=0;
-    }
-    while(hostTail!=hostHead) {
-        uint8_t b=hostRx[hostTail];hostTail=(uint16_t)((hostTail+1)%sizeof(hostRx));
-        if(!ss_feed(&hostParser,b,&q) || q.flags!=SS_REQUEST) continue;
-        for(i=0;i<16;++i) if(q.command!=SS_STOP && q.command!=SS_ESTOP && hostCache[i].valid &&
-            clockMs-hostCache[i].at<=10000 && hostCache[i].request.sequence==q.sequence &&
-            hostCache[i].request.command==q.command && hostCache[i].request.length==q.length &&
-            !memcmp(hostCache[i].request.data,q.data,q.length)) break;
-        if(i<16) {hostSend(&hostCache[i].response);continue;}
-        hostExecute(&q,&r);if(r.data[0]) r.flags|=SS_ERROR;
-        if(q.command!=SS_HEARTBEAT && q.command!=SS_STATUS && q.command!=SS_STOP && q.command!=SS_ESTOP) {
-            hostCache[hostCacheIndex].request=q;hostCache[hostCacheIndex].response=r;
-            hostCache[hostCacheIndex].valid=1;hostCache[hostCacheIndex].at=clockMs;
-            hostCacheIndex=(uint8_t)((hostCacheIndex+1)%16);
-        }
-        hostSend(&r);
-        if(!r.data[0] && q.command>=SS_SERVO && q.command<=SS_ALIGN && hostBusy()) {
-            hostOperationFailed=0;operationActive=1;operationSequence=q.sequence;operationCommand=q.command;
-        }
-    }
-    serviceObstacleHostStart();
-    if(clockMs-hostStateAt>=200) {
-        hostStateAt=clockMs;r.flags=SS_EVENT;r.sequence=0;r.command=SS_STATE;r.data[0]=0;hostSnapshot(&r);hostSend(&r);
-    }
-    if(operationActive && !hostBusy()) {
-        r.flags=SS_EVENT;r.sequence=operationSequence;r.command=operationCommand;r.length=1;
-        r.data[0]=(hostEStop||hostOperationFailed||hostCancelled||jogCanFault)?4:0;hostSend(&r);operationActive=0;
-    }
-}
+#include "host_service.h"
 #endif

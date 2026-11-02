@@ -1,3 +1,6 @@
+#ifdef NDEBUG
+#undef NDEBUG
+#endif
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -29,8 +32,21 @@ static int FLASH_ProgramWord(uintptr_t addr,uint32_t v){
     assert(*p==0xffffffff);*p&=v;++writes;return 0;
 }
 #include "../firmware/scale_store.h"
+static void legacyRecord(uint16_t f,uint16_t r) {
+    uint8_t bytes[8];memset(words,255,sizeof(words));
+    words[0]=0x56534301UL;words[1]=f|((uint32_t)r<<16);
+    ss_put32(bytes,words[0]);ss_put32(bytes+4,words[1]);
+    words[2]=ss_crc(bytes,8);words[3]=~words[0];
+}
 int main(void){
     uint16_t f=1111,r=1143;unsigned before;
+    legacyRecord(1111,1143);before=writes;
+    assert(scaleLoad(&f,&r) && f==556 && r==572 && writes==before);
+    assert(scaleLoad(&f,&r) && f==556 && r==572 && writes==before);
+    assert(scaleSave(600,650) && words[4]==0x56534302UL);
+    assert(scaleLoad(&f,&r) && f==600 && r==650);
+    legacyRecord(50,2000);assert(scaleLoad(&f,&r) && f==25 && r==1000);
+    words[2]^=1;assert(!scaleLoad(&f,&r));
     memset(words,255,sizeof(words));assert(!scaleLoad(&f,&r));
     assert(!scaleSave(0,1000));assert(scaleSave(1111,1143) && locked);before=writes;
     assert(scaleSave(1111,1143) && writes==before);

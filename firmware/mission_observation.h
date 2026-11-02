@@ -45,17 +45,20 @@ static void serviceMissionObservation(const RouteLeg *leg, float remaining,
                                       uint16_t cruiseRpm, uint8_t lateral)
 {
     const MechanismPose *target;
-    uint8_t task;
+    uint8_t task, coarseCentre;
     float scale;
     if (!missionActive || !presetRouteActive || !routeActive || routeWaiting ||
         routeRotating || missionArcActive || motionMode || !leg->event ||
         presetRoute.index >= presetRoute.count || presetRoute.legs[presetRoute.index].arc)
         return;
     task = presetRoute.legs[presetRoute.index].taskIndex;
+    coarseCentre = (uint8_t)((task == 6U || task == 13U) &&
+                             leg->upMm < 0 && !leg->rightMm && leg->heading == -1);
+    /* RAW return may unfold on its last straight before the station heading turn. */
     target = missionObservationPose(task);
     if (!target || missionObservationTask ||
         (leg->departureHeading != 4 && leg->departureHeading != routeHeading) ||
-        (leg->heading != 4 && leg->heading != routeHeading)) return;
+        (!coarseCentre && task != 10U && leg->heading != 4 && leg->heading != routeHeading)) return;
     if (!imuValid || clockMs - imuStamp > 250U || motionInterrupted() || hostEStop) {
         missionAbort("observation_fault");
         return;
@@ -65,12 +68,12 @@ static void serviceMissionObservation(const RouteLeg *leg, float remaining,
         servoChannelMoving[0] || servoChannelMoving[1] || servoChannelMoving[2]) return;
     if (mechanismState.current.liftDmm != 0U) return;
     if (mechanismState.current.horizontalDmm != 0 ||
-        (mechanismState.current.turretDdeg != 530U &&
-         mechanismState.current.turretDdeg != 2600U)) {
+        (mechanismState.current.turretDdeg != 680U &&
+         mechanismState.current.turretDdeg != 2750U)) {
         /* Coarse recovery's existing raised tray pose is also a legal departure. */
         if (!((task == 8U || task == 15U) &&
               mechanismState.current.horizontalDmm == (task == 15U ? -470 : -450) &&
-              mechanismState.current.turretDdeg == 1200U)) return;
+              mechanismState.current.turretDdeg == 1350U)) return;
     }
     scale = lateral ? routeLateralScale : routeForwardScale;
     if (remaining > missionObservationLeadDistance(missionObservationLeadMs(target),
@@ -78,9 +81,6 @@ static void serviceMissionObservation(const RouteLeg *leg, float remaining,
     missionObservationTask = task;
     startMechanismPose(target);
     if (!mechanismState.running) { missionAbort("observation_start_failed"); return; }
-    serialSendString("ROUTE CAMERA PREP task="); serialSendUint(task);
-    serialSendString(" remaining_mm="); serialSendUint((uint16_t)remaining);
-    serialSendString("\r\n");
 }
 
 /* 0: normal station preparation, 1: still moving, 2: prepared, -1: aborted. */

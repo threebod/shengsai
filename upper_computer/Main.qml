@@ -8,7 +8,9 @@ ApplicationWindow {
     visible: true; title: "省赛控制台"; color: "#F5F5F7"
     property int page: 0
     property string logText: ""
+    property bool pickupDirty: false
     property bool ringsDirty: false
+    property bool heightsDirty: false
     property bool scaleDirty: false
     property int obstacleMask: 0
     readonly property int obstacleCount: {
@@ -24,8 +26,8 @@ ApplicationWindow {
     readonly property bool mobile: width - SafeArea.margins.left - SafeArea.margins.right < 760 || (Qt.platform.os === "android" && height < 500)
     readonly property int pageSpacing: mobile ? 14 : 20
     readonly property color blue: "#007AFF"
-    readonly property bool motionReady: controller.connected && controller.confirmed && !controller.calibrating && !controller.axis6Testing
-    readonly property var pageNames: ["比赛", "圆环", "视觉", "手动"]
+    readonly property bool motionReady: controller.connected && controller.confirmed && !controller.calibrating && !controller.axis6Testing && !controller.lateralTesting && !controller.placementTesting
+    readonly property var pageNames: ["比赛", "圆环", "视觉", "手动", "雷达"]
     font.family: Qt.platform.os === "windows" ? "Microsoft YaHei UI" : "sans-serif"
     font.pixelSize: 14
     palette.window: "#F5F5F7"
@@ -36,7 +38,11 @@ ApplicationWindow {
     palette.highlight: "#007AFF"
     onActiveChanged: if (!active) controller.pauseManual()
     onClosing: controller.pauseManual()
-    Connections { target: controller; function onLineReceived(line) { app.logText=(app.logText+line+"\n").slice(-20000) } }
+    Connections {
+        target: controller
+        function onLineReceived(line) { app.logText=(app.logText+line+"\n").slice(-40000) }
+        function onTaskLogReceived(text) { app.logText=text }
+    }
 
     component ActionButton: Button {
         id: ab
@@ -192,7 +198,7 @@ ApplicationWindow {
                             Label { text: "启停区"; color: "#656570" }
                             Choice { id: zone; model: ["1号启停区", "2号启停区"] }
                             Label { text: "障碍位置"; color: "#656570" }
-                            Hint { objectName: "obstacleSelectionHint"; text: "请选择两个不同区域 · 已选 " + app.obstacleCount + "/2；再次点击可取消" }
+                            Hint { objectName: "obstacleSelectionHint"; text: "可选0～2个区域 · 已选 " + app.obstacleCount + "/2；再次点击可取消" }
                             Item {
                                 id: obstacleMap; objectName: "obstacleMap"
                                 Layout.fillWidth: true; implicitHeight: Math.max(width, 320)
@@ -251,15 +257,25 @@ ApplicationWindow {
                             heading: "当前任务"; Layout.alignment: Qt.AlignTop
                             Label { text: controller.task; color: app.blue; font.pixelSize: 20; wrapMode: Text.Wrap; Layout.fillWidth: true }
                             Hint { text: "扫码 → 取料 → 粗加工 → 暂存 · 共两轮" }
-                            ActionButton { objectName: "missionStartButton"; text: "开始比赛"; primary: true; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy && app.obstacleCount === 2; onClicked: controller.run(1, zone.currentIndex + 1, app.obstacleMask) }
-                            ActionButton { objectName: "missionPrepareButton"; text: "离线按钮启动准备"; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy && app.obstacleCount === 2; onClicked: controller.run(0, zone.currentIndex + 1, app.obstacleMask) }
+                            ActionButton { objectName: "missionStartButton"; text: "开始比赛"; primary: true; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy && app.obstacleCount <= 2; onClicked: controller.run(1, zone.currentIndex + 1, app.obstacleMask) }
+                            ActionButton { objectName: "missionPrepareButton"; text: "离线按钮启动准备"; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy && app.obstacleCount <= 2; onClicked: controller.run(0, zone.currentIndex + 1, app.obstacleMask) }
                             Hint { text: "离线准备后，PC9 短按选择启停区1，长按选择启停区2。" }
+                        }
+                        Card {
+                            objectName: "placementTestCard"; heading: "第一层对齐放置实测 · 启停区2"
+                            Layout.columnSpan: app.mobile ? 1 : 2
+                            Hint { text: "预装托盘1/2/3格物料，固定放入1/2/3号圆环。车体在启停区2沿参考线摆正，机构回零后确认安全条件。" }
+                            Hint { text: "100RPM进站→加工区对齐、放置、回收→暂存区对齐、第一层放置并收回，随后结束。沿用上方障碍选区，不扫码或取料。" }
+                            Hint { text: "相对路线目标±0.5°内稳定200ms才放置；转正后重新对齐，动作中超差停止。读取PIX/STATION日志并人工测量实物偏差。" }
+                            ActionButton { objectName: "placementTestStartButton"; text: "从启停区2开始实测"; primary: true; Layout.fillWidth: true; enabled: app.motionReady && controller.mechanismValid && !controller.busy && app.obstacleCount <= 2; onClicked: controller.testPlacement(app.obstacleMask) }
+                            ActionButton { objectName: "placementTestStopButton"; text: "停止实测"; Layout.fillWidth: true; enabled: controller.connected && controller.placementTesting; onClicked: controller.stop() }
+                            Hint { text: controller.placementTestState }
                         }
                         Card {
                             heading: "单项执行"; Layout.columnSpan: app.mobile ? 1 : 2
                             Flow {
                                 Layout.fillWidth: true; spacing: 10
-                                ActionButton { objectName: "routeStartButton"; text: "仅跑图"; enabled: app.motionReady && !controller.busy && app.obstacleCount === 2; onClicked: controller.run(2, zone.currentIndex+1, app.obstacleMask) }
+                                ActionButton { objectName: "routeStartButton"; text: "仅跑图"; enabled: app.motionReady && !controller.busy && app.obstacleCount <= 2; onClicked: controller.run(2, zone.currentIndex+1, app.obstacleMask) }
                                 ActionButton { text: "取料动作组"; enabled: app.motionReady && !controller.busy; onClicked: controller.runAction(0) }
                                 ActionButton { text: "粗加工动作组"; enabled: app.motionReady && !controller.busy; onClicked: controller.runAction(1) }
                                 ActionButton { text: "暂存动作组"; enabled: app.motionReady && !controller.busy; onClicked: controller.runAction(2) }
@@ -313,6 +329,102 @@ ApplicationWindow {
                                 }
                             }
                         }
+                        GridLayout {
+                        uniformCellWidths: true
+                            columns: app.mobile ? 1 : 3; Layout.fillWidth: true; columnSpacing: 16; rowSpacing: 16
+                            Repeater {
+                                id: pickupRepeater; model: 3
+                                delegate: Card {
+                                    required property int index
+                                    property alias horizontal: pickupH.number
+                                    property alias turret: pickupT.number
+                                    readonly property bool valid: pickupH.valid && pickupT.valid
+                                    heading: ["取料区 · 下方", "取料区 · 左上", "取料区 · 右上"][index]
+                                    Label { text: "水平位置 mm"; color: "#656570" }
+                                    NumberField { id: pickupH; minimum: -122; maximum: 85; enabled: controller.pickupRead && !controller.busy && !controller.parametersPending; placeholderText: "待读取"; onTextEdited: app.pickupDirty=true }
+                                    Label { text: "云台角度 °"; color: "#656570" }
+                                    NumberField { id: pickupT; minimum: 0; maximum: 360; enabled: controller.pickupRead && !controller.busy && !controller.parametersPending; placeholderText: "待读取"; onTextEdited: app.pickupDirty=true }
+                                    Connections {
+                                        target: controller
+                                        function onRequestAccepted(command) {
+                                            if(command === 24 && controller.pickup.length === 3) {
+                                                pickupH.text = controller.pickup[index].horizontal.toFixed(1)
+                                                pickupT.text = controller.pickup[index].turret.toFixed(1)
+                                                app.pickupDirty=false
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        Card {
+                            heading: "取料区参数状态"
+                            Hint { text: app.pickupDirty ? "参数已修改，待固化" : controller.pickupState }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ActionButton { objectName: "pickupReadButton"; text: "读取取料区"; Layout.fillWidth: true; enabled: controller.connected && !controller.busy && !controller.parametersPending; onClicked: {app.pickupDirty=false;controller.readPickup()} }
+                                ActionButton {
+                                    objectName: "pickupSaveButton"; text: "固化取料区参数"; primary: true; Layout.fillWidth: true; enabled: controller.connected && controller.pickupRead && !controller.busy && !controller.parametersPending
+                                    onClicked: {
+                                        let values=[]
+                                        for(let i=0;i<3;i++) {let item=pickupRepeater.itemAt(i); if(!item.valid) return;values.push({horizontal:item.horizontal,turret:item.turret})}
+                                        app.pickupDirty=false;controller.savePickup(values)
+                                    }
+                                }
+                            }
+                        }
+                        Card {
+                            objectName: "placementHeightsCard"
+                            heading: "放置深度"
+                            Hint { text: "从升降零位向下的深度，数值越大越往下。先读取，再修改并固化；保存不会驱动机构。" }
+                            GridLayout {
+                                columns: app.mobile ? 1 : 2; Layout.fillWidth: true; columnSpacing: 16; rowSpacing: 12
+                                Repeater {
+                                    id: heightsRepeater
+                                    model: ["一层放置 mm", "二层放置 mm", "原料落盘 mm", "回收落盘 mm"]
+                                    delegate: ColumnLayout {
+                                        required property int index
+                                        required property string modelData
+                                        property alias depth: heightField.number
+                                        readonly property bool valid: heightField.valid
+                                        Layout.fillWidth: true
+                                        Label { text: modelData; color: "#656570" }
+                                        NumberField {
+                                            id: heightField; minimum: 0; maximum: 150; placeholderText: "待读取"
+                                            enabled: controller.heightsRead && !controller.busy && !controller.parametersPending
+                                            onTextEdited: app.heightsDirty=true
+                                        }
+                                        Connections {
+                                            target: controller
+                                            function onRequestAccepted(command) {
+                                                if(command === 21 && controller.placementHeights.length === 4) {
+                                                    heightField.text=controller.placementHeights[index].toFixed(1)
+                                                    app.heightsDirty=false
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Hint { text: app.heightsDirty ? "深度已修改，待固化" : controller.heightsState }
+                            RowLayout {
+                                Layout.fillWidth: true
+                                ActionButton {
+                                    objectName: "heightsReadButton"; text: "读取放置深度"; Layout.fillWidth: true
+                                    enabled: controller.connected && !controller.busy && !controller.parametersPending
+                                    onClicked: { app.heightsDirty=false; controller.readHeights() }
+                                }
+                                ActionButton {
+                                    objectName: "heightsSaveButton"; text: "固化放置深度"; primary: true; Layout.fillWidth: true
+                                    enabled: controller.connected && controller.heightsRead && !controller.busy && !controller.parametersPending
+                                    onClicked: {
+                                        let values=[]
+                                        for(let i=0;i<4;i++) { let item=heightsRepeater.itemAt(i); if(!item.valid) return; values.push(item.depth) }
+                                        app.heightsDirty=false; controller.saveHeights(values)
+                                    }
+                                }
+                            }
+                        }
                     }
                     GridLayout {
                         uniformCellWidths: true
@@ -327,10 +439,10 @@ ApplicationWindow {
                         }
                         Card {
                             heading: "视觉比例"; Layout.alignment: Qt.AlignTop
-                            Label { text: "前后 mm/像素"; color: "#656570" }
-                            NumberField { id: scaleF; minimum: 0.05; maximum: 2; decimals: 3; text: "1.111"; enabled: !controller.busy && !controller.calibrating && !controller.parametersPending; onTextEdited: app.scaleDirty=true }
-                            Label { text: "左右 mm/像素"; color: "#656570" }
-                            NumberField { id: scaleR; minimum: 0.05; maximum: 2; decimals: 3; text: "1.143"; enabled: !controller.busy && !controller.calibrating && !controller.parametersPending; onTextEdited: app.scaleDirty=true }
+                            Label { text: "前后 mm/实际像素"; color: "#656570" }
+                            NumberField { id: scaleF; minimum: 0.025; maximum: 2; decimals: 3; text: "0.556"; enabled: !controller.busy && !controller.calibrating && !controller.parametersPending; onTextEdited: app.scaleDirty=true }
+                            Label { text: "左右 mm/实际像素"; color: "#656570" }
+                            NumberField { id: scaleR; minimum: 0.025; maximum: 2; decimals: 3; text: "0.572"; enabled: !controller.busy && !controller.calibrating && !controller.parametersPending; onTextEdited: app.scaleDirty=true }
                             Hint { text: app.scaleDirty ? "比例已修改，待应用或保存" : controller.scaleState }
                             RowLayout {
                                 Layout.fillWidth: true
@@ -399,14 +511,37 @@ ApplicationWindow {
                                 ActionButton { text: "按住后退"; primary: true; Layout.fillWidth: true; enabled: app.motionReady; onPressed: controller.drive(-1); onReleased: controller.stop(); onCanceled: controller.stop() }
                                 Hint { text: "松开、切换页面或窗口失焦即停；主控另有点动指令超时保护。" }
                             }
+                            Card {
+                                objectName: "lateralTestCard"; heading: "左右横移测距"
+                                Hint { text: "测试距离（mm）" }
+                                NumberField { id: lateralDistance; objectName: "lateralTestDistance"; minimum: 100; maximum: 2000; decimals: 0; text: "1000"; enabled: !controller.lateralTesting }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    ActionButton { objectName: "lateralLeftButton"; text: "向左测试"; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy && lateralDistance.valid; onClicked: controller.testLateral(-1,lateralDistance.number) }
+                                    ActionButton { objectName: "lateralRightButton"; text: "向右测试"; Layout.fillWidth: true; enabled: app.motionReady && !controller.busy && lateralDistance.valid; onClicked: controller.testLateral(1,lateralDistance.number) }
+                                }
+                                ActionButton { text: "停止横移"; Layout.fillWidth: true; enabled: controller.connected && controller.lateralTesting; onClicked: controller.stop() }
+                                Hint { text: "按车体左右单次移动100～2000mm。沿用正式横移速度（最高150RPM）、加减速、航向保持与横移比例；请用尺测实际距离。" }
+                                Hint { text: "切页、失焦或断连停止；完成表示指令距离估算结束，不是实测到位。" }
+                                Hint { text: controller.lateralTestState }
+                            }
                         }
                     }
+                }
+                RadarView {
+                    objectName: "radarPage"; device: controller; visible: app.page === 4
+                    viewportHeight: scroll.availableHeight
+                    Layout.fillWidth: true
+                    Layout.leftMargin: app.mobile ? 14 : 28; Layout.rightMargin: app.mobile ? 14 : 28
                 }
                 Item { height: 12 }
             }
         }
     }
-    onPageChanged: controller.pauseManual()
+    onPageChanged: {
+        controller.pauseManual()
+        if (page === 4) Qt.callLater(() => { scroll.contentItem.contentY = 0 })
+    }
     component SafeDialog: Dialog {
         parent: Overlay.overlay
         readonly property real safeWidth: parent.width - parent.SafeArea.margins.left - parent.SafeArea.margins.right
@@ -441,7 +576,11 @@ ApplicationWindow {
         id: logDialog; objectName: "logDialog"; title: "运行日志"
         width: Math.min(safeWidth-32,800); height: Math.min(safeHeight-32,600)
         standardButtons: Dialog.Close
-        ScrollView { anchors.fill: parent; TextArea { text: app.logText || "尚无主控日志"; readOnly: true; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.family: "monospace"; font.pixelSize: 12 } }
+        contentItem: ColumnLayout {
+            ActionButton { objectName: "taskLogReadButton"; text: controller.logsLoading ? "正在读取…" : "读取上次任务日志"; enabled: controller.connected && !controller.logsLoading; onClicked: controller.readTaskLog() }
+            Hint { text: controller.logsState }
+            ScrollView { Layout.fillWidth: true; Layout.fillHeight: true; TextArea { text: app.logText || "尚无主控日志"; readOnly: true; selectByMouse: true; wrapMode: TextEdit.WrapAnywhere; font.family: "monospace"; font.pixelSize: 12 } }
+        }
     }
     SafeDialog {
         id: safetyDialog; objectName: "safetyDialog"; title: "确认安全条件与物理零点"

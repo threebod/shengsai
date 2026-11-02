@@ -16,11 +16,17 @@ static int require(int condition, const char *message)
 
 int main(void)
 {
-    if (!require(fabsf(visionRingCalibration[1].matrix[0] + 1.111f) < 0.00001f &&
-                 fabsf(visionRingCalibration[1].matrix[3] + 1.143f) < 0.00001f &&
+    if (!require(fabsf(visionRingCalibration[1].matrix[0] + 0.556f) < 0.00001f &&
+                 fabsf(visionRingCalibration[1].matrix[3] + 0.572f) < 0.00001f &&
                  fabsf(visionMaterialCalibration.matrix[0] + 0.667f) < 0.00001f &&
                  fabsf(visionMaterialCalibration.matrix[3] + 0.769f) < 0.00001f,
                  "formal ring 2 defaults or independent material defaults were incorrect")) return 1;
+    if (!require(visionRingCalibration[1].roi[2] == 640 &&
+                 visionRingCalibration[1].roi[3] == 480 &&
+                 visionRingCalibration[1].anchorU == 320 && visionRingCalibration[1].anchorV == 240 &&
+                 visionStackCalibration.roi[2] == 320 && visionStackCalibration.anchorU == 160 &&
+                 fabsf(visionStackCalibration.matrix[0] - 2*visionRingCalibration[1].matrix[0]) < 0.00001f,
+                 "native ring coordinates affected stacking calibration")) return 1;
     VisionPacket request;
     VisionPacket decoded;
     VisionParser parser;
@@ -32,6 +38,58 @@ int main(void)
     float forward;
     float right;
     VisionSession session;
+
+    {
+        VisionPacket native = {0};
+        uint16_t crc;
+        native.type = VISION_MESSAGE_RESULT; native.mode = VISION_MODE_RING;
+        native.target = 2U; native.value[0] = 321; native.value[1] = 241;
+        vision_packet_encode(&native, frame);
+        vision_parser_init(&parser);
+        if (!require(frame[2] == 2U &&
+                     vision_parser_feed(&parser, frame, VISION_FRAME_SIZE, &decoded) &&
+                     decoded.value[0] == 321 && decoded.value[1] == 241,
+                     "native ring frame lost actual pixel coordinates")) return 1;
+        frame[2] = 1U;
+        crc = vision_crc16(frame, 28U);
+        frame[28] = (uint8_t)crc; frame[29] = (uint8_t)(crc >> 8);
+        vision_parser_init(&parser);
+        if (!require(!vision_parser_feed(&parser, frame, VISION_FRAME_SIZE, &decoded),
+                     "legacy ring coordinates were accepted as actual pixels")) return 1;
+    }
+
+    /* Layout first replies get 1000ms, while an established stream keeps its
+     * existing 1800ms communication timeout. Each new token resets the ACK gate. */
+    {
+        VisionSession layout;
+        VisionPacket reply;
+        vision_session_init(&layout);
+        vision_session_start(&layout, VISION_MODE_MATERIAL, 0U, 0U, &calibration, 100U);
+        layout.requestFlags = VISION_FLAG_MATERIAL_LAYOUT;
+        layout.layoutPhase = VISION_LAYOUT_CONFIRM;
+        vision_session_make_request(&layout, &calibration, &request, 100U);
+        if (!require(vision_session_tick(&layout, 1099U) == VISION_EVENT_NONE &&
+                     vision_session_tick(&layout, 1100U) == VISION_EVENT_REQUEST && layout.misses == 1U,
+                     "layout first-frame timeout was not exactly 1000ms")) return 1;
+        vision_session_make_request(&layout, &calibration, &request, 1200U);
+        reply = request; reply.type = VISION_MESSAGE_RESULT;
+        reply.flags = VISION_FLAG_MATERIAL_LAYOUT;
+        reply.token++;
+        vision_layout_observe(&layout, &calibration, &reply, 1300U);
+        if (!require(!layout.layoutFrameReceived && layout.requestAt == 1200U,
+                     "wrong layout token acknowledged a new request")) return 1;
+        reply.token = request.token;
+        vision_layout_observe(&layout, &calibration, &reply, 1300U);
+        if (!require(layout.layoutFrameReceived &&
+                     vision_session_tick(&layout, 3099U) == VISION_EVENT_NONE &&
+                     vision_session_tick(&layout, 3100U) == VISION_EVENT_REQUEST,
+                     "layout stream timeout changed after its first response")) return 1;
+        vision_session_make_request(&layout, &calibration, &request, 3200U);
+        if (!require(!layout.layoutFrameReceived &&
+                     vision_session_tick(&layout, 4199U) == VISION_EVENT_NONE &&
+                     vision_session_tick(&layout, 4200U) == VISION_EVENT_REQUEST,
+                     "layout retry did not reset the first-frame timeout")) return 1;
+    }
 
     vision_map_error(&visionMaterialCalibration, 100, 100, &forward, &right);
     if (!require(fabsf(forward + 66.7f) < 0.0001f && fabsf(right + 76.9f) < 0.0001f,
@@ -103,6 +161,157 @@ int main(void)
             if (index == 1U && !require(layout.forwardMm == 0.0f && layout.rightMm == 0.0f,
                                        "center minus 170 pixels did not produce zero correction")) return 1;
         }
+    }
+
+    /* A real moving result after parking permits the very next stable layout. */
+    for (uint8_t kind = 0U; kind < 5U; ++kind) {
+        VisionSession layout;
+        VisionPacket result;
+        vision_session_init(&layout);
+        vision_session_start(&layout, VISION_MODE_MATERIAL, 0U, 0U, &calibration, 0U);
+        layout.requestFlags = VISION_FLAG_MATERIAL_LAYOUT;
+        layout.materialMask = 13U;
+        layout.iteration = 1U;
+        layout.layoutPhase = VISION_LAYOUT_CONFIRM;
+        vision_session_make_request(&layout, &calibration, &result, 0U);
+        result.type = VISION_MESSAGE_RESULT;
+        result.flags = VISION_FLAG_MATERIAL_LAYOUT | VISION_FLAG_VALID | VISION_FLAG_LAYOUT_MOVING;
+        if (kind == 0U) result.flags &= (uint8_t)~VISION_FLAG_LAYOUT_MOVING;
+        if (kind == 2U) result.flags &= (uint8_t)~VISION_FLAG_VALID;
+        if (kind == 3U) ++result.token;
+        result.value[0] = 160; result.value[1] = 205;
+        result.value[5] = 1; result.value[6] = 4; result.value[7] = 3;
+        if (!require(vision_layout_observe(&layout, &calibration, &result, 1U) == VISION_EVENT_NONE &&
+                     vision_layout_pick_position(&layout, 4U) == VISION_PICK_POSITION_NONE,
+                     "moving layout authorized a grasp")) return 1;
+        if (kind == 3U) --result.token;
+        result.flags = VISION_FLAG_MATERIAL_LAYOUT | VISION_FLAG_VALID | VISION_FLAG_STABLE;
+        if (kind == 4U) {
+            result.value[0] = 180;
+            if (!require(vision_layout_observe(&layout, &calibration, &result, 1U) == VISION_EVENT_MOVE &&
+                         layout.layoutMotionSeen,
+                         "small correction discarded the observed material cycle")) return 1;
+            vision_session_move_complete(&layout, 1U);
+            vision_session_tick(&layout, 1U);
+            layout.layoutPhase = VISION_LAYOUT_CONFIRM;
+            vision_session_make_request(&layout, &calibration, &request, 1U);
+            result.token = request.token;
+            result.value[0] = 160;
+        }
+        if (!require(vision_layout_observe(&layout, &calibration, &result, 2U) ==
+                         ((kind == 1U || kind == 4U) ? VISION_EVENT_ALIGNED : VISION_EVENT_NONE) &&
+                     vision_layout_pick_position(&layout, 4U) ==
+                         ((kind == 1U || kind == 4U) ? VISION_PICK_POSITION_LEFT_UP : VISION_PICK_POSITION_NONE),
+                     "grasp gate confused real motion with warmup, loss or another token")) return 1;
+    }
+
+    for (uint8_t moved = 0U; moved < 2U; ++moved) {
+        VisionSession layout;
+        VisionPacket result;
+        vision_session_init(&layout);
+        vision_session_start(&layout, VISION_MODE_MATERIAL, 0U, 0U, &calibration, 0U);
+        layout.requestFlags = VISION_FLAG_MATERIAL_LAYOUT;
+        layout.materialMask = 13U;
+        layout.layoutPhase = VISION_LAYOUT_CONFIRM;
+        vision_session_make_request(&layout, &calibration, &result, 0U);
+        result.type = VISION_MESSAGE_RESULT;
+        result.flags = VISION_FLAG_MATERIAL_LAYOUT | VISION_FLAG_VALID | VISION_FLAG_STABLE;
+        result.value[0] = 160; result.value[1] = 205;
+        result.value[5] = 1; result.value[6] = 4; result.value[7] = 3;
+        if (moved) {
+            result.value[0] = 180;
+            if (!require(vision_layout_observe(&layout, &calibration, &result, 0U) == VISION_EVENT_MOVE &&
+                         layout.iteration == 1U && !layout.layoutPositioned,
+                         "off-center layout did not request the first chassis correction")) return 1;
+            vision_session_make_request(&layout, &calibration, &request, 0U);
+            result.token = request.token;
+            result.value[0] = 160;
+            result.flags = VISION_FLAG_MATERIAL_LAYOUT | VISION_FLAG_VALID | VISION_FLAG_LAYOUT_MOVING;
+            if (!require(vision_layout_observe(&layout, &calibration, &result, 0U) == VISION_EVENT_NONE &&
+                         !layout.layoutPositioned,
+                         "result during chassis correction counted as a parked round")) return 1;
+            result.flags = VISION_FLAG_MATERIAL_LAYOUT | VISION_FLAG_VALID | VISION_FLAG_STABLE;
+            vision_session_move_complete(&layout, 0U);
+            vision_session_tick(&layout, 0U);
+            layout.layoutPhase = VISION_LAYOUT_CONFIRM;
+            vision_session_make_request(&layout, &calibration, &request, 0U);
+            result.token = request.token;
+        }
+        uint32_t locateToken = result.token;
+        if (!require(vision_layout_observe(&layout, &calibration, &result, 1U) == VISION_EVENT_NONE &&
+                     layout.layoutPositioned && layout.iteration == moved &&
+                     layout.state == VISION_STATE_WAIT &&
+                     vision_layout_pick_position(&layout, 4U) == VISION_PICK_POSITION_NONE,
+                     "locating round authorized a grasp from a complete layout")) return 1;
+        vision_session_make_request(&layout, &calibration, &request, 2U);
+        if (!require(request.token != locateToken &&
+                     request.value[7] == (moved ? VISION_LAYOUT_LOCATE : VISION_LAYOUT_CONFIRM),
+                     "positioning did not start a fresh color confirmation request")) return 1;
+        if (!require(vision_layout_observe(&layout, &calibration, &result, 3U) == VISION_EVENT_NONE &&
+                     vision_layout_pick_position(&layout, 4U) == VISION_PICK_POSITION_NONE,
+                     "old locate token authorized a grasp")) return 1;
+        result.token = request.token;
+        if (moved) {
+            for (uint8_t round = 0U; round < 3U; ++round) {
+                if (!require(vision_layout_observe(&layout, &calibration, &result, 4U) == VISION_EVENT_NONE &&
+                             layout.layoutWaitMotion &&
+                             vision_layout_pick_position(&layout, 4U) == VISION_PICK_POSITION_NONE,
+                             "another request of the same static scene authorized a grasp")) return 1;
+                vision_session_make_request(&layout, &calibration, &request, 4U);
+                result.token = request.token;
+            }
+            result.flags = VISION_FLAG_MATERIAL_LAYOUT | VISION_FLAG_VALID | VISION_FLAG_LAYOUT_MOVING;
+            result.value[6] = result.value[7] = 0;
+            if (!require(vision_layout_observe(&layout, &calibration, &result, 4U) == VISION_EVENT_NONE &&
+                         layout.layoutMotionSeen &&
+                         vision_layout_pick_position(&layout, 4U) == VISION_PICK_POSITION_NONE,
+                         "new material cycle did not arm the next stop")) return 1;
+            result.flags = VISION_FLAG_MATERIAL_LAYOUT | VISION_FLAG_VALID | VISION_FLAG_STABLE;
+            if (!require(vision_layout_observe(&layout, &calibration, &result, 4U) == VISION_EVENT_NONE &&
+                         vision_layout_pick_position(&layout, 4U) == VISION_PICK_POSITION_NONE,
+                         "a new cycle with incomplete colors authorized a grasp")) return 1;
+            result.value[6] = 4; result.value[7] = 3;
+            /* The next material stop may need corrections without another turntable cycle. */
+            for (uint8_t correction = 0U; correction < 2U; ++correction) {
+                result.value[0] = 180;
+                if (!require(vision_layout_observe(&layout, &calibration, &result, 4U) == VISION_EVENT_MOVE &&
+                             layout.layoutMotionSeen && layout.layoutWaitMotion &&
+                             vision_layout_pick_position(&layout, 4U) == VISION_PICK_POSITION_NONE,
+                             "next material stop did not allow correction while preserving its cycle")) return 1;
+                vision_session_move_complete(&layout, 4U);
+                vision_session_tick(&layout, 4U);
+                layout.layoutPhase = VISION_LAYOUT_CONFIRM;
+                vision_session_make_request(&layout, &calibration, &request, 4U);
+                if (!require(request.value[7] == VISION_LAYOUT_LOCATE,
+                             "post-correction confirmation lost the bottom reference")) return 1;
+                if (!require(vision_layout_observe(&layout, &calibration, &result, 4U) == VISION_EVENT_NONE,
+                             "old result after correction authorized a grasp")) return 1;
+                result.token = request.token;
+            }
+            result.value[0] = 160;
+        }
+        if (!require(vision_layout_observe(&layout, &calibration, &result, 5U) == VISION_EVENT_ALIGNED &&
+                     !layout.layoutWaitMotion &&
+                     vision_layout_pick_position(&layout, 4U) == VISION_PICK_POSITION_LEFT_UP,
+                     "next stop after a real cycle did not authorize the requested grasp")) return 1;
+    }
+
+    {
+        VisionSession layout;
+        vision_session_init(&layout);
+        vision_session_start(&layout, VISION_MODE_MATERIAL, 0U, 0U, &calibration, 0U);
+        layout.requestFlags = VISION_FLAG_MATERIAL_LAYOUT;
+        layout.layoutPhase = VISION_LAYOUT_CONFIRM;
+        vision_session_move_complete(&layout, 100U);
+        if (!require(vision_session_tick(&layout, 100U) == VISION_EVENT_NONE &&
+                     layout.state == VISION_STATE_WAIT,
+                     "material layout retained a parking settle delay")) return 1;
+        layout.requestFlags = 0U;
+        vision_session_move_complete(&layout, 200U);
+        vision_session_tick(&layout, 499U);
+        if (!require(layout.state == VISION_STATE_SETTLE &&
+                     vision_session_tick(&layout, 500U) == VISION_EVENT_REQUEST,
+                     "other vision sessions lost their parking settle delay")) return 1;
     }
 
     {
@@ -580,14 +789,17 @@ int main(void)
     }
 
     {
-        const int16_t offsets[6][2] = {{2, 2}, {-2, -2}, {3, 0}, {-3, 0}, {0, 3}, {0, -3}};
+        const int16_t offsets[13][2] = {{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1},
+            {1,1},{1,-1},{-1,1},{-1,-1},{2,0},{-2,0},{0,2},{0,-2}};
         uint8_t index, confirmation, mode;
         for (mode = VISION_MODE_MATERIAL; mode <= VISION_MODE_RING; ++mode) {
-        for (index = 0U; index < 6U; ++index) {
+        for (index = 0U; index < 13U; ++index) {
+            uint8_t aligned = offsets[index][0] >= 0 && offsets[index][0] <= 1 &&
+                offsets[index][1] >= 0 && offsets[index][1] <= 1;
             vision_session_init(&session);
             vision_session_start(&session, mode, mode == VISION_MODE_MATERIAL ? 5U : 0U,
                                  2U, &calibration, 0U);
-            for (confirmation = 0U; confirmation < (index < 2U ? 2U : 1U); ++confirmation) {
+            for (confirmation = 0U; confirmation < (aligned ? 2U : 1U); ++confirmation) {
                 vision_session_make_request(&session, &calibration, &request, confirmation);
                 decoded = request;
                 decoded.type = VISION_MESSAGE_RESULT;
@@ -597,9 +809,9 @@ int main(void)
                 decoded.value[2] = 90;
                 decoded.value[5] = 5;
                 if (!require(vision_session_observe(&session, &calibration, &decoded, confirmation) ==
-                             (index >= 2U ? VISION_EVENT_MOVE : confirmation == 0U ?
+                             (!aligned ? VISION_EVENT_MOVE : confirmation == 0U ?
                               VISION_EVENT_REQUEST : VISION_EVENT_ALIGNED),
-                             "ring/storage alignment must accept +/-2 pixels twice and correct either axis beyond it")) return 1;
+                             "ring/storage accepts only center/right/down by 1 twice; other offsets must correct")) return 1;
             }
         }
         }

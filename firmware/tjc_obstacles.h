@@ -5,13 +5,13 @@
 #include "../shared/obstacle_regions.h"
 
 /* Screen -> USART6: A5 5A 4F region1 region2 (4F + region1 + region2).
- * Regions are 1..15; a returned mask always contains exactly two bits. */
+ * Regions are 1..15, with 0 for an unselected slot; zero to two bits are allowed. */
 typedef struct {
     uint8_t bytes[6];
     uint8_t length;
 } TjcObstacleParser;
 
-static uint16_t tjc_obstacles_feed(TjcObstacleParser *parser, uint8_t byte)
+static uint8_t tjc_obstacles_feed(TjcObstacleParser *parser, uint8_t byte, uint16_t *regions)
 {
     uint8_t i, first, second;
     if (parser->length == sizeof(parser->bytes)) {
@@ -25,10 +25,12 @@ static uint16_t tjc_obstacles_feed(TjcObstacleParser *parser, uint8_t byte)
         parser->bytes[2] != 0x4FU) return 0U;
     first = parser->bytes[3];
     second = parser->bytes[4];
-    if (first < 1U || first > 15U || second < 1U || second > 15U ||
-        first == second || parser->bytes[5] != (uint8_t)(0x4FU + first + second))
+    if (first > 15U || second > 15U ||
+        (first && first == second) || parser->bytes[5] != (uint8_t)(0x4FU + first + second))
         return 0U;
-    return (uint16_t)((1U << (first - 1U)) | (1U << (second - 1U)));
+    *regions = (uint16_t)((first ? 1U << (first - 1U) : 0U) |
+                         (second ? 1U << (second - 1U) : 0U));
+    return 1U;
 }
 
 #endif

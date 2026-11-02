@@ -8,7 +8,7 @@
 
 #define SERVO_EMPTY_TURRET_SPEED_DPS10 2500U
 static const MechanismPose missionRingObservePose =
-    {-770, 0, 2600, 1000, 200, 2000, 240, 2200};
+    {-770, 0, 2750, 1000, 200, 2000, 240, 2200};
 static struct {
     struct { uint8_t taskIndex, arc; } legs[1];
     unsigned index, count;
@@ -26,8 +26,6 @@ static uint8_t rejectStart;
 static void cancelMissionObservation(void);
 static uint8_t motionInterrupted(void) { return fault; }
 static uint8_t visionSessionActive(void) { return visionActive; }
-static void serialSendString(const char *value) { (void)value; }
-static void serialSendUint(uint16_t value) { (void)value; }
 static void stopServoMotion(void)
 {
     ++servoStops;
@@ -92,7 +90,7 @@ static void eligibility(void)
         assert(starts == 1U && missionObservationTask == tasks[i]);
         assert(mechanismState.target.horizontalDmm ==
                ((tasks[i] == 3U || tasks[i] == 10U) ? 650 : -770));
-        assert(mechanismState.target.turretDdeg == 2600U);
+        assert(mechanismState.target.turretDdeg == 2750U);
         serviceMissionObservation(&leg, 1.0f, 100U, 0U);
         assert(starts == 1U); /* No resubmission while running or after feedback. */
         finishPose();
@@ -114,16 +112,16 @@ static void eligibility(void)
     reset(3U); leg.heading = 2; serviceMissionObservation(&leg, 1, 100, 0); assert(!starts);
     reset(3U); mechanismState.current.liftDmm = 1; serviceMissionObservation(&leg, 1, 100, 0); assert(!starts);
     reset(3U); mechanismState.current.horizontalDmm = -450;
-    mechanismState.current.turretDdeg = 1200;
+    mechanismState.current.turretDdeg = 1350;
     serviceMissionObservation(&leg, 1, 100, 0); assert(!starts);
     for (i = 0U; i < 2U; ++i) {
         reset(i ? 15U : 8U);
         mechanismState.current.horizontalDmm = i ? -470 : -450;
-        mechanismState.current.turretDdeg = 1200;
+        mechanismState.current.turretDdeg = 1350;
         serviceMissionObservation(&leg, 1, 100, 0); assert(starts == 1U);
         reset(i ? 15U : 8U);
         mechanismState.current.horizontalDmm = i ? -450 : -470;
-        mechanismState.current.turretDdeg = 1200;
+        mechanismState.current.turretDdeg = 1350;
         serviceMissionObservation(&leg, 1, 100, 0); assert(!starts);
     }
 }
@@ -143,7 +141,7 @@ static void timing(void)
     assert(leadDistance < missionObservationLeadDistance(empty,250U,routeForwardScale));
     serviceMissionObservation(&leg, leadDistance + 1.0f, 100U, 0U); assert(!starts);
     serviceMissionObservation(&leg, leadDistance - 1.0f, 100U, 0U); assert(starts == 1U);
-    reset(6U); mechanismState.current.turretDdeg = 2600;
+    reset(6U); mechanismState.current.turretDdeg = 2750;
     assert(missionObservationLeadMs(&missionRingObservePose) ==
            mechanismMoveDurationMs(&mechanismState.current,&missionRingObservePose) + 100U);
     assert(missionObservationLeadDistance(100U,250U,1.0f) > 0.0f); /* braking-only */
@@ -193,9 +191,66 @@ static void arrivalAndCancellation(void)
     }
 }
 
+static void coarseCentreBeforeArrivalTurn(void)
+{
+    unsigned round;
+    for (round = 0U; round < 2U; ++round) {
+        uint8_t task = round ? 13U : 6U;
+        float lead;
+        reset(task);
+        routeHeading = leg.departureHeading = 2;
+        leg.heading = -1; leg.upMm = -1680; leg.rightMm = 0;
+        lead = missionObservationLeadDistance(missionObservationLeadMs(&missionRingObservePose),
+                                               150U,routeForwardScale);
+        serviceMissionObservation(&leg,lead+1.0f,150U,0U); assert(!starts);
+        serviceMissionObservation(&leg,lead-1.0f,150U,0U);
+        assert(starts == 1U && missionObservationTask == task);
+        assert(mechanismState.target.horizontalDmm == -770 && mechanismState.target.liftDmm == 0U);
+        assert(mechanismState.target.turretDdeg == missionRingObservePose.turretDdeg);
+        /* Finished while driving still cannot start station vision. */
+        finishPose(); assert(finishMissionObservation((uint8_t)(task+1U)) == 1);
+        routeHeading = -1; routeWaiting = 1U;
+        assert(finishMissionObservation((uint8_t)(task+1U)) == 2);
+    }
+    reset(6U); leg.upMm = 1680; leg.rightMm = 0; leg.heading = -1;
+    serviceMissionObservation(&leg,1,100,0); assert(!starts);
+    reset(6U); leg.heading = -1; /* Side arrivals retain the original heading guard. */
+    serviceMissionObservation(&leg,1,100,0); assert(!starts);
+    reset(6U); leg.upMm = -1680; leg.rightMm = 0; leg.heading = 0;
+    serviceMissionObservation(&leg,1,100,0); assert(!starts);
+    reset(6U); routeHeading = leg.departureHeading = 2;
+    leg.upMm = -1680; leg.rightMm = 0; leg.heading = -1; fault = 1U;
+    serviceMissionObservation(&leg,1,100,0); assert(!starts && aborts == 1U);
+}
+
+static void rawReturnUnfoldNearArrival(void)
+{
+    float lead;
+    reset(10U);
+    routeHeading = leg.departureHeading = 2;
+    leg.upMm = 880; leg.rightMm = 0; leg.heading = 1;
+    mechanismState.current = rawPickTravelPose;
+    lead = missionObservationLeadDistance(missionObservationLeadMs(&rawPickObservePose),
+                                           150U,routeForwardScale);
+    serviceMissionObservation(&leg,lead+1.0f,150U,0U);
+    assert(!starts && mechanismState.current.horizontalDmm == 0);
+    assert(mechanismState.current.turretDdeg == rawPickTravelPose.turretDdeg);
+    serviceMissionObservation(&leg,lead-1.0f,150U,0U);
+    assert(starts == 1U && missionObservationTask == 10U);
+    assert(mechanismState.target.horizontalDmm == rawPickObservePose.horizontalDmm);
+    assert(mechanismState.target.turretDdeg == rawPickObservePose.turretDdeg);
+    assert(finishMissionObservation(11U) == 1);
+    finishPose(); routeWaiting = 1U;
+    assert(finishMissionObservation(11U) == 2);
+    reset(10U); leg.event = 0;
+    serviceMissionObservation(&leg,1,150U,0U); assert(!starts);
+    reset(19U); serviceMissionObservation(&leg,1,150U,0U); assert(!starts);
+}
+
 int main(void)
 {
-    eligibility(); timing(); arrivalAndCancellation();
+    eligibility(); timing(); arrivalAndCancellation(); coarseCentreBeforeArrivalTurn();
+    rawReturnUnfoldNearArrival();
     puts("PASS mission observation: six stations, dynamic lead, no concurrent actions, feedback arrival and cancellation");
     return 0;
 }

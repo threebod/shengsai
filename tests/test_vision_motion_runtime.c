@@ -18,9 +18,7 @@ static uint8_t motionInterrupted(void){return fault;}
 static void stopDriveMotors(void){++stops;}
 static void failVision(const char *reason){++failures;failureReason=reason;stopDriveMotors();motionMode=0;visionSession.state=VISION_STATE_FAILED;}
 static void printVisionMotionStatus(void){++reports;}
-static void printVisionState(void){}
 static void serialSendString(const char *s){(void)s;}
-static void serialSendUint32(uint32_t v){(void)v;}
 static uint8_t jogCanTakeDriveStatus(uint8_t id,uint8_t *status){
     uint8_t bit=(uint8_t)(1U<<(id-1));
     if(!(statusReady&bit)) return 0;
@@ -28,6 +26,10 @@ static uint8_t jogCanTakeDriveStatus(uint8_t id,uint8_t *status){
 }
 static void jogCanExpectDriveStatus(uint8_t id){assert(id>=1 && id<=4);}
 static void Emm_V5_Read_Sys_Params(uint8_t id,int param){assert(id>=1 && id<=4 && param==S_FLAG);++queries;}
+static uint8_t trackingActive;
+static unsigned trackingServices;
+static uint8_t visionTrackingActive(void){return trackingActive;}
+static void serviceVisionTrackingMotion(void){++trackingServices;}
 #include "../firmware/vision_motion_runtime.h"
 
 static void reset(uint8_t mode,uint8_t automatic){
@@ -39,6 +41,7 @@ static void reset(uint8_t mode,uint8_t automatic){
 }
 int main(void){
     uint8_t mode,automatic,status;
+    trackingActive=1;serviceMotion();assert(trackingServices==1);trackingActive=0;
     /* Reproduce the log: m1=1, m2/m3/m4=3 must not prevent timed completion. */
     reset(VISION_MODE_RING,1);
     statusReady=15;statusValue[0]=1;statusValue[1]=statusValue[2]=statusValue[3]=3;

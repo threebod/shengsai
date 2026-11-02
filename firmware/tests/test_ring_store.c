@@ -5,7 +5,8 @@
 #include <stdint.h>
 #include <string.h>
 
-static uint32_t flashWords[20];
+static uint32_t flashWords[26];
+static unsigned flashWordCount = 20U;
 static unsigned programs, erases, unlocked, failProgram, failErase, failSecond;
 typedef enum { FLASH_COMPLETE, FLASH_ERROR } FLASH_Status;
 #define FLASH_FLAG_EOP 1U
@@ -24,7 +25,7 @@ static struct { unsigned ACR; } flashRegisters = {1U};
 static void FLASH_DataCacheCmd(unsigned enabled) { FLASH->ACR = enabled; }
 static void FLASH_DataCacheReset(void) { assert(!FLASH->ACR); }
 #define RING_STORE_BASE ((uintptr_t)flashWords)
-#define RING_STORE_WORDS 20U
+#define RING_STORE_WORDS flashWordCount
 
 static void FLASH_Unlock(void) { unlocked = 1U; }
 static void FLASH_Lock(void) { unlocked = 0U; }
@@ -40,7 +41,7 @@ static FLASH_Status FLASH_EraseSector(unsigned sector, unsigned voltage)
 static FLASH_Status FLASH_ProgramWord(uintptr_t address, uint32_t word)
 {
     uint32_t *destination = (uint32_t *)address;
-    assert(unlocked && destination >= flashWords && destination < flashWords + 20);
+    assert(unlocked && destination >= flashWords && destination < flashWords + 26);
     assert(*destination == 0xFFFFFFFFU);
     if (failProgram || (failSecond && ((destination - flashWords) % 6 == 5))) return FLASH_ERROR;
     ++programs;
@@ -82,6 +83,43 @@ static void testAbsoluteAngles(void)
     assert(memcmp(loaded, boundaries, sizeof(loaded)) == 0);
 }
 
+static void testPlacementHeights(void)
+{
+    const RingPose rings[3] = {{-45,2958},{-320,2517},{430,2180}};
+    RingPose changed[3] = {{-50,2958},{-320,2517},{430,2180}}, loadedRings[3];
+    PlacementHeights first = {1270,580,170,200}, next = {1280,590,180,210}, loaded;
+    unsigned before;
+    memset(flashWords, 0xFF, sizeof(flashWords));
+    programs = erases = 0U;
+    assert(!placementHeightsLoad(&loaded));
+    assert(ringPosesSave(rings) && placementHeightsSave(&first));
+    assert(placementHeightsLoad(&loaded) && memcmp(&loaded, &first, sizeof(first)) == 0);
+    before = programs;
+    assert(placementHeightsSave(&first) && programs == before);
+    /* Failed append retains both preceding settings. */
+    failSecond = 1U;
+    assert(!placementHeightsSave(&next) && !unlocked);
+    failSecond = 0U;
+    assert(placementHeightsLoad(&loaded) && memcmp(&loaded, &first, sizeof(first)) == 0);
+    assert(ringPosesLoad(loadedRings) && memcmp(loadedRings, rings, sizeof(rings)) == 0);
+    /* Sector rollover preserves the other record type in both directions. */
+    assert(placementHeightsSave(&next));
+    assert(ringPosesLoad(loadedRings) && memcmp(loadedRings, rings, sizeof(rings)) == 0);
+    assert(ringPosesSave(changed));
+    changed[0].horizontalDmm = -55;
+    assert(ringPosesSave(changed));
+    assert(placementHeightsLoad(&loaded) && memcmp(&loaded, &next, sizeof(next)) == 0);
+    assert(placementHeightsSave(&first));
+    assert(ringPosesLoad(loadedRings) && memcmp(loadedRings, changed, sizeof(changed)) == 0);
+    first.firstLayerDmm = 1501U;
+    before = programs;
+    assert(!placementHeightsSave(&first) && programs == before);
+    first.firstLayerDmm = 0U;first.secondLayerDmm = 1500U;
+    first.rawTrayDmm = 1500U;first.returnTrayDmm = 0U;
+    assert(placementHeightsSave(&first) && placementHeightsLoad(&loaded));
+    assert(memcmp(&loaded, &first, sizeof(first)) == 0);
+}
+
 int main(void)
 {
     const RingPose first[3]={{-55,3038},{-320,2612},{430,2280}};
@@ -112,5 +150,32 @@ int main(void)
     assert(ringPosesSave(next) && ringPosesLoad(loaded));
     assert(memcmp(loaded,next,sizeof(next))==0);
     testAbsoluteAngles();
+    testPlacementHeights();
+    {
+        RingPose pickup[3] = {{-880,2720},{660,2910},{710,2540}}, actual[3], rings[3];
+        PlacementHeights heights = {1280,590,180,210}, actualHeights;
+        unsigned n;
+        flashWordCount=26U;
+        memset(flashWords,0xFF,sizeof(flashWords));
+        assert(ringPosesSave(first) && placementHeightsSave(&heights));
+        assert(!poseSettingsLoad(actual,RAW_PICK_RECORD));
+        assert(poseSettingsSave(pickup,RAW_PICK_RECORD));
+        before=programs;
+        assert(poseSettingsSave(pickup,RAW_PICK_RECORD) && programs==before);
+        failSecond=1;
+        pickup[0].horizontalDmm++;
+        assert(!poseSettingsSave(pickup,RAW_PICK_RECORD));
+        failSecond=0;
+        assert(poseSettingsLoad(actual,RAW_PICK_RECORD) && actual[0].horizontalDmm==-880);
+        pickup[0].horizontalDmm--;
+        for(n=0;n<9;++n) {
+            if(n%3==0) {pickup[0].horizontalDmm++;assert(poseSettingsSave(pickup,RAW_PICK_RECORD));}
+            if(n%3==1) {heights.firstLayerDmm++;assert(placementHeightsSave(&heights));}
+            if(n%3==2) {next[0].horizontalDmm++;assert(ringPosesSave(next));}
+            assert(poseSettingsLoad(actual,RAW_PICK_RECORD) && memcmp(actual,pickup,sizeof(pickup))==0);
+            assert(placementHeightsLoad(&actualHeights) && memcmp(&actualHeights,&heights,sizeof(heights))==0);
+            assert(ringPosesLoad(rings) && memcmp(rings,n<2?first:next,sizeof(rings))==0);
+        }
+    }
     return 0;
 }
