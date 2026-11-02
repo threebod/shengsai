@@ -1245,7 +1245,8 @@ void mechanismActionService(void)
     if (!mechanismActionDispatched) {
         /* Tray descent and release wait for platform arrival. Other poses overlap. */
         if (action->type == MECHANISM_ACTION_POSE &&
-            (action->pose.horizontalDmm == -500 || action->pose.horizontalDmm == -450 ||
+            (action->pose.horizontalDmm == -400 || action->pose.horizontalDmm == -500 ||
+             action->pose.horizontalDmm == -450 ||
              action->pose.horizontalDmm == -470) &&
             action->pose.turretDdeg == 1200U &&
             action->pose.liftDmm > mechanismState.current.liftDmm &&

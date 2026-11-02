@@ -18,8 +18,8 @@ static void checkTurretRemount(void)
     assert(rawPickUpperPoses[1].horizontalDmm == 800 && rawPickUpperPoses[1].turretDdeg == 2534U);
     assert((int)rawPickTravelPose.turretDdeg - observation == -2070);
     assert(missionRingPoses[0].horizontalDmm == 120 && missionRingPoses[0].turretDdeg == 3070U);
-    assert(missionRingPoses[1].horizontalDmm == -180 && missionRingPoses[1].turretDdeg == 2665U);
-    assert(missionRingPoses[2].horizontalDmm == 500 && missionRingPoses[2].turretDdeg == 2312U);
+    assert(missionRingPoses[1].horizontalDmm == -170 && missionRingPoses[1].turretDdeg == 2665U);
+    assert(missionRingPoses[2].horizontalDmm == 510 && missionRingPoses[2].turretDdeg == 2312U);
     assert((int)rawPickActions[5].pose.turretDdeg - observation == -1400);
     assert(rawPickActions[2].pose.turretDdeg == rawPickLowerPose.turretDdeg);
     assert(rawPickActions[11].pose.turretDdeg == observation);
@@ -65,16 +65,16 @@ static void checkUpperLeftExtension(void)
         assert(actions[2].pose.horizontalDmm == 750 && actions[4].pose.horizontalDmm == 750);
         assert(actions[2].pose.turretDdeg == rawPickUpperPoses[0].turretDdeg);
         assert(actions[2].pose.liftDmm == rawPickUpperPoses[0].liftDmm && actions[4].pose.liftDmm == 0U);
-        assert(actions[5].pose.horizontalDmm == -500 && actions[5].pose.liftDmm == 0U);
+        assert(actions[5].pose.horizontalDmm == -400 && actions[5].pose.liftDmm == 0U);
         assert(actions[5].pose.turretDdeg == actions[6].pose.turretDdeg);
         assert(actions[10].pose.liftDmm == 0U && actions[10].pose.turretDdeg == actions[7].pose.turretDdeg);
-        assert(actions[10].pose.horizontalDmm == (slot < 3U ? 650 : -500));
+        assert(actions[10].pose.horizontalDmm == (slot < 3U ? 650 : -400));
         assert(actions[11].pose.horizontalDmm == (slot < 3U ? 650 : 0));
         assert(actions[11].pose.turretDdeg == (slot < 3U ? rawPickObservePose.turretDdeg : rawPickTravelPose.turretDdeg));
         assert(rawPickActionsForPosition(actions,slot,3U));
         assert(actions[2].pose.horizontalDmm == 800 && actions[4].pose.horizontalDmm == 800);
         assert(actions[4].pose.liftDmm == 0U);
-        assert(actions[5].pose.horizontalDmm == -500 && actions[5].pose.liftDmm == 0U);
+        assert(actions[5].pose.horizontalDmm == -400 && actions[5].pose.liftDmm == 0U);
         assert(actions[5].pose.turretDdeg == actions[6].pose.turretDdeg);
     }
 }
@@ -88,6 +88,17 @@ int main(void)
     uint8_t order, layer, coarse, item;
     checkTurretRemount();
     checkUpperLeftExtension();
+    for (item = 1U; item <= 3U; ++item) {
+        rawPickActionsForSlot(after, item);
+        assert(after[6].pose.horizontalDmm == -400 && after[7].pose.horizontalDmm == -400);
+        assert(after[7].pose.liftDmm == placementHeights.rawTrayDmm);
+    }
+    missionBuildPickBack(after);
+    for (item = 0U; item < 3U; ++item) {
+        assert(after[8U + item * 11U].pose.horizontalDmm == -400);
+        assert(after[9U + item * 11U].pose.horizontalDmm == -400);
+        assert(after[11U + item * 11U].pose.horizontalDmm == -400);
+    }
     assert(missionInitial.gripperOpenDeg == missionCoarseInitial.gripperOpenDeg);
     memcpy(original, missionRingPoses, sizeof(original));
     assert(ringPosesValid(changed));

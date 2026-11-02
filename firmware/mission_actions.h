@@ -6,7 +6,7 @@
 #include "placement_heights.h"
 
 /* User-specified ring defaults; stored poses take precedence. */
-static RingPose missionRingPoses[3] = {{120, 3070}, {-180, 2665}, {500, 2312}};
+static RingPose missionRingPoses[3] = {{120, 3070}, {-170, 2665}, {510, 2312}};
 
 /* 动作组/放置.json: three tray slots to three rings. Lift coordinates grow
  * downward; the second storage layer uses the configured placement depth. */
@@ -208,7 +208,7 @@ static void missionBuildStoragePlace(MechanismAction *actions, uint8_t layer)
 static void missionBuildPickBack(MechanismAction *actions)
 {
     static const uint8_t rings[3] = {2U, 3U, 1U};
-    missionBuildTaskPickBack(actions, rings, -500);
+    missionBuildTaskPickBack(actions, rings, -400);
 }
 
 #endif
