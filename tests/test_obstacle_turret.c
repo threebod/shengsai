@@ -26,7 +26,7 @@ static void invalidateMechanism(const char *reason) { (void)reason; mechanismSta
 static void servoSetTarget(uint8_t channel, uint16_t angle, uint16_t speed)
 {
     assert(channel >= 2U && channel <= 4U);
-    assert(angle == (channel == 2U ? rawPickInitial.gripperCloseDeg : channel == 3U ? 26U : 53U));
+    assert(angle == (channel == 2U ? rawPickInitial.gripperCloseDeg : channel == 3U ? 26U : 68U));
     assert(speed == (channel == 2U ? rawPickInitial.gripperDps10 : channel == 3U ? rawPickInitial.platformDps10 : 1200U));
     ++servoCalls;
     servoChannelMoving[channel - 2U] = !instantServo;
@@ -41,7 +41,7 @@ static void stopServoMotion(void)
 static void startButtonMission(uint8_t zone)
 {
     assert(zone == 2U && missionButtonReady && missionButtonRpm == 240U);
-    assert(!obstacleTurretPending && mechanismState.current.turretDdeg == 530U);
+    assert(!obstacleTurretPending && mechanismState.current.turretDdeg == 680U);
     assert(currentAngleMdeg[0] == (uint32_t)rawPickInitial.gripperCloseDeg * 1000U &&
            currentAngleMdeg[1] == 26000U);
     ++missionStarts;
@@ -75,7 +75,7 @@ static void reset(void)
     mechanismState.valid = 1U;
     mechanismState.current.horizontalDmm = -450;
     mechanismState.current.liftDmm = 300U;
-    mechanismState.current.turretDdeg = 2600U;
+    mechanismState.current.turretDdeg = 2750U;
     hostStartZone = 2U;
     hostStartRpm = 240U;
 }
@@ -84,11 +84,11 @@ static void finishPreparation(void)
 {
     currentAngleMdeg[0] = (uint32_t)rawPickInitial.gripperCloseDeg * 1000U;
     currentAngleMdeg[1] = 26000U;
-    currentAngleMdeg[2] = 53000U;
+    currentAngleMdeg[2] = 68000U;
     memset(servoChannelMoving, 0, sizeof(servoChannelMoving));
     serviceObstacleTurret();
     assert(obstacleTurretReady && !obstacleTurretPending);
-    assert(mechanismState.current.turretDdeg == 530U);
+    assert(mechanismState.current.turretDdeg == 680U);
     assert(mechanismState.current.horizontalDmm == -450 && mechanismState.current.liftDmm == 300U);
 }
 
@@ -107,7 +107,7 @@ int main(void)
     assert(prepareObstacleTurret());
     assert(!prepareObstacleTurret() && servoCalls == 3U);
     serviceObstacleTurret();
-    assert(obstacleTurretPending && !obstacleTurretReady && mechanismState.current.turretDdeg == 2600U);
+    assert(obstacleTurretPending && !obstacleTurretReady && mechanismState.current.turretDdeg == 2750U);
     finishPreparation();
     assert(mechanismState.valid);
 

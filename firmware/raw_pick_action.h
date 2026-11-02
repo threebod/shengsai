@@ -5,16 +5,16 @@
 #include "placement_heights.h"
 #include "ring_pose.h"
 
-/* Turret remount: recorded angles - 12 degrees (observation 272 -> 260). */
+/* Turret remount: previous angles + 15 degrees (observation 260 -> 275). */
 
 /* Single-item bench sequence from 动作组/夹取.json. The operator places the
  * selected color at this sequence's fixed pickup position. */
 static MechanismInitialState rawPickInitial =
-    MECH_INITIAL_STATE(0, 0, 2600, 1000, 228, 2000, 248, 2200, 3600, 2200,
+    MECH_INITIAL_STATE(0, 0, 2750, 1000, 228, 2000, 248, 2200, 3600, 2200,
                        1, 1, 200, 155, 26, 146, 264);
 
 static const MechanismPose rawPickObservePose =
-    { 650, 0, 2600, 1000, 228, 2000, 248, 2200 };
+    { 650, 0, 2750, 1000, 228, 2000, 248, 2200 };
 
 static MechanismPose rawPickLowerPose =
     { -800, 530, 2710, 1000, 228, 2000, 248, 2200 };
@@ -37,7 +37,7 @@ static void applyPickupPoses(const RingPose poses[3])
 }
 
 static const MechanismPose rawPickTravelPose =
-    { 0, 0, 530, 1000, 228, 2000, 248, 2200 };
+    { 0, 0, 680, 1000, 228, 2000, 248, 2200 };
 
 /* Let the grip settle for 200ms after commanded closure before lifting. */
 static const MechanismAction rawPickActions[] = {
@@ -46,13 +46,13 @@ static const MechanismAction rawPickActions[] = {
     MECH_POSE(-800, 530, 2710, 1000, 228, 2000, 248, 2200, 0),
     MECH_GRIPPER_CLOSE(200),
     MECH_POSE(-800, 0, 2710, 1000, 228, 2000, 248, 2200, 0),
-    MECH_POSE(-200, 0, 1200, 1000, 228, 2000, 248, 2200, 0),
-    MECH_POSE(-400, 0, 1200, 1000, 228, 2000, 248, 2200, 0),
-    MECH_POSE(-400, 170, 1200, 1000, 228, 2000, 248, 2200, 0),
+    MECH_POSE(-200, 0, 1350, 1000, 228, 2000, 248, 2200, 0),
+    MECH_POSE(-400, 0, 1350, 1000, 228, 2000, 248, 2200, 0),
+    MECH_POSE(-400, 170, 1350, 1000, 228, 2000, 248, 2200, 0),
     MECH_GRIPPER_OPEN(0),
     MECH_PLATFORM(2, 0),
-    MECH_POSE(-400, 0, 1200, 1000, 228, 2000, 248, 2200, 0),
-    MECH_POSE(0, 0, 2600, 1000, 228, 2000, 248, 2200, 0)
+    MECH_POSE(-400, 0, 1350, 1000, 228, 2000, 248, 2200, 0),
+    MECH_POSE(0, 0, 2750, 1000, 228, 2000, 248, 2200, 0)
 };
 
 #define RAW_PICK_ACTION_COUNT \

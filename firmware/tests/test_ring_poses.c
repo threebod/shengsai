@@ -9,7 +9,7 @@ static void checkTurretRemount(void)
 {
     const int observation = rawPickObservePose.turretDdeg;
     uint16_t i;
-    assert(observation == 2600);
+    assert(observation == 2750);
     assert(rawPickInitial.pose.turretDdeg == observation);
     assert(missionInitial.pose.turretDdeg == observation && missionCoarseInitial.pose.turretDdeg == observation);
     /* Preserve the recorded geometry relative to the observation direction. */
@@ -168,9 +168,9 @@ int main(void)
                 const MechanismPose *tray = &after[8U + item * 11U].pose;
                 assert(raised->horizontalDmm == pose->horizontalDmm && raised->liftDmm == 0U);
                 assert(raised->turretDdeg == pose->turretDdeg);
-                assert(turn->liftDmm == 0U && turn->turretDdeg == 1200U);
+                assert(turn->liftDmm == 0U && turn->turretDdeg == 1350U);
                 assert(turn->horizontalDmm == (orders[order][item] == 1U ? -450 : pose->horizontalDmm));
-                assert(tray->horizontalDmm == -450 && tray->liftDmm == 0U && tray->turretDdeg == 1200U);
+                assert(tray->horizontalDmm == -450 && tray->liftDmm == 0U && tray->turretDdeg == 1350U);
             }
             assert(after[9U + item * 11U].pose.liftDmm == 200U);
         }

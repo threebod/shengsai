@@ -8,7 +8,7 @@
 
 #define SERVO_EMPTY_TURRET_SPEED_DPS10 2500U
 static const MechanismPose missionRingObservePose =
-    {-770, 0, 2600, 1000, 200, 2000, 240, 2200};
+    {-770, 0, 2750, 1000, 200, 2000, 240, 2200};
 static struct {
     struct { uint8_t taskIndex, arc; } legs[1];
     unsigned index, count;
@@ -90,7 +90,7 @@ static void eligibility(void)
         assert(starts == 1U && missionObservationTask == tasks[i]);
         assert(mechanismState.target.horizontalDmm ==
                ((tasks[i] == 3U || tasks[i] == 10U) ? 650 : -770));
-        assert(mechanismState.target.turretDdeg == 2600U);
+        assert(mechanismState.target.turretDdeg == 2750U);
         serviceMissionObservation(&leg, 1.0f, 100U, 0U);
         assert(starts == 1U); /* No resubmission while running or after feedback. */
         finishPose();
@@ -112,16 +112,16 @@ static void eligibility(void)
     reset(3U); leg.heading = 2; serviceMissionObservation(&leg, 1, 100, 0); assert(!starts);
     reset(3U); mechanismState.current.liftDmm = 1; serviceMissionObservation(&leg, 1, 100, 0); assert(!starts);
     reset(3U); mechanismState.current.horizontalDmm = -450;
-    mechanismState.current.turretDdeg = 1200;
+    mechanismState.current.turretDdeg = 1350;
     serviceMissionObservation(&leg, 1, 100, 0); assert(!starts);
     for (i = 0U; i < 2U; ++i) {
         reset(i ? 15U : 8U);
         mechanismState.current.horizontalDmm = i ? -470 : -450;
-        mechanismState.current.turretDdeg = 1200;
+        mechanismState.current.turretDdeg = 1350;
         serviceMissionObservation(&leg, 1, 100, 0); assert(starts == 1U);
         reset(i ? 15U : 8U);
         mechanismState.current.horizontalDmm = i ? -450 : -470;
-        mechanismState.current.turretDdeg = 1200;
+        mechanismState.current.turretDdeg = 1350;
         serviceMissionObservation(&leg, 1, 100, 0); assert(!starts);
     }
 }
@@ -141,7 +141,7 @@ static void timing(void)
     assert(leadDistance < missionObservationLeadDistance(empty,250U,routeForwardScale));
     serviceMissionObservation(&leg, leadDistance + 1.0f, 100U, 0U); assert(!starts);
     serviceMissionObservation(&leg, leadDistance - 1.0f, 100U, 0U); assert(starts == 1U);
-    reset(6U); mechanismState.current.turretDdeg = 2600;
+    reset(6U); mechanismState.current.turretDdeg = 2750;
     assert(missionObservationLeadMs(&missionRingObservePose) ==
            mechanismMoveDurationMs(&mechanismState.current,&missionRingObservePose) + 100U);
     assert(missionObservationLeadDistance(100U,250U,1.0f) > 0.0f); /* braking-only */

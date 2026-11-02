@@ -488,8 +488,10 @@ static void start1LoopDownBeforeLeft(void)
         if (!map) {
             assert(route.legs[1].drive.rightMm == -2000);
             assert(route.legs[1].to.x == 300);
-        } else {
+        } else if (map == 1U) {
             assert(route.legs[1].drive.rightMm == -150 && route.legs[1].to.x == 2100);
+        } else {
+            assert(route.legs[1].drive.rightMm == -1050 && route.legs[1].to.x == 1200);
         }
         for (qr = 0U; qr < route.count && !route.legs[qr].drive.event; ++qr) { }
         assert(qr < route.count && !strcmp(route.legs[qr].drive.event,"QR"));
@@ -500,31 +502,33 @@ static void start1LoopDownBeforeLeft(void)
 
 static void start1CentreLowerDetour(void)
 {
-    static const int16_t up[] = {-150,0,0,-1720,0,594};
-    static const int16_t right[] = {0,-150,-900,0,651,0};
-    static const int16_t x[] = {2250,2100,1200,1200,2100,2100};
-    static const int16_t y[] = {2100,2100,2100,380,380,1200};
+    static const int16_t up[] = {-150,0,-1720,0,594};
+    static const int16_t right[] = {0,-1050,0,651,0};
+    static const int16_t x[] = {2250,1200,1200,2100,2100};
+    static const int16_t y[] = {2100,2100,380,380,1200};
     unsigned i, first;
     memset(&route,0,sizeof(route)); route.regions = mask(6,9);
     assert(presetGroupConnect(&route,PRESET_GROUP_S1,1U,"QR"));
-    for (i = 0U; i < 6U; ++i) {
+    for (i = 0U; i < 5U; ++i) {
         RouteLeg active;
         const PresetLeg *leg = &route.legs[i];
         assert(leg->templateId == templateId("S1-B2"));
         assert(leg->to.x == x[i] && leg->to.y == y[i]);
-        assert(leg->arc == (i == 4U));
+        assert(leg->arc == (i == 3U));
         assert(leg->taskIndex == (i ? 1U : 0U));
         route.index = (uint16_t)i; active = presetActiveLeg(&route);
         assert(active.upMm == up[i] && active.rightMm == right[i]);
-        assert(!!active.event == (i == 5U));
+        assert(!!active.event == (i == 4U));
         if (leg->arc) assert(referenceArcClear(leg,&route.legs[i+1U],route.regions));
     }
-    assert(!strcmp(route.legs[5].drive.event,"QR"));
-    assert(route.legs[3].from.x == 1200 && route.legs[3].drive.upMm == -1720);
-    assert(route.legs[5].drive.upMm == 843);
+    assert(!strcmp(route.legs[4].drive.event,"QR"));
+    assert(route.legs[1].from.x == 2250 && route.legs[1].from.y == 2100);
+    assert(route.legs[1].drive.departureHeading == 1 && route.legs[1].drive.rightMm == -1050);
+    assert(route.legs[2].from.x == 1200 && route.legs[2].drive.upMm == -1720);
+    assert(route.legs[4].drive.upMm == 843);
     /* Upper and centre-bottom are parking pivots; only the right-bottom blends. */
-    assert(route.legs[2].to.heading == 1 && route.legs[3].from.heading == 2);
-    assert(route.legs[3].to.heading == 2 && route.legs[4].from.heading == -1);
+    assert(route.legs[1].to.heading == 1 && route.legs[2].from.heading == 2);
+    assert(route.legs[2].to.heading == 2 && route.legs[3].from.heading == -1);
     /* Region 8 blocks this entire fixed template: retain the outside loop. */
     memset(&route,0,sizeof(route)); route.regions = mask(6,8);
     assert(!presetTryTemplate(&route,&presetGroups[PRESET_GROUP_S1],

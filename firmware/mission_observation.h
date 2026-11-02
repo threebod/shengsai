@@ -68,12 +68,12 @@ static void serviceMissionObservation(const RouteLeg *leg, float remaining,
         servoChannelMoving[0] || servoChannelMoving[1] || servoChannelMoving[2]) return;
     if (mechanismState.current.liftDmm != 0U) return;
     if (mechanismState.current.horizontalDmm != 0 ||
-        (mechanismState.current.turretDdeg != 530U &&
-         mechanismState.current.turretDdeg != 2600U)) {
+        (mechanismState.current.turretDdeg != 680U &&
+         mechanismState.current.turretDdeg != 2750U)) {
         /* Coarse recovery's existing raised tray pose is also a legal departure. */
         if (!((task == 8U || task == 15U) &&
               mechanismState.current.horizontalDmm == (task == 15U ? -470 : -450) &&
-              mechanismState.current.turretDdeg == 1200U)) return;
+              mechanismState.current.turretDdeg == 1350U)) return;
     }
     scale = lateral ? routeLateralScale : routeForwardScale;
     if (remaining > missionObservationLeadDistance(missionObservationLeadMs(target),
