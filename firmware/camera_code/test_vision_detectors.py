@@ -117,22 +117,23 @@ class VisionDetectorTest(unittest.TestCase):
         self.assertIsNone(find_material(frame, request))
         frame.find_blobs.assert_not_called()
 
-    def test_storage_material_detection_crops_bottom_quarter(self):
+    def test_storage_material_detection_preserves_bottom_quarter_for_all_colors(self):
         frame = Mock()
         frame.find_blobs.return_value = []
         request = {"selector": 5, "target": 2,
                    "values": [0, 0, 320, 240, 160, 120, 0, 0]}
-        for scale in (1, 2):
-            find_material(frame, request, scale=scale)
-            self.assertEqual((0, 0, 320 * scale, 180 * scale),
-                             frame.find_blobs.call_args.kwargs["roi"])
-        request["values"][:4] = [20, 100, 200, 100]
-        find_material(frame, request, scale=2)
-        self.assertEqual((40, 200, 400, 160), frame.find_blobs.call_args.kwargs["roi"])
-        frame.reset_mock()
-        request["values"][:4] = [0, 180, 320, 60]
-        self.assertIsNone(find_material(frame, request, scale=2))
-        frame.find_blobs.assert_not_called()
+        for color in settings.COLOR_THRESHOLDS:
+            request["selector"] = color
+            for flags in (0, FLAG_TRACKING):
+                request["flags"] = flags
+                for scale in (1, 2):
+                    for roi in ([0, 0, 320, 240], [20, 100, 200, 100], [0, 180, 320, 60]):
+                        with self.subTest(color=color, flags=flags, scale=scale, roi=roi):
+                            request["values"][:4] = roi
+                            frame.reset_mock()
+                            find_material(frame, request, scale=scale)
+                            self.assertEqual(tuple(value * scale for value in roi),
+                                             frame.find_blobs.call_args.kwargs["roi"])
 
     def test_unique_target_rejects_ambiguous_and_outside_candidates(self):
         self.assertEqual((101, 99, 80, 20, 20),
@@ -419,7 +420,7 @@ class VisionDetectorTest(unittest.TestCase):
             if accepted:
                 self.assertEqual((165, 110), result[:2])
                 self.assertEqual((60, 50, 5), result[3:])
-        self.assertEqual((20, 40, 400, 320), frame.find_blobs.call_args.kwargs["roi"])
+        self.assertEqual((20, 40, 400, 360), frame.find_blobs.call_args.kwargs["roi"])
 
 
 if __name__ == "__main__":

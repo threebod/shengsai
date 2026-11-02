@@ -12,8 +12,8 @@ def _unique_near(candidates, anchor, radius):
 
 def find_material(img, request, scale=1):
     x, y, width, height = request["values"][:4]
-    # Bench pickup and stacking exclude the bottom quarter containing the gripper.
-    if request.get("target", 0) in (0, 2) and not request.get("flags", 0) & FLAG_RING_NO_DIGIT:
+    # Bench pickup excludes the bottom quarter containing the gripper.
+    if request.get("target", 0) == 0 and not request.get("flags", 0) & FLAG_RING_NO_DIGIT:
         height = min(y + height, 180) - y
         if height <= 0:
             return None
