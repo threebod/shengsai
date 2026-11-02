@@ -121,7 +121,8 @@ static uint8_t presetArcClear(const PresetLeg *before, const PresetLeg *after, u
      * reflection reuse exactly the same 1mm samples without per-map trig. */
     static ArcSample samples[402];
     static unsigned count;
-    unsigned i;
+    unsigned i, fixed;
+    uint8_t ctB2Exit = before->templateId == 30U && before->drive.rightMm > 0;
     float cornerY = before->to.y;
     int8_t heading = before->from.heading;
     int8_t change = presetHeadingChange(heading, after->from.heading);
@@ -166,7 +167,12 @@ static uint8_t presetArcClear(const PresetLeg *before, const PresetLeg *after, u
         default: x = p.x; y = p.y; s = p.s; c = p.c; break;
         }
         if (!presetBodyClearScope(before->to.x+x,cornerY+y,s,c,regions,
-                                  (uint8_t)(before->arc != PRESET_ARC_FOUR_POINT))) return 0U;
+                                  (uint8_t)(before->arc != PRESET_ARC_FOUR_POINT && !ctB2Exit))) return 0U;
+        /* User-approved CT-B2 trial: only the first bend may overlap the lower-right fixed block. */
+        if (ctB2Exit)
+            for (fixed = 0U; fixed < sizeof(presetFixed)/sizeof(presetFixed[0]); ++fixed)
+                if (fixed != 1U && presetBodyHits(before->to.x+x,cornerY+y,s,c,152.0f,
+                                                &presetFixed[fixed])) return 0U;
     }
     return 1U;
 }

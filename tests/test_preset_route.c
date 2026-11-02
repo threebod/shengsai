@@ -28,7 +28,8 @@ static uint8_t referenceArcClear(const PresetLeg *before, const PresetLeg *after
     if (change != 1 && change != -1) return 0U;
     while (distance < ARC_BLEND_LENGTH_MM) {
         if (!presetBodyClearScope(x,y,sinf(angle),cosf(angle),regions,
-                                  (uint8_t)(before->arc != PRESET_ARC_FOUR_POINT))) return 0U;
+                                  (uint8_t)(before->arc != PRESET_ARC_FOUR_POINT &&
+                                            !(before->templateId == 30U && before->drive.rightMm > 0)))) return 0U;
         step = ARC_BLEND_LENGTH_MM-distance < 1.0f ? ARC_BLEND_LENGTH_MM-distance : 1.0f;
         arcBlendShape(distance+step*0.5f,&degrees,&curvature);
         angle = heading*1.570796327f+change*degrees*0.01745329252f;
@@ -37,7 +38,8 @@ static uint8_t referenceArcClear(const PresetLeg *before, const PresetLeg *after
     angle = (heading+change)*1.570796327f;
     for (distance = 0; distance <= 30.0f; distance += 1.0f)
         if (!presetBodyClearScope(x-sinf(angle)*distance,y+cosf(angle)*distance,sinf(angle),cosf(angle),regions,
-                                  (uint8_t)(before->arc != PRESET_ARC_FOUR_POINT))) return 0U;
+                                  (uint8_t)(before->arc != PRESET_ARC_FOUR_POINT &&
+                                            !(before->templateId == 30U && before->drive.rightMm > 0)))) return 0U;
     return 1U;
 }
 
@@ -726,11 +728,47 @@ static void upperDepartureCorrection(void)
     assert(!route.count); /* The fixed upper route still checks selected regions. */
 }
 
+static void coarseRightDeparture(void)
+{
+    static const int16_t up[5] = {0,1382,0,-531,0};
+    static const int16_t right[5] = {651,0,-1302,0,100};
+    unsigned i, round;
+    for (round = 0U; round < 2U; ++round) {
+        memset(&route,0,sizeof(route));
+        assert(presetTryTemplate(&route,&presetGroups[PRESET_GROUP_CT],
+                                 (uint16_t)templateId("CT-B2"),round ? 15U : 8U,"TEMP"));
+        assert(route.count == 5U);
+        for (i = 0U; i < route.count; ++i) {
+            RouteLeg active;
+            route.index = (uint16_t)i;
+            active = presetActiveLeg(&route);
+            assert(active.upMm == up[i] && active.rightMm == right[i]);
+            assert(!!active.event == (i == 4U));
+            assert(!!route.legs[i].arc == (i < 3U));
+        }
+        {
+            PresetLeg ordinary = route.legs[0];
+            ordinary.templateId = 0U;
+            assert(!presetArcClear(&ordinary,&route.legs[1],0U));
+            assert(presetArcClear(&route.legs[0],&route.legs[1],0U));
+            assert(!presetArcClear(&route.legs[0],&route.legs[1],(uint16_t)(1U << 11U)));
+        }
+        assert(route.legs[0].from.x == 1200 && route.legs[0].from.y == 400);
+        assert(route.legs[0].to.x == 2100 && route.legs[0].to.y == 400);
+        assert(route.legs[4].to.x == 400 && route.legs[4].to.y == 1200);
+    }
+    memset(&route,0,sizeof(route)); route.regions = mask(3,9);
+    assert(!presetTryTemplate(&route,&presetGroups[PRESET_GROUP_CT],
+                              (uint16_t)templateId("CT-B2"),8U,"TEMP"));
+    assert(!route.count);
+}
+
 int main(void)
 {
     unsigned zone, a, b, feasible[2] = {0,0}, rejected[2] = {0,0}, arcs = 0U, detours = 0U;
     static PresetRoute zone1;
     unsigned shared = 0U;
+    coarseRightDeparture();
     selection(); geometry(); coarseArcPreserved(); fixedDistances(); upperDepartureCorrection(); rawThreeRoutes(); noPivotClearance(); qrSimplification(); qrCentreLowerDetour(); frozenTemplates();
     wholeTemplatePriority(); homeAndStartExits(); rawRightDirectArrival(); start1LoopDownBeforeLeft(); start1CentreLowerDetour(); recenterEnvelope(); tempRightDeparture();
     assert(!presetBuild(&route,0,mask(5,12)) && !route.count);

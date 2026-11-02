@@ -154,14 +154,11 @@ static const PresetStep presetSteps29[] = {
 };
 /* CT-B2 */
 static const PresetStep presetSteps30[] = {
-    {1300,400,0,100,-1,-1,-1,0},
-    {1300,300,-100,0,-1,-1,-1,0},
-    {2100,300,0,800,-1,-1,0,1},
-    {2100,2080,1780,0,0,0,1,1},
+    {2100,400,0,900,-1,-1,0,1},
+    {2100,2080,1880,0,0,0,1,1},
     {300,2080,0,-1800,1,1,2,1},
-    {300,1300,-780,0,2,2,2,0},
-    {400,1300,0,100,2,2,2,0},
-    {400,1200,-106,0,2,2,2,0},
+    {300,1200,-780,0,2,2,2,0},
+    {400,1200,0,100,2,2,2,0},
 };
 /* CT-B3 */
 static const PresetStep presetSteps31[] = {
@@ -357,7 +354,7 @@ static const PresetCandidate presetTemplates[] = {
     {"CT-2",presetSteps27,2},
     {"CT-3",presetSteps28,4},
     {"CT-B1",presetSteps29,4},
-    {"CT-B2",presetSteps30,8},
+    {"CT-B2",presetSteps30,5},
     {"CT-B3",presetSteps31,3},
     {"TR-1",presetSteps32,2},
     {"TR-2",presetSteps33,3},
