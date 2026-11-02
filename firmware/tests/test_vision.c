@@ -189,8 +189,8 @@ int main(void)
         if (kind == 4U) {
             result.value[0] = 180;
             if (!require(vision_layout_observe(&layout, &calibration, &result, 1U) == VISION_EVENT_MOVE &&
-                         !layout.layoutMotionSeen,
-                         "new chassis correction retained the prior material cycle")) return 1;
+                         layout.layoutMotionSeen,
+                         "small correction discarded the observed material cycle")) return 1;
             vision_session_move_complete(&layout, 1U);
             vision_session_tick(&layout, 1U);
             layout.layoutPhase = VISION_LAYOUT_CONFIRM;
@@ -199,9 +199,9 @@ int main(void)
             result.value[0] = 160;
         }
         if (!require(vision_layout_observe(&layout, &calibration, &result, 2U) ==
-                         (kind == 1U ? VISION_EVENT_ALIGNED : VISION_EVENT_NONE) &&
+                         ((kind == 1U || kind == 4U) ? VISION_EVENT_ALIGNED : VISION_EVENT_NONE) &&
                      vision_layout_pick_position(&layout, 4U) ==
-                         (kind == 1U ? VISION_PICK_POSITION_LEFT_UP : VISION_PICK_POSITION_NONE),
+                         ((kind == 1U || kind == 4U) ? VISION_PICK_POSITION_LEFT_UP : VISION_PICK_POSITION_NONE),
                      "grasp gate confused real motion with warmup, loss or another token")) return 1;
     }
 
@@ -271,6 +271,24 @@ int main(void)
                          vision_layout_pick_position(&layout, 4U) == VISION_PICK_POSITION_NONE,
                          "a new cycle with incomplete colors authorized a grasp")) return 1;
             result.value[6] = 4; result.value[7] = 3;
+            /* The next material stop may need corrections without another turntable cycle. */
+            for (uint8_t correction = 0U; correction < 2U; ++correction) {
+                result.value[0] = 180;
+                if (!require(vision_layout_observe(&layout, &calibration, &result, 4U) == VISION_EVENT_MOVE &&
+                             layout.layoutMotionSeen && layout.layoutWaitMotion &&
+                             vision_layout_pick_position(&layout, 4U) == VISION_PICK_POSITION_NONE,
+                             "next material stop did not allow correction while preserving its cycle")) return 1;
+                vision_session_move_complete(&layout, 4U);
+                vision_session_tick(&layout, 4U);
+                layout.layoutPhase = VISION_LAYOUT_CONFIRM;
+                vision_session_make_request(&layout, &calibration, &request, 4U);
+                if (!require(request.value[7] == VISION_LAYOUT_LOCATE,
+                             "post-correction confirmation lost the bottom reference")) return 1;
+                if (!require(vision_layout_observe(&layout, &calibration, &result, 4U) == VISION_EVENT_NONE,
+                             "old result after correction authorized a grasp")) return 1;
+                result.token = request.token;
+            }
+            result.value[0] = 160;
         }
         if (!require(vision_layout_observe(&layout, &calibration, &result, 5U) == VISION_EVENT_ALIGNED &&
                      !layout.layoutWaitMotion &&

@@ -102,7 +102,7 @@ typedef struct {
     uint8_t layoutInferred;
     uint8_t layoutPositioned; /* After first alignment, a lone blob cannot identify a grasp slot. */
     uint8_t layoutFrameReceived;
-    uint8_t layoutMotionSeen; /* Real material motion observed after the latest chassis correction. */
+    uint8_t layoutMotionSeen; /* Real material motion observed after the initial chassis correction. */
     uint8_t layoutWaitMotion; /* First post-correction stop must wait for a new material cycle. */
     uint8_t sampleOnly;
     uint16_t sampleId;
@@ -370,7 +370,8 @@ static VisionEvent vision_layout_observe(VisionSession *session,
     du = (int16_t)(packet->value[0] - 160);
     dv = (int16_t)(packet->value[1] - 205);
     vision_map_error(calibration, du, dv, &session->forwardMm, &session->rightMm);
-    if (session->layoutPositioned || session->selector ||
+    if ((session->layoutPositioned && (!session->layoutWaitMotion || !session->layoutMotionSeen)) ||
+        session->selector ||
         (du >= -10 && du <= 10 && dv >= -10 && dv <= 10)) {
         if (!session->layoutPositioned) {
             session->layoutPositioned = 1U;
@@ -405,7 +406,7 @@ static VisionEvent vision_layout_observe(VisionSession *session,
         session->fault = "NOT_CONVERGED";
         return VISION_EVENT_FAILED;
     }
-    session->layoutMotionSeen = 0U;
+    /* Preserve the material cycle through subsequent chassis corrections. */
     session->state = VISION_STATE_MOVE;
     session->layoutPhase = VISION_LAYOUT_TRACK;
     return VISION_EVENT_MOVE;
